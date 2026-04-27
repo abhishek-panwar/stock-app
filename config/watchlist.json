@@ -1,0 +1,32 @@
+{
+  "nasdaq100": [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "COST",
+    "NFLX", "ASML", "AMD", "PEP", "ADBE", "CSCO", "QCOM", "TMUS", "INTC", "INTU",
+    "CMCSA", "TXN", "AMGN", "HON", "AMAT", "BKNG", "SBUX", "GILD", "ADI", "MDLZ",
+    "VRTX", "REGN", "ISRG", "MU", "LRCX", "PANW", "KLAC", "SNPS", "CDNS", "MRVL",
+    "CTAS", "ABNB", "CRWD", "MELI", "ORLY", "PYPL", "WDAY", "PCAR", "FTNT", "PAYX",
+    "ROST", "KDP", "DXCM", "ODFL", "CEG", "IDXX", "FAST", "EXC", "BIIB", "FANG",
+    "MNST", "CSGP", "TEAM", "VRSK", "ANSS", "ON", "DLTR", "XEL", "GEHC", "KHC",
+    "GFS", "CTSH", "CCEP", "CPRT", "DDOG", "TTWO", "MRNA", "ZS", "ILMN", "SGEN",
+    "LCID", "RIVN", "SIRI", "EA", "MTCH", "ALGN", "ENPH", "ZM", "NXPI", "MCHP",
+    "AEP", "CDW", "WBD", "EBAY", "SPLK", "CHKP", "PDD", "AZN", "SBAC", "LULU"
+  ],
+  "hot_score_weights": {
+    "news_volume": 0.25,
+    "analyst_rating": 0.25,
+    "social_sentiment": 0.25,
+    "price_momentum": 0.25
+  },
+  "hot_stocks_count": 50,
+  "score_thresholds": {
+    "drop": 60,
+    "watchlist": 74,
+    "qualify": 75,
+    "highlight": 85
+  },
+  "shadow_portfolio": {
+    "track_min_score": 55,
+    "missed_move_pct": 3.0,
+    "missed_days_window": 3
+  }
+}

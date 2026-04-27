@@ -1,0 +1,26 @@
+name: Price Watcher
+
+on:
+  schedule:
+    # Every 5 min Mon–Fri, 6:30 AM – 1:00 PM PT (13:30–20:00 UTC)
+    - cron: '*/5 14-19 * * 1-5'
+    - cron: '*/5 13 * * 1-5'
+    - cron: '*/5 20 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python scripts/price_watcher.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

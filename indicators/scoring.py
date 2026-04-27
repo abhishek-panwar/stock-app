@@ -1,0 +1,254 @@
+FORMULA_VERSION = "v1.0"
+
+
+def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: dict,
+                         timeframe: str = "short", source: str = "nasdaq100") -> dict:
+    """
+    Returns a score dict with breakdown and total (0–100).
+    timeframe: 'short' | 'medium' | 'long'
+    source: 'nasdaq100' | 'hot_stock' | 'both'
+    """
+    weights = _timeframe_weights(timeframe)
+    scores = {}
+
+    # ── Group 1: Momentum (25 pts max) ────────────────────────────────────────
+    rsi = ind.get("rsi", 50)
+    rsi_score = 0
+    if rsi < 30:
+        rsi_score = 11
+    elif rsi < 40:
+        rsi_score = 7
+    elif 60 <= rsi <= 70:
+        rsi_score = 6
+    elif rsi > 70:
+        rsi_score = 1
+
+    macd_score = 0
+    if ind.get("macd_crossover"):
+        macd_score = 8
+    elif ind.get("macd_line", 0) > ind.get("macd_signal", 0):
+        macd_score = 5
+        if ind.get("macd_hist", 0) > 0:
+            macd_score += 2
+
+    roc = ind.get("roc_5", 0) if timeframe == "short" else ind.get("roc_20", 0)
+    roc_score = 0
+    if abs(roc) >= 5:
+        roc_score = 5
+    elif abs(roc) >= 2:
+        roc_score = 3
+    else:
+        roc_score = 1
+
+    momentum_raw = rsi_score + macd_score + roc_score
+    scores["momentum"] = round(min(momentum_raw, 25) * weights["momentum"], 1)
+
+    # ── Group 2: Trend (20 pts max) ───────────────────────────────────────────
+    price = ind.get("price", 0)
+    ma20 = ind.get("ma20") or price
+    ma50 = ind.get("ma50") or price
+    ma200 = ind.get("ma200") or price
+
+    ma_score = 0
+    if price > ma20 and ma20 > ma50:
+        ma_score = 11
+    elif price > ma20:
+        ma_score = 9
+    elif price > ma50:
+        ma_score = 6
+    elif price < ma20 and price < ma50:
+        ma_score = 1
+
+    adx = ind.get("adx", 20)
+    adx_score = 0
+    if adx > 30:
+        adx_score = 8
+    elif adx > 20:
+        adx_score = 4
+    else:
+        adx_score = 1
+
+    # ADX penalty on low-trend environments
+    adx_multiplier = 1.0 if adx > 20 else 0.7
+
+    trend_raw = (ma_score + adx_score) * adx_multiplier
+    scores["trend"] = round(min(trend_raw, 20) * weights["trend"], 1)
+
+    # ── Group 3: Volatility (15 pts max) ──────────────────────────────────────
+    bb_score = 0
+    if ind.get("bb_squeeze"):
+        bb_score = 9
+    elif ind.get("bb_breakout_up"):
+        bb_score = 7
+    elif ind.get("bb_breakout_down"):
+        bb_score = 2
+    else:
+        bb_score = 3
+
+    atr_score = 0
+    if ind.get("atr_rising"):
+        atr_score = 4
+    elif ind.get("bb_squeeze"):
+        atr_score = 5
+    else:
+        atr_score = 2
+
+    vol_raw = bb_score + atr_score
+    scores["volatility"] = round(min(vol_raw, 15) * weights["volatility"], 1)
+
+    # ── Group 4: Volume (20 pts max) ──────────────────────────────────────────
+    vsr = ind.get("volume_surge_ratio", 1.0)
+    vsurge_score = 0
+    if vsr >= 3.0:
+        vsurge_score = 10
+    elif vsr >= 2.0:
+        vsurge_score = 7
+    elif vsr >= 1.5:
+        vsurge_score = 4
+    else:
+        vsurge_score = 1
+
+    obv = ind.get("obv_trend", "NEUTRAL")
+    obv_score = 0
+    if obv == "CONFIRMING":
+        obv_score = 6
+    elif obv == "DIVERGING_BULLISH":
+        obv_score = 5
+    elif obv == "NEUTRAL":
+        obv_score = 2
+    else:
+        obv_score = 0
+
+    vwap_score = 3 if ind.get("price_above_vwap") else 1
+
+    volume_raw = vsurge_score + obv_score + vwap_score
+    scores["volume"] = round(min(volume_raw, 20) * weights["volume"], 1)
+
+    # ── Group 5: Sentiment (10 pts max) ───────────────────────────────────────
+    news_s = sentiment.get("score", 0)
+    news_score = 0
+    if news_s > 0.6:
+        news_score = 6
+    elif news_s > 0.3:
+        news_score = 4
+    elif news_s > -0.3:
+        news_score = 2
+    else:
+        news_score = 0
+
+    social_score = 0
+    mentions = sentiment.get("mentions", 0)
+    if mentions > 50:
+        social_score = 4
+    elif mentions > 20:
+        social_score = 2
+    else:
+        social_score = 1
+
+    scores["sentiment"] = round(min(news_score + social_score, 10) * weights["sentiment"], 1)
+
+    # ── Group 6: External (10 pts max) ────────────────────────────────────────
+    consensus = analyst.get("consensus", "HOLD")
+    analyst_score = {"STRONG_BUY": 6, "BUY": 4, "HOLD": 2, "SELL": 0, "STRONG_SELL": 0}.get(consensus, 2)
+
+    consecutive_beats = earnings.get("consecutive_beats", 0)
+    earnings_score = min(consecutive_beats + 1, 4) if consecutive_beats > 0 else 0
+
+    scores["external"] = round(min(analyst_score + earnings_score, 10) * weights["external"], 1)
+
+    # ── Bonuses ───────────────────────────────────────────────────────────────
+    bonus = 0
+    bonus_reasons = []
+
+    if ind.get("rsi_divergence"):
+        bonus += 3
+        bonus_reasons.append("RSI divergence (+3)")
+    if ind.get("golden_cross"):
+        bonus += 3
+        bonus_reasons.append("Golden cross (+3)")
+    if ind.get("bb_squeeze") and not ind.get("bb_breakout_up"):
+        bonus += 2
+        bonus_reasons.append("Bollinger squeeze (+2)")
+    if ind.get("broke_52w_high") and ind.get("volume_surge_ratio", 1) >= 1.5:
+        bonus += 4
+        bonus_reasons.append("52-week high breakout (+4)")
+    if source == "both":
+        bonus += 3
+        bonus_reasons.append("Dual-list appearance (+3)")
+
+    base = sum(scores.values())
+    total = min(round(base + bonus), 100)
+
+    return {
+        "total": total,
+        "base": round(base),
+        "bonus": bonus,
+        "bonus_reasons": bonus_reasons,
+        "breakdown": scores,
+        "formula_version": FORMULA_VERSION,
+    }
+
+
+def _timeframe_weights(timeframe: str) -> dict:
+    if timeframe == "short":
+        return {"momentum": 1.3, "trend": 0.9, "volatility": 1.2, "volume": 1.2, "sentiment": 1.0, "external": 0.6}
+    elif timeframe == "medium":
+        return {"momentum": 1.0, "trend": 1.2, "volatility": 0.9, "volume": 0.9, "sentiment": 0.7, "external": 1.0}
+    else:  # long
+        return {"momentum": 0.7, "trend": 1.3, "volatility": 0.7, "volume": 0.7, "sentiment": 0.5, "external": 1.4}
+
+
+def determine_direction(ind: dict, score: int) -> tuple[str, str]:
+    """Returns (direction, position) based on indicator signals."""
+    bullish_signals = 0
+    bearish_signals = 0
+
+    if ind.get("rsi", 50) < 40:
+        bullish_signals += 2
+    elif ind.get("rsi", 50) > 65:
+        bearish_signals += 1
+
+    if ind.get("macd_crossover"):
+        bullish_signals += 2
+    elif ind.get("macd_line", 0) < ind.get("macd_signal", 0):
+        bearish_signals += 1
+
+    if ind.get("price", 0) > (ind.get("ma20") or 0):
+        bullish_signals += 1
+    else:
+        bearish_signals += 1
+
+    if ind.get("rsi_divergence"):
+        bullish_signals += 2
+
+    if bullish_signals > bearish_signals + 1:
+        return "BULLISH", "LONG"
+    elif bearish_signals > bullish_signals + 1:
+        return "BEARISH", "SHORT"
+    else:
+        return "NEUTRAL", "HOLD"
+
+
+def compute_buy_range(price: float, atr: float, direction: str) -> tuple[float, float]:
+    offset = atr * 0.3
+    if direction == "BULLISH":
+        return round(price - offset, 2), round(price + offset * 0.5, 2)
+    elif direction == "BEARISH":
+        return round(price - offset * 0.5, 2), round(price + offset, 2)
+    return round(price - offset, 2), round(price + offset, 2)
+
+
+def compute_targets(price: float, atr: float, direction: str) -> tuple[float, float, float]:
+    """Returns (target_low, target_high, stop_loss)."""
+    if direction == "BULLISH":
+        target_low = round(price + atr * 1.5, 2)
+        target_high = round(price + atr * 2.5, 2)
+        stop_loss = round(price - atr * 1.5, 2)
+    elif direction == "BEARISH":
+        target_low = round(price - atr * 2.5, 2)
+        target_high = round(price - atr * 1.5, 2)
+        stop_loss = round(price + atr * 1.5, 2)
+    else:
+        target_low = target_high = price
+        stop_loss = round(price - atr * 1.5, 2)
+    return target_low, target_high, stop_loss
