@@ -11,6 +11,30 @@
     "LCID", "RIVN", "SIRI", "EA", "MTCH", "ALGN", "ENPH", "ZM", "NXPI", "MCHP",
     "AEP", "CDW", "WBD", "EBAY", "SPLK", "CHKP", "PDD", "AZN", "SBAC", "LULU"
   ],
+  "commodities_and_alts": [
+    "GLD", "IAU", "GDX", "GDXJ", "GOLD",
+    "SLV", "PPLT",
+    "USO", "UNG",
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD",
+    "ADA-USD", "AVAX-USD", "DOGE-USD", "LINK-USD", "DOT-USD"
+  ],
+  "sp500_additions": [
+    "JPM", "BAC", "WFC", "GS", "MS", "BLK", "AXP", "C", "USB", "COF",
+    "SCHW", "SPGI", "MCO", "ICE", "CME", "CB", "PGR", "TRV", "MET", "PRU",
+    "JNJ", "UNH", "LLY", "PFE", "ABBV", "MRK", "TMO", "ABT", "BMY", "CVS",
+    "CI", "HUM", "ELV", "MDT", "SYK", "BSX", "BDX", "DHR", "ZBH", "BAX",
+    "XOM", "CVX", "COP", "EOG", "SLB", "PSX", "VLO", "MPC", "OXY", "DVN",
+    "HAL", "BKR", "HES", "MRO", "APA", "FANG", "PR", "SM", "MTDR", "CTRA",
+    "WMT", "HD", "LOW", "TGT", "KO", "PG", "CL", "KMB", "MO", "PM",
+    "NKE", "EL", "TJX", "BBWI", "GPS", "PVH", "RL", "TPR", "VFC", "SKX",
+    "CAT", "DE", "BA", "GE", "RTX", "LMT", "NOC", "GD", "LHX", "MMM",
+    "EMR", "ETN", "PH", "ROK", "IR", "OTIS", "CARR", "TT", "XYL", "AME",
+    "IBM", "ORCL", "ACN", "CRM", "NOW", "SAP", "DELL", "HPQ", "HPE", "STX",
+    "WDC", "NTAP", "KEYS", "TER", "MCHP", "SWKS", "QRVO", "MPWR", "ENTG", "ONTO",
+    "AMT", "CCI", "EQIX", "PLD", "SPG", "O", "DLR", "PSA", "EQR", "AVB",
+    "LIN", "APD", "DD", "PPG", "SHW", "NEM", "FCX", "NUE", "MLM", "VMC",
+    "BRK-B", "V", "MA", "PYPL", "FIS", "FISV", "GPN", "WEX", "FOUR", "SQ"
+  ],
   "hot_score_weights": {
     "news_volume": 0.25,
     "analyst_rating": 0.25,

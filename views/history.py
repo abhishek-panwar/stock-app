@@ -150,7 +150,10 @@ def render():
             rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
             closed_reason = p.get("closed_reason", "")
 
-            # Delete button
+            # Asset badge + delete button
+            badge_html = _asset_badge(p)
+            if badge_html:
+                st.markdown(f"<div style='margin-bottom:6px'>{badge_html}</div>", unsafe_allow_html=True)
             if st.button("✕ Delete prediction", key=f"hdel_{pred_id}"):
                 try:
                     from database.db import soft_delete_prediction
@@ -213,6 +216,27 @@ def render():
 
             if position == "SHORT":
                 st.warning("SHORT position — margin/options account required")
+
+
+_CRYPTO_TICKERS = {
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD",
+    "ADA-USD", "AVAX-USD", "DOGE-USD", "LINK-USD", "DOT-USD",
+}
+_COMMODITY_TICKERS = {
+    "GLD", "IAU", "GDX", "GDXJ", "GOLD", "SLV", "PPLT", "USO", "UNG",
+}
+
+def _asset_badge(p: dict) -> str:
+    asset = p.get("asset_class") or (
+        "crypto" if (p.get("ticker", "").endswith("-USD") or p.get("ticker") in _CRYPTO_TICKERS)
+        else "commodity" if p.get("ticker") in _COMMODITY_TICKERS
+        else "stock"
+    )
+    if asset == "crypto":
+        return '<span style="background:#1e1b4b;color:#a5b4fc;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">₿ CRYPTO</span>'
+    if asset == "commodity":
+        return '<span style="background:#451a03;color:#fcd34d;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">⬡ COMMODITY</span>'
+    return ""
 
 
 def _pill(label: str, value: str, color: str) -> str:

@@ -130,7 +130,7 @@ def render():
                         <div style="font-size:11px;font-weight:600;color:{text}">{direction} · {tf_label}</div>
                         <div style="font-size:12px;color:#1e293b">{p.get('confidence',0)}% conf · {p.get('score',0)}/100</div>
                         <div style="font-size:12px;font-weight:600;color:#15803d">+{profit_pct:.1f}% · ~{days}d</div>
-                        <div style="margin-top:5px">{age_badge}</div>
+                        <div style="margin-top:5px">{age_badge}{_asset_badge(p)}</div>
                         </div>""",
                         unsafe_allow_html=True,
                     )
@@ -239,7 +239,7 @@ def _prediction_card(p: dict, _unused: set = None):
                 st.session_state.chart_pred   = p
                 st.rerun()
         with badge_col:
-            st.markdown(f"<div style='padding-top:6px'>{age_badge}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='padding-top:6px'>{age_badge}{_asset_badge(p)}</div>", unsafe_allow_html=True)
         with del_col:
             if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
                 try:
@@ -356,6 +356,27 @@ def _news_links(ticker: str):
             </div>""",
             unsafe_allow_html=True,
         )
+
+
+_CRYPTO_TICKERS = {
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD",
+    "ADA-USD", "AVAX-USD", "DOGE-USD", "LINK-USD", "DOT-USD",
+}
+_COMMODITY_TICKERS = {
+    "GLD", "IAU", "GDX", "GDXJ", "GOLD", "SLV", "PPLT", "USO", "UNG",
+}
+
+def _asset_badge(p: dict) -> str:
+    asset = p.get("asset_class") or (
+        "crypto" if (p.get("ticker", "").endswith("-USD") or p.get("ticker") in _CRYPTO_TICKERS)
+        else "commodity" if p.get("ticker") in _COMMODITY_TICKERS
+        else "stock"
+    )
+    if asset == "crypto":
+        return '<span style="background:#1e1b4b;color:#a5b4fc;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">₿ CRYPTO</span>'
+    if asset == "commodity":
+        return '<span style="background:#451a03;color:#fcd34d;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">⬡ COMMODITY</span>'
+    return ""
 
 
 def _pill(label: str, value: str, color: str) -> str:

@@ -14,7 +14,7 @@ PT = pytz.timezone("America/Los_Angeles")
 
 from services.yfinance_service import get_price_history, get_ticker_info
 from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history
-from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window
+from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window, get_asset_class
 from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
@@ -100,7 +100,7 @@ def run():
             total = score_data["total"]
 
             if total < SCORE_THRESHOLD:
-                if 55 <= total < SCORE_THRESHOLD:
+                if 40 <= total < SCORE_THRESHOLD:
                     shadow.append({
                         "ticker": ticker,
                         "scan_timestamp": start_time.isoformat(),
@@ -203,6 +203,7 @@ def run():
 
             pred = {
                 "ticker":               ticker,
+                "asset_class":          get_asset_class(ticker),
                 "company_name":         item.get("company_name", ticker),
                 "predicted_on":         start_time.isoformat(),
                 "expires_on":           expires_on,

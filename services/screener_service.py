@@ -6,27 +6,35 @@ import pytz
 PT = pytz.timezone("America/Los_Angeles")
 
 
-def load_nasdaq100() -> list[str]:
+def load_watchlist() -> dict:
     path = os.path.join(os.path.dirname(__file__), "..", "config", "watchlist.json")
     with open(path) as f:
-        return json.load(f)["nasdaq100"]
+        return json.load(f)
+
+
+def load_nasdaq100() -> list[str]:
+    return load_watchlist()["nasdaq100"]
 
 
 def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
     """
-    Deduplicates Nasdaq 100 + hot stocks.
+    Deduplicates Nasdaq 100 + S&P 500 additions + hot stocks.
     Returns: (universe_with_source, nasdaq_count, hot_count, overlap_count)
     """
-    nasdaq = set(load_nasdaq100())
+    data = load_watchlist()
+    nasdaq = set(data["nasdaq100"])
+    sp500_extra = set(data.get("sp500_additions", []))
+    commodities = set(data.get("commodities_and_alts", []))
+    core = nasdaq | sp500_extra | commodities
     hot = set(hot_tickers)
-    overlap = nasdaq & hot
+    overlap = core & hot
     universe = []
-    for t in nasdaq:
+    for t in core:
         universe.append({"ticker": t, "source": "both" if t in overlap else "nasdaq100"})
     for t in hot:
-        if t not in nasdaq:
+        if t not in core:
             universe.append({"ticker": t, "source": "hot_stock"})
-    return universe, len(nasdaq), len(hot), len(overlap)
+    return universe, len(core), len(hot), len(overlap)
 
 
 def get_hot_tickers(top_n: int = 50) -> list[str]:
@@ -62,6 +70,23 @@ def get_hot_tickers(top_n: int = 50) -> list[str]:
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return [t for t, _ in scored[:top_n]]
+
+
+_CRYPTO_TICKERS = {
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD",
+    "ADA-USD", "AVAX-USD", "DOGE-USD", "LINK-USD", "DOT-USD",
+}
+_COMMODITY_TICKERS = {
+    "GLD", "IAU", "GDX", "GDXJ", "GOLD", "SLV", "PPLT", "USO", "UNG",
+}
+
+def get_asset_class(ticker: str) -> str:
+    """Returns 'crypto', 'commodity', or 'stock'."""
+    if ticker in _CRYPTO_TICKERS or ticker.endswith("-USD"):
+        return "crypto"
+    if ticker in _COMMODITY_TICKERS:
+        return "commodity"
+    return "stock"
 
 
 def rank_predictions(predictions: list[dict]) -> dict:
