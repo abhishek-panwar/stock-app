@@ -288,8 +288,8 @@ def _prediction_card(p: dict, _unused: set = None):
         dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
         prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
 
-        pill_col, chart_col, del_col = st.columns([5, 2.5, 1])
-        with pill_col:
+        pill_left_col, btn_col, del_col = st.columns([8, 1.4, 0.6])
+        with pill_left_col:
             st.markdown(
                 f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
                 {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
@@ -301,13 +301,13 @@ def _prediction_card(p: dict, _unused: set = None):
                 </div>""",
                 unsafe_allow_html=True,
             )
-        with chart_col:
-            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}", use_container_width=True):
+        with btn_col:
+            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
                 st.session_state.chart_ticker = ticker
                 st.session_state.chart_pred   = p
                 st.rerun()
         with del_col:
-            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction", use_container_width=True):
+            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
                 try:
                     from database.db import soft_delete_prediction
                     soft_delete_prediction(pred_id)
