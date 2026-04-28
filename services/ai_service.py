@@ -24,16 +24,23 @@ def analyze_stock(ticker: str, timeframe: str, indicators: dict,
     """
     timeframe_desc = {"short": "2–5 days", "medium": "1–4 weeks", "long": "1–6 months"}[timeframe]
 
-    prompt = f"""You are a stock analysis AI. Analyze {ticker} for a {timeframe_desc} trade setup.
+    price = indicators.get('price', 0)
+    atr = indicators.get('atr', price * 0.02) or (price * 0.02)
+    target_pct = {"short": 0.04, "medium": 0.08, "long": 0.15}[timeframe]
+    target_distance = price * target_pct
+    naive_days = round(target_distance / atr) if atr > 0 else 0
+
+    prompt = f"""You are a stock analysis AI. Analyze {ticker} for a trade setup.
 
 TECHNICAL INDICATORS:
+- Price: ${price:.2f}  |  ATR(14): ${atr:.2f}  |  Daily move capacity: ~{atr/price*100:.1f}%/day
 - RSI: {indicators.get('rsi', 'N/A'):.1f} {'(OVERSOLD)' if indicators.get('rsi', 50) < 30 else '(OVERBOUGHT)' if indicators.get('rsi', 50) > 70 else ''}
 - MACD Crossover: {'YES - strong bullish signal' if indicators.get('macd_crossover') else 'No'}
 - MACD Line vs Signal: {indicators.get('macd_line', 0):.3f} vs {indicators.get('macd_signal', 0):.3f}
-- Price vs MA20: {'ABOVE' if indicators.get('price', 0) > (indicators.get('ma20') or 0) else 'BELOW'} (MA20: {indicators.get('ma20', 'N/A')})
-- Price vs MA50: {'ABOVE' if indicators.get('price', 0) > (indicators.get('ma50') or 0) else 'BELOW'} (MA50: {indicators.get('ma50', 'N/A')})
+- Price vs MA20: {'ABOVE' if price > (indicators.get('ma20') or 0) else 'BELOW'} (MA20: {indicators.get('ma20', 'N/A')})
+- Price vs MA50: {'ABOVE' if price > (indicators.get('ma50') or 0) else 'BELOW'} (MA50: {indicators.get('ma50', 'N/A')})
 - Golden Cross: {'YES' if indicators.get('golden_cross') else 'No'}
-- ADX (trend strength): {indicators.get('adx', 'N/A'):.1f} {'(STRONG)' if indicators.get('adx', 0) > 30 else '(WEAK)' if indicators.get('adx', 0) < 20 else ''}
+- ADX (trend strength): {indicators.get('adx', 'N/A'):.1f} {'(STRONG TREND)' if indicators.get('adx', 0) > 30 else '(WEAK/RANGING)' if indicators.get('adx', 0) < 20 else ''}
 - Bollinger Squeeze: {'YES - breakout imminent' if indicators.get('bb_squeeze') else 'No'}
 - Volume Surge: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
 - OBV Trend: {indicators.get('obv_trend', 'NEUTRAL')}
@@ -46,17 +53,20 @@ NEWS & SENTIMENT:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100
-Score breakdown: {score_data.get('breakdown', {})}
 Bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {f"HISTORICAL PERFORMANCE CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
+
+ATR-BASED TIMING HINT: At ${atr:.2f} ATR/day with ~{target_pct*100:.0f}% target, naive estimate is {naive_days} trading days. Adjust based on momentum quality, trend strength, and whether a catalyst is present.
 
 Based on this data, provide your analysis in this exact JSON format:
 {{
   "direction": "BULLISH" or "BEARISH" or "NEUTRAL",
   "position": "LONG" or "SHORT" or "HOLD",
   "confidence": <integer 0-100>,
+  "days_to_target": <integer — realistic trading days until target is likely hit, based on ATR, momentum, and trend strength. Not a fixed bucket — reason from the data>,
+  "timing_rationale": "<1 sentence: why this many days, e.g. strong ADX + volume surge = faster, weak trend + no catalyst = slower>",
   "reasoning": "<2-3 sentences explaining the key signals driving this call>",
   "key_signals": ["signal1", "signal2", "signal3"],
   "risk_factors": "<1 sentence on main risk to this trade>",
@@ -85,6 +95,8 @@ Be direct and specific. Only output the JSON, nothing else."""
             "direction": "NEUTRAL",
             "position": "HOLD",
             "confidence": 0,
+            "days_to_target": None,
+            "timing_rationale": "",
             "reasoning": f"Analysis unavailable: {str(e)}",
             "key_signals": [],
             "risk_factors": "Analysis error",

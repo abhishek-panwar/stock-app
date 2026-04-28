@@ -5,7 +5,7 @@ Scans full deduplicated universe, generates predictions, logs to Supabase, sends
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from dotenv import load_dotenv
 load_dotenv()
@@ -170,9 +170,21 @@ def run():
                 target_low, target_high, stop_loss = compute_targets(price, atr, direction)
                 buy_window = ai_result.get("buy_window") or compute_buy_window(tf, score_data["total"])
 
+                # Use Claude's data-driven estimate; fall back to ATR-derived if missing
+                days_to_target = ai_result.get("days_to_target")
+                if not days_to_target or days_to_target <= 0:
+                    target_pct = {"short": 0.04, "medium": 0.08, "long": 0.15}[tf]
+                    days_to_target = max(2, round((price * target_pct) / (atr or price * 0.02)))
+                # Add 20% buffer so predictions don't expire just before target
+                expires_days = max(2, round(days_to_target * 1.2))
+                expires_on = (start_time + timedelta(days=expires_days)).isoformat()
+
                 pred = {
                     "ticker": ticker,
                     "predicted_on": start_time.isoformat(),
+                    "expires_on": expires_on,
+                    "days_to_target": days_to_target,
+                    "timing_rationale": ai_result.get("timing_rationale", ""),
                     "timeframe": tf,
                     "direction": direction,
                     "position": position,

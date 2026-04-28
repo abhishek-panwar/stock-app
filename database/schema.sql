@@ -8,7 +8,9 @@ create table if not exists predictions (
   id                  uuid primary key default gen_random_uuid(),
   ticker              text not null,
   predicted_on        timestamptz not null,
-  expires_on          timestamptz,
+  expires_on          timestamptz,           -- data-driven: predicted_on + days_to_target * 1.2
+  days_to_target      integer,               -- Claude's ATR/momentum-based estimate
+  timing_rationale    text,                  -- Claude's 1-sentence explanation of the timing
   timeframe           text not null check (timeframe in ('short', 'medium', 'long')),
   direction           text not null check (direction in ('BULLISH', 'BEARISH', 'NEUTRAL')),
   position            text not null check (position in ('LONG', 'SHORT', 'HOLD')),

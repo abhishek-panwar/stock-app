@@ -92,19 +92,17 @@ def render():
             expanded=False,
         ):
             c1, c2, c3 = st.columns(3)
-            # Compute expires_on for display
-            expires_display = p.get("expires_on", "")
-            if not expires_display:
-                try:
+            # Compute expires_on for display — prefer scanner's data-driven value
+            expires_display = "—"
+            try:
+                raw_expiry = p.get("expires_on", "")
+                if raw_expiry:
+                    expires_display = datetime.fromisoformat(raw_expiry.replace("Z", "+00:00")).strftime("%b %d, %Y")
+                else:
                     pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)
                     expires_display = (pred_dt + timedelta(days=TIMEFRAME_DAYS.get(p.get("timeframe","short"), 5))).strftime("%b %d, %Y")
-                except Exception:
-                    expires_display = "—"
-            else:
-                try:
-                    expires_display = datetime.fromisoformat(expires_display.replace("Z", "+00:00")).strftime("%b %d, %Y")
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
             with c1:
                 st.markdown("**Entry**")

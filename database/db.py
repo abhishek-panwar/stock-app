@@ -15,10 +15,21 @@ def get_client() -> Client:
     return _client
 
 
+
+
 # ── Predictions ────────────────────────────────────────────────────────────────
 
+_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale"}
+
 def insert_prediction(data: dict) -> dict:
-    return get_client().table("predictions").insert(data).execute().data[0]
+    try:
+        return get_client().table("predictions").insert(data).execute().data[0]
+    except Exception as e:
+        # If insert fails because new columns don't exist yet, retry without them
+        if any(col in str(e) for col in _NEW_PREDICTION_COLS):
+            slim = {k: v for k, v in data.items() if k not in _NEW_PREDICTION_COLS}
+            return get_client().table("predictions").insert(slim).execute().data[0]
+        raise
 
 def get_open_predictions() -> list:
     return get_client().table("predictions").select("*").eq("outcome", "PENDING").execute().data

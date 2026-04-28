@@ -131,11 +131,16 @@ def _prediction_card(p: dict, all_agree_tickers: set):
     agreed     = ticker in all_agree_tickers
     predicted_on = p.get("predicted_on", "")
 
-    # Expiry
+    # Expiry — prefer the data-driven expires_on stored by the scanner
     expiry_str, days_left_str = "—", ""
     try:
-        pred_dt   = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).replace(tzinfo=None)
-        expiry_dt = pred_dt + timedelta(days=TIMEFRAME_DAYS.get(timeframe, 5))
+        raw_expiry = p.get("expires_on") or ""
+        if raw_expiry:
+            expiry_dt = datetime.fromisoformat(raw_expiry.replace("Z", "+00:00")).replace(tzinfo=None)
+        else:
+            # Legacy rows: fall back to fixed buckets
+            pred_dt   = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).replace(tzinfo=None)
+            expiry_dt = pred_dt + timedelta(days=TIMEFRAME_DAYS.get(timeframe, 5))
         expiry_str = expiry_dt.strftime("%b %d, %Y")
         days_left  = (expiry_dt - datetime.utcnow()).days
         days_left_str = f" ({days_left}d left)" if days_left > 0 else " **(expired)**"
@@ -176,7 +181,11 @@ def _prediction_card(p: dict, all_agree_tickers: set):
             except Exception:
                 pred_dt_str = "—"
             st.markdown(f"Predicted: `{pred_dt_str}`")
+            if p.get("days_to_target"):
+                st.markdown(f"Est. days to target: `{p['days_to_target']}d`")
             st.markdown(f"Expires: `{expiry_str}`{days_left_str}")
+            if p.get("timing_rationale"):
+                st.caption(p["timing_rationale"])
         with c4:
             st.markdown("**Meta**")
             st.markdown(f"Source: `{p.get('source', '—')}`")
