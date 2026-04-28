@@ -19,8 +19,8 @@ def _expiry(p: dict):
     if not raw:
         return "—", None
     try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
-        days_left = (dt - datetime.utcnow()).days
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(PT)
+        days_left = (dt.date() - datetime.now(PT).date()).days
         return dt.strftime("%b %d, %Y"), days_left
     except Exception:
         return "—", None
@@ -114,8 +114,8 @@ def render():
 
     def _sort_key(p):
         try:
-            age = (datetime.utcnow() - datetime.fromisoformat(
-                p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)).days
+            pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT)
+            age = (datetime.now(PT).date() - pred_dt.date()).days
         except Exception:
             age = 999
         entry  = p.get("price_at_prediction") or 0
@@ -241,10 +241,9 @@ def render():
                 verified_on  = p.get("verified_on", "")
                 if predicted_on and verified_on:
                     try:
-                        actual_days = (
-                            datetime.fromisoformat(verified_on[:10]) -
-                            datetime.fromisoformat(predicted_on[:10])
-                        ).days
+                        v_dt = datetime.fromisoformat(verified_on.replace("Z", "+00:00")).astimezone(PT).date()
+                        p_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT).date()
+                        actual_days = (v_dt - p_dt).days
                         st.write(f"Actual days held: {actual_days}d")
                     except Exception:
                         pass

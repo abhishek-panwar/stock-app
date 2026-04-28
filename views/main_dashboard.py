@@ -50,8 +50,8 @@ def _expiry(p: dict):
     if not raw:
         return "—", None
     try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
-        days_left = (dt - datetime.utcnow()).days
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(PT)
+        days_left = (dt.date() - datetime.now(PT).date()).days
         return dt.strftime("%b %d"), days_left
     except Exception:
         return "—", None
@@ -399,7 +399,7 @@ def _news_links(ticker: str):
                 source   = a.get("source", "")
                 ts       = a.get("datetime", 0)
                 try:
-                    date_str = datetime.utcfromtimestamp(ts).strftime("%b %d") if ts else ""
+                    date_str = datetime.fromtimestamp(ts, tz=PT).strftime("%b %d") if ts else ""
                 except Exception:
                     date_str = ""
                 meta = f'<span style="color:#94a3b8;font-size:11px;margin-left:6px">{source} · {date_str}</span>'

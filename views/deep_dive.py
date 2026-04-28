@@ -271,7 +271,7 @@ def _run_analysis(ticker: str, date_from: str, date_to: str):
         st.markdown("### News Articles in Period")
         for a in news[:10]:
             ts = a.get("datetime", 0)
-            date_str = datetime.fromtimestamp(ts).strftime("%b %d") if ts else "—"
+            date_str = datetime.fromtimestamp(ts, tz=PT).strftime("%b %d") if ts else "—"
             url = a.get("url", "")
             headline = a.get("headline", "—")
             source = a.get("source", "—")
