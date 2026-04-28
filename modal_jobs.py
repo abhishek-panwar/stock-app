@@ -36,7 +36,7 @@ secrets = [modal.Secret.from_name("stock-app-secrets")]
     image=image,
     secrets=secrets,
     timeout=1200,
-    schedule=modal.Cron("0 4 * * *"),
+    schedule=modal.Cron("0 3 * * *"),
 )
 def nightly_scanner():
     import sys
