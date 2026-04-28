@@ -41,7 +41,8 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         roc_score = 1
 
     momentum_raw = rsi_score + macd_score + roc_score
-    scores["momentum"] = round(min(momentum_raw, 25) * weights["momentum"], 1)
+    # Cap at 25, then scale by timeframe weight (weight redistributes points, not shrinks them)
+    scores["momentum"] = round(min(momentum_raw / 25 * 25 * weights["momentum"], 25), 1)
 
     # ── Group 2: Trend (20 pts max) ───────────────────────────────────────────
     price = ind.get("price", 0)
@@ -68,11 +69,9 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     else:
         adx_score = 1
 
-    # ADX penalty on low-trend environments
     adx_multiplier = 1.0 if adx > 20 else 0.7
-
     trend_raw = (ma_score + adx_score) * adx_multiplier
-    scores["trend"] = round(min(trend_raw, 20) * weights["trend"], 1)
+    scores["trend"] = round(min(trend_raw / 20 * 20 * weights["trend"], 20), 1)
 
     # ── Group 3: Volatility (15 pts max) ──────────────────────────────────────
     bb_score = 0
@@ -94,7 +93,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         atr_score = 2
 
     vol_raw = bb_score + atr_score
-    scores["volatility"] = round(min(vol_raw, 15) * weights["volatility"], 1)
+    scores["volatility"] = round(min(vol_raw / 15 * 15 * weights["volatility"], 15), 1)
 
     # ── Group 4: Volume (20 pts max) ──────────────────────────────────────────
     vsr = ind.get("volume_surge_ratio", 1.0)
@@ -122,7 +121,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     vwap_score = 3 if ind.get("price_above_vwap") else 1
 
     volume_raw = vsurge_score + obv_score + vwap_score
-    scores["volume"] = round(min(volume_raw, 20) * weights["volume"], 1)
+    scores["volume"] = round(min(volume_raw / 20 * 20 * weights["volume"], 20), 1)
 
     # ── Group 5: Sentiment (10 pts max) ───────────────────────────────────────
     news_s = sentiment.get("score", 0)
@@ -145,7 +144,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     else:
         social_score = 1
 
-    scores["sentiment"] = round(min(news_score + social_score, 10) * weights["sentiment"], 1)
+    scores["sentiment"] = round(min((news_score + social_score) / 10 * 10 * weights["sentiment"], 10), 1)
 
     # ── Group 6: External (10 pts max) ────────────────────────────────────────
     consensus = analyst.get("consensus", "HOLD")
@@ -154,7 +153,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     consecutive_beats = earnings.get("consecutive_beats", 0)
     earnings_score = min(consecutive_beats + 1, 4) if consecutive_beats > 0 else 0
 
-    scores["external"] = round(min(analyst_score + earnings_score, 10) * weights["external"], 1)
+    scores["external"] = round(min((analyst_score + earnings_score) / 10 * 10 * weights["external"], 10), 1)
 
     # ── Bonuses ───────────────────────────────────────────────────────────────
     bonus = 0
@@ -190,12 +189,15 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
 
 
 def _timeframe_weights(timeframe: str) -> dict:
+    # Weights are multipliers on each group's max score.
+    # 1.0 = use full group max. >1.0 = boost. <1.0 = reduce.
+    # Groups caps are enforced separately so total still reaches ~100.
     if timeframe == "short":
-        return {"momentum": 1.3, "trend": 0.9, "volatility": 1.2, "volume": 1.2, "sentiment": 1.0, "external": 0.6}
+        return {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
     elif timeframe == "medium":
-        return {"momentum": 1.0, "trend": 1.2, "volatility": 0.9, "volume": 0.9, "sentiment": 0.7, "external": 1.0}
+        return {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
     else:  # long
-        return {"momentum": 0.7, "trend": 1.3, "volatility": 0.7, "volume": 0.7, "sentiment": 0.5, "external": 1.4}
+        return {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
 
 
 def determine_direction(ind: dict, score: int) -> tuple[str, str]:

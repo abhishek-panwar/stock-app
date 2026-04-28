@@ -12,7 +12,11 @@ def get_price_history(ticker: str, period: str = "6mo") -> pd.DataFrame:
         df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
         if df.empty:
             return pd.DataFrame()
-        df.columns = [c.lower() for c in df.columns]
+        # Flatten MultiIndex columns from newer yfinance versions
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0].lower() for col in df.columns]
+        else:
+            df.columns = [c.lower() for c in df.columns]
         df.index = pd.to_datetime(df.index)
         return df
     except Exception:
@@ -34,7 +38,11 @@ def get_multiple_prices(tickers: list[str]) -> dict[str, float]:
         data = yf.download(tickers, period="2d", interval="1d", progress=False, auto_adjust=True)
         if data.empty:
             return results
-        close = data["Close"] if "Close" in data.columns else data.xs("Close", axis=1, level=0)
+        # Handle both MultiIndex and flat columns
+        if isinstance(data.columns, pd.MultiIndex):
+            close = data.xs("Close", axis=1, level=0)
+        else:
+            close = data["Close"] if "Close" in data.columns else data["close"]
         for t in tickers:
             try:
                 val = close[t].dropna().iloc[-1]
