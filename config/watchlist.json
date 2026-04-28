@@ -6,10 +6,10 @@
     "VRTX", "REGN", "ISRG", "MU", "LRCX", "PANW", "KLAC", "SNPS", "CDNS", "MRVL",
     "CTAS", "ABNB", "CRWD", "MELI", "ORLY", "PYPL", "WDAY", "PCAR", "FTNT", "PAYX",
     "ROST", "KDP", "DXCM", "ODFL", "CEG", "IDXX", "FAST", "EXC", "BIIB", "FANG",
-    "MNST", "CSGP", "TEAM", "VRSK", "ANSS", "ON", "DLTR", "XEL", "GEHC", "KHC",
-    "GFS", "CTSH", "CCEP", "CPRT", "DDOG", "TTWO", "MRNA", "ZS", "ILMN", "SGEN",
+    "MNST", "CSGP", "TEAM", "VRSK", "ON", "DLTR", "XEL", "GEHC", "KHC",
+    "GFS", "CTSH", "CCEP", "CPRT", "DDOG", "TTWO", "MRNA", "ZS", "ILMN",
     "LCID", "RIVN", "SIRI", "EA", "MTCH", "ALGN", "ENPH", "ZM", "NXPI", "MCHP",
-    "AEP", "CDW", "WBD", "EBAY", "SPLK", "CHKP", "PDD", "AZN", "SBAC", "LULU"
+    "AEP", "CDW", "WBD", "EBAY", "CHKP", "PDD", "AZN", "SBAC", "LULU", "ADSK"
   ],
   "commodities_and_alts": [
     "GLD", "IAU", "GDX", "GDXJ", "GOLD",
@@ -24,16 +24,16 @@
     "JNJ", "UNH", "LLY", "PFE", "ABBV", "MRK", "TMO", "ABT", "BMY", "CVS",
     "CI", "HUM", "ELV", "MDT", "SYK", "BSX", "BDX", "DHR", "ZBH", "BAX",
     "XOM", "CVX", "COP", "EOG", "SLB", "PSX", "VLO", "MPC", "OXY", "DVN",
-    "HAL", "BKR", "HES", "MRO", "APA", "FANG", "PR", "SM", "MTDR", "CTRA",
+    "HAL", "BKR", "APA", "PR", "SM", "MTDR", "CTRA",
     "WMT", "HD", "LOW", "TGT", "KO", "PG", "CL", "KMB", "MO", "PM",
-    "NKE", "EL", "TJX", "BBWI", "GPS", "PVH", "RL", "TPR", "VFC", "SKX",
+    "NKE", "EL", "TJX", "BBWI", "PVH", "RL", "TPR", "VFC",
     "CAT", "DE", "BA", "GE", "RTX", "LMT", "NOC", "GD", "LHX", "MMM",
     "EMR", "ETN", "PH", "ROK", "IR", "OTIS", "CARR", "TT", "XYL", "AME",
     "IBM", "ORCL", "ACN", "CRM", "NOW", "SAP", "DELL", "HPQ", "HPE", "STX",
-    "WDC", "NTAP", "KEYS", "TER", "MCHP", "SWKS", "QRVO", "MPWR", "ENTG", "ONTO",
+    "WDC", "NTAP", "KEYS", "TER", "SWKS", "QRVO", "MPWR", "ENTG", "ONTO",
     "AMT", "CCI", "EQIX", "PLD", "SPG", "O", "DLR", "PSA", "EQR", "AVB",
     "LIN", "APD", "DD", "PPG", "SHW", "NEM", "FCX", "NUE", "MLM", "VMC",
-    "BRK-B", "V", "MA", "PYPL", "FIS", "FISV", "GPN", "WEX", "FOUR", "SQ"
+    "BRK-B", "V", "MA", "FIS", "FISV", "GPN", "WEX", "FOUR", "XYZ"
   ],
   "hot_score_weights": {
     "news_volume": 0.25,

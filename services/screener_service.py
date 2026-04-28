@@ -16,6 +16,19 @@ def load_nasdaq100() -> list[str]:
     return load_watchlist()["nasdaq100"]
 
 
+def _is_tradable(ticker: str) -> bool:
+    """Returns False if yfinance can't find any price data (delisted/invalid)."""
+    try:
+        import yfinance as yf
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            hist = yf.Ticker(ticker).fast_info
+            return (hist.get("last_price") or 0) > 0
+    except Exception:
+        return False
+
+
 def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
     """
     Deduplicates Nasdaq 100 + S&P 500 additions + hot stocks.
@@ -44,17 +57,16 @@ def get_hot_tickers(top_n: int = 50) -> list[str]:
 
     # Candidate pool: well-known trending tickers beyond Nasdaq 100
     candidates = [
-        "SMCI", "PLTR", "RIVN", "LCID", "HOOD", "SOFI", "UPST", "AFRM",
-        "COIN", "MSTR", "GME", "AMC", "BBBY", "SPCE", "JOBY", "LILM",
-        "RBLX", "SNAP", "PINS", "TWTR", "UBER", "LYFT", "DASH", "ABNB",
-        "ROKU", "SQ", "PYPL", "SHOP", "SE", "MELI", "GRAB", "BABA",
-        "JD", "PDD", "NIO", "XPEV", "LI", "TSLA", "RIVN", "F", "GM",
-        "STLA", "VW", "HYLN", "WKHS", "NKLA", "RIDE", "GOEV", "FSR",
-        "LAZR", "LIDR", "MVIS", "VLDR", "OUST", "AEVA", "INVZ",
-        "NET", "SNOW", "DDOG", "ZS", "OKTA", "CRWD", "S", "TENB",
-        "CYBR", "VRNS", "QLYS", "FTNT", "PANW", "CHKP", "FEYE",
+        "SMCI", "PLTR", "HOOD", "SOFI", "UPST", "AFRM",
+        "COIN", "MSTR", "GME", "AMC", "SPCE", "JOBY",
+        "RBLX", "SNAP", "PINS", "UBER", "LYFT", "DASH",
+        "ROKU", "SHOP", "SE", "GRAB", "BABA",
+        "JD", "NIO", "XPEV", "LI", "F", "GM", "STLA",
+        "MVIS", "OUST",
+        "NET", "SNOW", "OKTA", "S", "TENB",
+        "VRNS", "QLYS",
         "AI", "BBAI", "SOUN", "IREN", "CORZ", "RIOT", "MARA", "HUT",
-        "BTBT", "CIFR", "WULF", "CLSK", "BTDR",
+        "BTBT", "CIFR", "WULF", "CLSK",
     ]
     # Remove duplicates
     seen = set()

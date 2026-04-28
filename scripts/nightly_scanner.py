@@ -78,7 +78,10 @@ def run():
         ticker = item["ticker"]
         source = item["source"]
         try:
-            df = get_price_history(ticker, period="6mo")
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = get_price_history(ticker, period="6mo")
             if df.empty:
                 continue
             scan_stats["yfinance_rows_fetched"] += len(df)
