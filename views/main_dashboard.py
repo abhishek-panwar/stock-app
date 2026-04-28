@@ -218,30 +218,47 @@ def _prediction_card(p: dict, _unused: set = None):
 
     dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
     hc_tag   = "  🎯" if confidence >= 75 else ""
-    age_tag  = "  ·  🆕 NEW" if age_days == 0 else f"  ·  {age_days}d old"
+    age_tag  = "  ·  ✨ NEW" if age_days == 0 else f"  ·  {age_days}d old"
     pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
-    exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  **expired**" if days_left is not None and days_left <= 0 else "")
+    exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
 
-    # Color indicator: green for new+bullish, red for bearish, blue for bullish, grey for neutral
-    if age_days == 0:
-        color_dot = "🟢"
-    elif direction == "BEARISH":
-        color_dot = "🔴"
-    elif direction == "BULLISH":
-        color_dot = "🔵"
-    else:
-        color_dot = "⚪"
+    dir_label = f"▲ BULLISH" if direction == "BULLISH" else f"▼ BEARISH" if direction == "BEARISH" else "● NEUTRAL"
 
     header = (
-        f"{color_dot} **{ticker}** — {company}  ·  "
-        f"{dir_icon} {direction}  ·  "
+        f"**{ticker}** — {company}  ·  "
+        f"{dir_label}  ·  "
         f"{confidence}% conf  ·  {score}/100  ·  "
         f"{profit_str}{pos_tag}  ·  ~{tenure_str}"
         f"{exp_tag}{age_tag}{hc_tag}"
     )
 
+    pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+
+    # CSS class injected before the expander to target its background via sibling selector
+    if age_days == 0:
+        card_style = "background:#f0fdf4;border-left:4px solid #16a34a;"   # fresh green
+    elif direction == "BEARISH":
+        card_style = "background:#fef2f2;border-left:4px solid #dc2626;"   # soft red
+    elif direction == "BULLISH":
+        card_style = "background:#f0fdf4;border-left:4px solid #15803d;"   # muted green
+    else:
+        card_style = "background:#f8fafc;border-left:4px solid #94a3b8;"   # grey
+
+    st.markdown(
+        f'<style>'
+        f'.pred-{pred_id} + div [data-testid="stExpander"] {{'
+        f'  {card_style}'
+        f'  border-radius: 8px !important;'
+        f'}}'
+        f'.pred-{pred_id} + div [data-testid="stExpander"] summary span p {{'
+        f'  font-weight: 500 !important;'
+        f'}}'
+        f'</style>'
+        f'<div class="pred-{pred_id}" style="display:none"></div>',
+        unsafe_allow_html=True,
+    )
+
     with st.expander(header, expanded=False):
-        pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
         btn_col, badge_col, del_col = st.columns([2, 7, 1])
         with btn_col:
             if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
