@@ -22,21 +22,19 @@ def _get_company_name(ticker: str) -> str:
 
 
 def _age_info(predicted_on: str):
-    """Returns (age_days, badge_html)."""
     try:
         pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).replace(tzinfo=None)
         age = (datetime.utcnow() - pred_dt).days
     except Exception:
         return 0, ""
     if age == 0:
-        return 0, '<span style="background:#dcfce7;color:#14532d;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">NEW TODAY</span>'
+        return 0, '<span style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;letter-spacing:0.5px">✨ NEW TODAY</span>'
     if age == 1:
         return 1, '<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">1 day old</span>'
-    return age, f'<span style="background:#fee2e2;color:#7f1d1d;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">{age}d old</span>'
+    return age, f'<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:500">{age}d old</span>'
 
 
 def _sort_key(p: dict):
-    """Newest first → highest absolute profit% → highest score."""
     try:
         age = (datetime.utcnow() - datetime.fromisoformat(
             p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)).days
@@ -49,7 +47,6 @@ def _sort_key(p: dict):
 
 
 def _expiry(p: dict):
-    """Returns (expiry_str, days_left) using only stored expires_on. No hardcoded fallback."""
     raw = p.get("expires_on") or ""
     if not raw:
         return "—", None
@@ -62,9 +59,31 @@ def _expiry(p: dict):
 
 
 def render():
-    st.title("📊 Today's Best Setups")
     now_pt = datetime.now(PT)
-    st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
+
+    # ── Rich page header ──────────────────────────────────────────────────────
+    st.markdown(
+        f"""<div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);
+            border-radius:14px;padding:22px 28px 18px;margin-bottom:20px;
+            box-shadow:0 4px 24px rgba(0,0,0,0.18)">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div>
+              <div style="font-size:24px;font-weight:800;color:#f8fafc;letter-spacing:-0.5px">
+                📊 Today's Best Setups
+              </div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:4px">
+                Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}
+              </div>
+            </div>
+            <div style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);
+                border-radius:10px;padding:8px 16px;text-align:center">
+              <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Next Scan</div>
+              <div style="font-size:14px;font-weight:700;color:#60a5fa">8:00 PM PT</div>
+            </div>
+          </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
     try:
         from database.db import get_predictions, get_scan_logs
@@ -79,19 +98,29 @@ def render():
         _show_empty_state()
         return
 
+    # ── Scan universe bar ─────────────────────────────────────────────────────
     if scan_logs:
         log = scan_logs[0]
-        st.info(
-            f"Universe: **{log.get('universe_total','—')} stocks** scanned  ·  "
-            f"{log.get('nasdaq100_count','—')} Nasdaq + {log.get('hot_stock_count','—')} hot "
-            f"→ {log.get('overlap_count','—')} overlap, deduplicated"
+        total   = log.get("universe_total", "—")
+        nasdaq  = log.get("nasdaq100_count", "—")
+        hot     = log.get("hot_stock_count", "—")
+        overlap = log.get("overlap_count", "—")
+        n_preds = len(predictions)
+        st.markdown(
+            f"""<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;
+                padding:10px 18px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+              <span style="color:#94a3b8;font-size:12px">🔭 Universe</span>
+              <span style="color:#f8fafc;font-size:13px;font-weight:600">{total} stocks</span>
+              <span style="color:#475569;font-size:12px">{nasdaq} core · {hot} hot · {overlap} overlap</span>
+              <span style="margin-left:auto;background:#1e3a5f;border:1px solid #2563eb;border-radius:20px;
+                  padding:2px 12px;color:#93c5fd;font-size:12px;font-weight:600">{n_preds} active predictions</span>
+            </div>""",
+            unsafe_allow_html=True,
         )
 
     short  = sorted([p for p in predictions if p.get("timeframe") == "short"],  key=_sort_key)
     medium = sorted([p for p in predictions if p.get("timeframe") == "medium"], key=_sort_key)
     long_  = sorted([p for p in predictions if p.get("timeframe") == "long"],   key=_sort_key)
-
-    # High conviction = confidence >= 75
     high_conviction = sorted(
         [p for p in predictions if (p.get("confidence") or 0) >= 75],
         key=_sort_key
@@ -102,51 +131,108 @@ def render():
         st.session_state.chart_pred   = None
 
     _chart_panel()
-    st.markdown("---")
+    st.markdown("<div style='margin:8px 0'></div>", unsafe_allow_html=True)
 
     # ── High conviction picks ─────────────────────────────────────────────────
     if high_conviction:
-        st.markdown("### 🎯 High Conviction Picks")
+        st.markdown(
+            """<div style="display:flex;align-items:center;gap:10px;margin:8px 0 14px">
+              <div style="height:2px;flex:1;background:linear-gradient(90deg,#f59e0b,transparent)"></div>
+              <span style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;
+                  border-radius:20px;padding:4px 16px;font-size:13px;font-weight:700;
+                  box-shadow:0 2px 8px rgba(245,158,11,0.35)">🎯 High Conviction Picks</span>
+              <div style="height:2px;flex:1;background:linear-gradient(90deg,transparent,#f59e0b)"></div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
         chunks = [high_conviction[i:i+5] for i in range(0, len(high_conviction), 5)]
         for chunk in chunks:
             cols = st.columns(len(chunk))
             for col, p in zip(cols, chunk):
                 ticker    = p.get("ticker", "—")
                 direction = p.get("direction", "NEUTRAL")
-                bg, border, text = DIR_COLORS.get(direction, DIR_COLORS["NEUTRAL"])
-                entry  = p.get("price_at_prediction") or 0
-                target = p.get("target_low") or 0
+                entry     = p.get("price_at_prediction") or 0
+                target    = p.get("target_low") or 0
                 profit_pct = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
-                days = p.get("days_to_target", "?")
-                company = p.get("company_name") or _get_company_name(ticker)
+                days      = p.get("days_to_target", "?")
+                company   = p.get("company_name") or _get_company_name(ticker)
                 _, age_badge = _age_info(p.get("predicted_on", ""))
-                tf_label = {"short": "⚡ Short", "medium": "📈 Mid", "long": "🌱 Long"}.get(p.get("timeframe",""), "")
+                tf_label  = {"short": "⚡ Short", "medium": "📈 Mid", "long": "🌱 Long"}.get(p.get("timeframe", ""), "")
+                conf      = p.get("confidence", 0)
+
+                if direction == "BULLISH":
+                    card_bg    = "linear-gradient(145deg,#052e16,#14532d)"
+                    border_col = "#16a34a"
+                    glow       = "rgba(22,163,74,0.25)"
+                    dir_color  = "#4ade80"
+                    dir_icon   = "▲"
+                elif direction == "BEARISH":
+                    card_bg    = "linear-gradient(145deg,#2d0a0a,#7f1d1d)"
+                    border_col = "#dc2626"
+                    glow       = "rgba(220,38,38,0.25)"
+                    dir_color  = "#f87171"
+                    dir_icon   = "▼"
+                else:
+                    card_bg    = "linear-gradient(145deg,#0f172a,#1e293b)"
+                    border_col = "#475569"
+                    glow       = "rgba(71,85,105,0.2)"
+                    dir_color  = "#94a3b8"
+                    dir_icon   = "●"
+
+                profit_color = "#4ade80" if profit_pct >= 0 else "#f87171"
+                profit_str   = f"+{profit_pct:.1f}%" if profit_pct >= 0 else f"{profit_pct:.1f}%"
+
                 with col:
                     st.markdown(
-                        f"""<div style="background:{bg};border:1.5px solid {border};border-radius:10px;
-                        padding:10px 12px;text-align:left">
-                        <div style="font-size:17px;font-weight:700;color:{text}">{ticker}</div>
-                        <div style="font-size:11px;color:#475569;margin-bottom:4px">{company}</div>
-                        <div style="font-size:11px;font-weight:600;color:{text}">{direction} · {tf_label}</div>
-                        <div style="font-size:12px;color:#1e293b">{p.get('confidence',0)}% conf · {p.get('score',0)}/100</div>
-                        <div style="font-size:12px;font-weight:600;color:#15803d">+{profit_pct:.1f}% · ~{days}d</div>
-                        <div style="margin-top:5px">{age_badge}{_asset_badge(p)}</div>
+                        f"""<div style="background:{card_bg};border:1.5px solid {border_col};
+                            border-radius:12px;padding:14px 14px 12px;
+                            box-shadow:0 4px 20px {glow};position:relative;overflow:hidden">
+                          <div style="position:absolute;top:0;right:0;width:60px;height:60px;
+                              background:radial-gradient(circle,{glow} 0%,transparent 70%)"></div>
+                          <div style="font-size:20px;font-weight:800;color:#f8fafc;letter-spacing:-0.5px">{ticker}</div>
+                          <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;white-space:nowrap;
+                              overflow:hidden;text-overflow:ellipsis">{company}</div>
+                          <div style="font-size:12px;font-weight:700;color:{dir_color};margin-bottom:4px">
+                              {dir_icon} {direction} · {tf_label}
+                          </div>
+                          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+                            <span style="font-size:18px;font-weight:800;color:{profit_color}">{profit_str}</span>
+                            <span style="background:rgba(255,255,255,0.1);border-radius:8px;padding:2px 8px;
+                                font-size:11px;color:#e2e8f0">~{days}d</span>
+                          </div>
+                          <div style="font-size:11px;color:#94a3b8;margin-top:4px">{conf}% conf</div>
+                          <div style="margin-top:6px">{age_badge}{_asset_badge(p)}</div>
                         </div>""",
                         unsafe_allow_html=True,
                     )
-        st.markdown("")
+        st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
     # ── Timeframe sections ────────────────────────────────────────────────────
-    for label, emoji, preds in [
-        ("Short-term  (≤10 days)",   "⚡", short[:10]),
-        ("Medium-term (11–35 days)", "📈", medium[:10]),
-        ("Long-term   (>35 days)",   "🌱", long_[:10]),
+    section_styles = {
+        "short":  ("linear-gradient(90deg,#0369a1,transparent)", "#38bdf8", "⚡"),
+        "medium": ("linear-gradient(90deg,#15803d,transparent)", "#4ade80", "📈"),
+        "long":   ("linear-gradient(90deg,#7c3aed,transparent)", "#a78bfa", "🌱"),
+    }
+    for label, tf_key, preds in [
+        ("Short-term  (≤10 days)",   "short",  short[:10]),
+        ("Medium-term (11–35 days)", "medium", medium[:10]),
+        ("Long-term   (>35 days)",   "long",   long_[:10]),
     ]:
         if not preds:
             continue
-        st.markdown(f"### {emoji} {label}")
+        grad, accent, emoji = section_styles[tf_key]
+        st.markdown(
+            f"""<div style="display:flex;align-items:center;gap:10px;margin:20px 0 10px">
+              <div style="height:2px;width:40px;background:{grad}"></div>
+              <span style="font-size:15px;font-weight:700;color:#1e293b">{emoji} {label}</span>
+              <div style="height:1px;flex:1;background:{grad}"></div>
+              <span style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:20px;
+                  padding:1px 10px;font-size:11px;color:#64748b">{len(preds)}</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
         for p in preds:
-            _prediction_card(p, set())   # no all_agree concept any more
+            _prediction_card(p)
 
     if not short and not medium and not long_:
         _show_empty_state()
@@ -158,9 +244,11 @@ def _chart_panel():
 
     if not ticker:
         st.markdown(
-            """<div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;
-            padding:16px;text-align:left;color:#64748b;font-size:14px">
-            📈 Click <strong style="color:#1e293b">View Chart</strong> on any prediction below to load its interactive chart here
+            """<div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px dashed #334155;
+                border-radius:12px;padding:20px;text-align:center;color:#64748b;font-size:14px;
+                margin-bottom:4px">
+              <div style="font-size:28px;margin-bottom:6px">📈</div>
+              <div style="color:#94a3b8;font-weight:500">Click <strong style="color:#60a5fa">View Chart</strong> on any prediction to load its interactive chart</div>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -169,8 +257,17 @@ def _chart_panel():
     col_title, col_close = st.columns([9, 1])
     with col_title:
         company = pred.get("company_name") or _get_company_name(ticker) if pred else ticker
-        st.markdown(f"### 📈 {ticker} — {company}")
-        st.caption("MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI(14)  |  Scroll to zoom · Drag to pan")
+        st.markdown(
+            f"""<div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:10px;
+                padding:12px 18px;margin-bottom:8px">
+              <span style="font-size:18px;font-weight:800;color:#f8fafc">📈 {ticker}</span>
+              <span style="font-size:14px;color:#94a3b8;margin-left:8px">— {company}</span>
+              <div style="font-size:11px;color:#475569;margin-top:2px">
+                MA20 · MA50 · Bollinger Bands · Volume · RSI(14) &nbsp;|&nbsp; Scroll to zoom · Drag to pan
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
     with col_close:
         if st.button("✕ Close", key="close_chart"):
             st.session_state.chart_ticker = None
@@ -193,12 +290,12 @@ def _chart_panel():
 
 
 def _prediction_card(p: dict, _unused: set = None):
-    ticker      = p.get("ticker", "—")
-    direction   = p.get("direction", "NEUTRAL")
-    confidence  = p.get("confidence", 0)
-    score       = p.get("score", 0)
-    position    = p.get("position", "HOLD")
-    timeframe   = p.get("timeframe", "short")
+    ticker       = p.get("ticker", "—")
+    direction    = p.get("direction", "NEUTRAL")
+    confidence   = p.get("confidence", 0)
+    score        = p.get("score", 0)
+    position     = p.get("position", "HOLD")
+    timeframe    = p.get("timeframe", "short")
     predicted_on = p.get("predicted_on", "")
 
     company = p.get("company_name") or _get_company_name(ticker)
@@ -216,11 +313,10 @@ def _prediction_card(p: dict, _unused: set = None):
 
     age_days, age_badge = _age_info(predicted_on)
 
-    dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
-    hc_tag   = "  🎯" if confidence >= 75 else ""
-    age_tag  = "  ·  ✨ NEW" if age_days == 0 else f"  ·  {age_days}d old"
-    pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
-    exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
+    hc_tag  = "  🎯" if confidence >= 75 else ""
+    age_tag = "  ·  ✨ NEW" if age_days == 0 else f"  ·  {age_days}d old"
+    pos_tag = f"  ·  {position}" if position not in ("HOLD", "") else ""
+    exp_tag = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
 
     dir_label = ":green[▲ BULLISH]" if direction == "BULLISH" else ":red[▼ BEARISH]" if direction == "BEARISH" else "● NEUTRAL"
 
@@ -234,24 +330,23 @@ def _prediction_card(p: dict, _unused: set = None):
 
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
 
-    # CSS class injected before the expander to target its background via sibling selector
+    # Colored header background via CSS sibling selector
     if age_days == 0:
-        card_style = "background:#f0fdf4;border-left:4px solid #16a34a;"   # fresh green
+        card_bg = "background:linear-gradient(90deg,#f0fdf4,#dcfce7);border-left:4px solid #16a34a;"
     elif direction == "BEARISH":
-        card_style = "background:#fef2f2;border-left:4px solid #dc2626;"   # soft red
+        card_bg = "background:linear-gradient(90deg,#fef2f2,#fee2e2);border-left:4px solid #dc2626;"
     elif direction == "BULLISH":
-        card_style = "background:#f0fdf4;border-left:4px solid #15803d;"   # muted green
+        card_bg = "background:linear-gradient(90deg,#f0fdf4,#f8fafc);border-left:4px solid #15803d;"
     else:
-        card_style = "background:#f8fafc;border-left:4px solid #94a3b8;"   # grey
+        card_bg = "background:linear-gradient(90deg,#f8fafc,#f1f5f9);border-left:4px solid #94a3b8;"
 
     st.markdown(
         f'<style>'
         f'.pred-{pred_id} + div [data-testid="stExpander"] {{'
-        f'  {card_style}'
-        f'  border-radius: 8px !important;'
-        f'}}'
-        f'.pred-{pred_id} + div [data-testid="stExpander"] summary span p {{'
-        f'  font-weight: 500 !important;'
+        f'  {card_bg}'
+        f'  border-radius:10px !important;'
+        f'  box-shadow:0 1px 4px rgba(0,0,0,0.06) !important;'
+        f'  margin-bottom:4px !important;'
         f'}}'
         f'</style>'
         f'<div class="pred-{pred_id}" style="display:none"></div>',
@@ -280,56 +375,78 @@ def _prediction_card(p: dict, _unused: set = None):
         dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
         prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
         st.markdown(
-            f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 14px;text-align:left">
-            {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
+            f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 14px">
+            {_pill("Direction", f"{'▲' if direction=='BULLISH' else '▼' if direction=='BEARISH' else '●'} {direction}", dir_color)}
             {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
             {_pill("Score", f"{score}/100", "#7c3aed")}
-            {_pill("Profit target", profit_str, prof_color)}
-            {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
-            {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
+            {_pill("Profit", profit_str, prof_color)}
+            {_pill("Hold", f"~{tenure_str}", "#0369a1")}
+            {_pill("R/R", f"1:{rr:.1f}", "#b45309")}
             {_pill("Position", position, "#374151")}
             </div>""",
             unsafe_allow_html=True,
         )
 
+        # ── Entry / Target / Timing ───────────────────────────────────────────
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.markdown("**Entry**")
-            st.markdown(f"Price at signal: `${entry:.2f}`")
-            st.markdown(f"Buy range: `${p.get('buy_range_low',0):.2f} – ${p.get('buy_range_high',0):.2f}`")
-            st.markdown(f"Stop loss: `${stop:.2f}`")
+            st.markdown(
+                f"""<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;margin-bottom:6px">Entry</div>
+                  <div style="font-size:15px;font-weight:700;color:#0f172a">${entry:.2f}</div>
+                  <div style="font-size:12px;color:#64748b;margin-top:4px">
+                    Buy: ${p.get('buy_range_low',0):.2f} – ${p.get('buy_range_high',0):.2f}
+                  </div>
+                  <div style="font-size:12px;color:#ef4444;margin-top:2px">Stop: ${stop:.2f}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
         with c2:
-            st.markdown("**Target**")
-            st.markdown(f"Range: `${p.get('target_low',0):.2f} – ${p.get('target_high',0):.2f}`")
-            st.markdown(f"Profit potential: `{profit_str}`")
-            st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
+            target_high = p.get("target_high", 0) or 0
+            st.markdown(
+                f"""<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:#16a34a;margin-bottom:6px">Target</div>
+                  <div style="font-size:15px;font-weight:700;color:#15803d">${target:.2f} – ${target_high:.2f}</div>
+                  <div style="font-size:13px;font-weight:700;color:{'#15803d' if profit_pct>0 else '#dc2626'};margin-top:4px">
+                    {profit_str} potential
+                  </div>
+                  <div style="font-size:12px;color:#64748b;margin-top:2px">R/R: 1:{rr:.1f}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
         with c3:
-            st.markdown("**Timing**")
             try:
                 pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).strftime("%b %d  %I:%M %p PT")
             except Exception:
                 pred_dt_str = "—"
-            st.markdown(f"Predicted: `{pred_dt_str}`")
-            st.markdown(f"Est. days to target: `{days_to_target or '—'}`")
-            if expiry_str != "—":
-                st.markdown(f"Expires: `{expiry_str}`{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
-            else:
-                st.markdown("Expires: `run scanner to populate`")
-            if p.get("timing_rationale"):
-                st.caption(f"💡 {p['timing_rationale']}")
+            exp_line = f"Expires: {expiry_str}" if expiry_str != "—" else "Expires: run scanner"
+            days_exp = f" ({days_left}d left)" if days_left and days_left > 0 else ""
+            st.markdown(
+                f"""<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;margin-bottom:6px">Timing</div>
+                  <div style="font-size:12px;color:#1e293b">📅 {pred_dt_str}</div>
+                  <div style="font-size:12px;color:#1e293b;margin-top:3px">⏱ ~{days_to_target or '—'} days to target</div>
+                  <div style="font-size:12px;color:#64748b;margin-top:3px">{exp_line}{days_exp}</div>
+                  {f'<div style="font-size:11px;color:#7c3aed;margin-top:4px">💡 {p["timing_rationale"]}</div>' if p.get("timing_rationale") else ""}
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
         if p.get("reasoning"):
             st.markdown(
-                f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;
-                padding:10px 14px;margin:12px 0 8px;font-size:13px;color:#1e293b;
-                line-height:1.6;text-align:left">{p['reasoning']}</div>""",
+                f"""<div style="background:#f8fafc;border-left:3px solid #6366f1;border-radius:0 8px 8px 0;
+                    padding:12px 16px;margin:12px 0 8px;font-size:13px;color:#1e293b;line-height:1.7">
+                  <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.8px;
+                      color:#6366f1;font-weight:600;display:block;margin-bottom:4px">AI Reasoning</span>
+                  {p['reasoning']}
+                </div>""",
                 unsafe_allow_html=True,
             )
 
         _news_links(ticker)
 
         if position == "SHORT":
-            st.warning("SHORT position — margin/options account required")
+            st.warning("⚠️ SHORT position — margin/options account required")
 
 
 def _news_links(ticker: str):
@@ -354,32 +471,32 @@ def _news_links(ticker: str):
                 meta = f'<span style="color:#94a3b8;font-size:11px;margin-left:6px">{source} · {date_str}</span>'
                 if url:
                     st.markdown(
-                        f'<div style="margin:5px 0;font-size:13px;text-align:left">'
-                        f'<a href="{url}" target="_blank" style="color:#1d4ed8;text-decoration:none">{headline}</a>{meta}</div>',
+                        f'<div style="margin:5px 0;font-size:13px">'
+                        f'<a href="{url}" target="_blank" style="color:#3b82f6;text-decoration:none">{headline}</a>{meta}</div>',
                         unsafe_allow_html=True,
                     )
                 else:
                     st.markdown(
-                        f'<div style="margin:5px 0;font-size:13px;color:#374151;text-align:left">{headline}{meta}</div>',
+                        f'<div style="margin:5px 0;font-size:13px;color:#374151">{headline}{meta}</div>',
                         unsafe_allow_html=True,
                     )
         else:
             st.caption("No recent news found via Finnhub.")
 
         st.markdown(
-            f"""<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;text-align:left">
+            f"""<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
             <a href="https://finviz.com/quote.ashx?t={ticker}" target="_blank"
-               style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:5px 11px;
-               font-size:12px;color:#1e293b;text-decoration:none;font-weight:500">📊 FinViz</a>
+               style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:5px 12px;
+               font-size:12px;color:#e2e8f0;text-decoration:none;font-weight:500">📊 FinViz</a>
             <a href="https://finance.yahoo.com/quote/{ticker}/news" target="_blank"
-               style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:5px 11px;
-               font-size:12px;color:#1e293b;text-decoration:none;font-weight:500">📰 Yahoo News</a>
+               style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:5px 12px;
+               font-size:12px;color:#e2e8f0;text-decoration:none;font-weight:500">📰 Yahoo News</a>
             <a href="https://seekingalpha.com/symbol/{ticker}" target="_blank"
-               style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:5px 11px;
-               font-size:12px;color:#1e293b;text-decoration:none;font-weight:500">📝 Seeking Alpha</a>
+               style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:5px 12px;
+               font-size:12px;color:#e2e8f0;text-decoration:none;font-weight:500">📝 Seeking Alpha</a>
             <a href="https://www.marketwatch.com/investing/stock/{ticker}" target="_blank"
-               style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:5px 11px;
-               font-size:12px;color:#1e293b;text-decoration:none;font-weight:500">📈 MarketWatch</a>
+               style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:5px 12px;
+               font-size:12px;color:#e2e8f0;text-decoration:none;font-weight:500">📈 MarketWatch</a>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -409,14 +526,23 @@ def _asset_badge(p: dict) -> str:
 def _pill(label: str, value: str, color: str) -> str:
     return (
         f'<span style="display:inline-flex;align-items:center;gap:4px;'
-        f'background:#f1f5f9;border:1px solid #e2e8f0;border-radius:20px;padding:4px 10px;font-size:12px">'
-        f'<span style="color:#64748b;font-weight:400">{label}:</span>'
+        f'background:#fff;border:1px solid #e2e8f0;border-radius:20px;'
+        f'padding:4px 11px;font-size:12px;box-shadow:0 1px 2px rgba(0,0,0,0.04)">'
+        f'<span style="color:#94a3b8;font-weight:400">{label}</span>'
         f'<strong style="color:{color}">{value}</strong></span>'
     )
 
 
 def _show_empty_state():
-    st.info("No predictions yet. The nightly scanner runs at 8:00 PM PT.")
+    st.markdown(
+        """<div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #334155;
+            border-radius:14px;padding:40px;text-align:center;margin:20px 0">
+          <div style="font-size:40px;margin-bottom:12px">🔍</div>
+          <div style="font-size:18px;font-weight:700;color:#f8fafc;margin-bottom:6px">No predictions yet</div>
+          <div style="font-size:14px;color:#64748b">The nightly scanner runs at 8:00 PM PT</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
     if st.button("🚀 Run Scanner Now", type="primary", key="run_scanner_empty"):
         _trigger_scanner()
 
