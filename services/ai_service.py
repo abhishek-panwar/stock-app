@@ -15,70 +15,83 @@ def get_client():
 MODEL = "claude-haiku-4-5"
 
 
-def analyze_stock(ticker: str, timeframe: str, indicators: dict,
-                  sentiment: dict, analyst: dict, score_data: dict,
-                  accuracy_context: str = "", ticker_history: str = "") -> dict:
+def analyze_stock(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
+                  score_data: dict, accuracy_context: str = "", ticker_history: str = "") -> dict:
     """
-    Runs Claude deep analysis on a single stock for a given timeframe.
-    Returns: {direction, position, confidence, reasoning, buy_window}
+    Single Claude call per stock — no timeframe hint.
+    Claude reads the data and decides its own target price, stop, and days.
+    Returns: direction, position, confidence, target_price, stop_price,
+             days_to_target, timing_rationale, reasoning, buy_window
     """
-    timeframe_desc = {"short": "2–5 days", "medium": "1–4 weeks", "long": "1–6 months"}[timeframe]
+    price = indicators.get("price", 0)
+    atr   = indicators.get("atr", price * 0.02) or (price * 0.02)
+    ma20  = indicators.get("ma20") or price
+    ma50  = indicators.get("ma50") or price
+    ma200 = indicators.get("ma200") or price
 
-    price = indicators.get('price', 0)
-    atr = indicators.get('atr', price * 0.02) or (price * 0.02)
-    target_pct = {"short": 0.04, "medium": 0.08, "long": 0.15}[timeframe]
-    target_distance = price * target_pct
-    naive_days = round(target_distance / atr) if atr > 0 else 0
+    prompt = f"""You are a stock analyst. Look at {ticker}'s data below and make one honest prediction.
+Do NOT assume a timeframe — let the data tell you how long the move will take.
 
-    prompt = f"""You are a stock analysis AI. Analyze {ticker} for a trade setup.
+PRICE & VOLATILITY:
+- Current price: ${price:.2f}
+- ATR(14): ${atr:.2f}/day  (~{atr/price*100:.1f}% daily range)
+- MA20: ${ma20:.2f}  MA50: ${ma50:.2f}  MA200: ${ma200:.2f}
+- Price vs MA20: {'ABOVE' if price > ma20 else 'BELOW'}  |  vs MA50: {'ABOVE' if price > ma50 else 'BELOW'}
 
-TECHNICAL INDICATORS:
-- Price: ${price:.2f}  |  ATR(14): ${atr:.2f}  |  Daily move capacity: ~{atr/price*100:.1f}%/day
-- RSI: {indicators.get('rsi', 'N/A'):.1f} {'(OVERSOLD)' if indicators.get('rsi', 50) < 30 else '(OVERBOUGHT)' if indicators.get('rsi', 50) > 70 else ''}
-- MACD Crossover: {'YES - strong bullish signal' if indicators.get('macd_crossover') else 'No'}
-- MACD Line vs Signal: {indicators.get('macd_line', 0):.3f} vs {indicators.get('macd_signal', 0):.3f}
-- Price vs MA20: {'ABOVE' if price > (indicators.get('ma20') or 0) else 'BELOW'} (MA20: {indicators.get('ma20', 'N/A')})
-- Price vs MA50: {'ABOVE' if price > (indicators.get('ma50') or 0) else 'BELOW'} (MA50: {indicators.get('ma50', 'N/A')})
-- Golden Cross: {'YES' if indicators.get('golden_cross') else 'No'}
-- ADX (trend strength): {indicators.get('adx', 'N/A'):.1f} {'(STRONG TREND)' if indicators.get('adx', 0) > 30 else '(WEAK/RANGING)' if indicators.get('adx', 0) < 20 else ''}
-- Bollinger Squeeze: {'YES - breakout imminent' if indicators.get('bb_squeeze') else 'No'}
-- Volume Surge: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
-- OBV Trend: {indicators.get('obv_trend', 'NEUTRAL')}
-- RSI Divergence: {'YES - hidden bullish' if indicators.get('rsi_divergence') else 'No'}
-- 52-week High Breakout: {'YES' if indicators.get('broke_52w_high') else 'Near' if indicators.get('near_52w_high') else 'No'}
+MOMENTUM:
+- RSI(14): {indicators.get('rsi', 50):.1f} {'← OVERSOLD' if indicators.get('rsi', 50) < 30 else '← OVERBOUGHT' if indicators.get('rsi', 50) > 70 else ''}
+- MACD crossover (bullish): {'YES' if indicators.get('macd_crossover') else 'No'}
+- MACD line vs signal: {indicators.get('macd_line', 0):.3f} vs {indicators.get('macd_signal', 0):.3f}
+- RSI divergence: {'YES — hidden bullish' if indicators.get('rsi_divergence') else 'No'}
 
-NEWS & SENTIMENT:
-- News sentiment score: {sentiment.get('score', 0):.2f} (range: -1 to +1)
-- News articles (48h): {sentiment.get('volume', 0)}
+TREND:
+- ADX: {indicators.get('adx', 20):.1f} {'(STRONG)' if indicators.get('adx', 0) > 30 else '(WEAK/RANGING)' if indicators.get('adx', 0) < 20 else '(MODERATE)'}
+- Golden cross (MA20>MA50): {'YES' if indicators.get('golden_cross') else 'No'}
+- 52-week high: {'JUST BROKE OUT' if indicators.get('broke_52w_high') else 'Near high' if indicators.get('near_52w_high') else 'Not near'}
+
+VOLUME & STRUCTURE:
+- Volume surge: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
+- OBV trend: {indicators.get('obv_trend', 'NEUTRAL')}
+- Bollinger squeeze: {'YES — breakout imminent' if indicators.get('bb_squeeze') else 'No'}
+- Price above VWAP: {'YES' if indicators.get('price_above_vwap') else 'No'}
+
+EXTERNAL:
+- News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
+- Earnings beats (last 4Q): {analyst.get('beats', 0) if hasattr(analyst, 'get') else 0}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100
-Bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
+Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
-{f"HISTORICAL PERFORMANCE CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-ATR-BASED TIMING HINT: At ${atr:.2f} ATR/day with ~{target_pct*100:.0f}% target, naive estimate is {naive_days} trading days. Adjust based on momentum quality, trend strength, and whether a catalyst is present.
+TASK: Make a single prediction for this stock.
+- Pick a realistic price target based on resistance levels and the magnitude of active signals
+- Pick a stop loss based on support levels and ATR
+- Estimate days_to_target honestly from ATR and momentum — if signals are weak or mixed, say so with lower confidence and more days
+- If there is no clear setup, say NEUTRAL with confidence < 40
 
-Based on this data, provide your analysis in this exact JSON format:
+Respond in this exact JSON:
 {{
-  "direction": "BULLISH" or "BEARISH" or "NEUTRAL",
-  "position": "LONG" or "SHORT" or "HOLD",
-  "confidence": <integer 0-100>,
-  "days_to_target": <integer — realistic trading days until target is likely hit, based on ATR, momentum, and trend strength. Not a fixed bucket — reason from the data>,
-  "timing_rationale": "<1 sentence: why this many days, e.g. strong ADX + volume surge = faster, weak trend + no catalyst = slower>",
-  "reasoning": "<2-3 sentences explaining the key signals driving this call>",
+  "direction": "BULLISH" | "BEARISH" | "NEUTRAL",
+  "position": "LONG" | "SHORT" | "HOLD",
+  "confidence": <0-100>,
+  "target_price": <float — actual price target, not %>,
+  "stop_price": <float — actual stop loss price>,
+  "days_to_target": <integer — realistic trading days to reach target>,
+  "timing_rationale": "<1 sentence: what drives the timing estimate>",
+  "reasoning": "<2-3 sentences: what signals make this a good or bad setup>",
   "key_signals": ["signal1", "signal2", "signal3"],
-  "risk_factors": "<1 sentence on main risk to this trade>",
-  "buy_window": "7:15 AM – 8:30 AM PT" or appropriate window based on signal type
+  "buy_window": "<time range in PT when to enter, e.g. 7:15 AM – 8:30 AM PT>"
 }}
 
-Be direct and specific. Only output the JSON, nothing else."""
+Only output the JSON."""
 
     try:
         response = get_client().messages.create(
             model=MODEL,
-            max_tokens=512,
+            max_tokens=600,
             messages=[{"role": "user", "content": prompt}]
         )
         import json
@@ -95,11 +108,12 @@ Be direct and specific. Only output the JSON, nothing else."""
             "direction": "NEUTRAL",
             "position": "HOLD",
             "confidence": 0,
+            "target_price": None,
+            "stop_price": None,
             "days_to_target": None,
             "timing_rationale": "",
             "reasoning": f"Analysis unavailable: {str(e)}",
             "key_signals": [],
-            "risk_factors": "Analysis error",
             "buy_window": "N/A",
             "model": MODEL,
         }

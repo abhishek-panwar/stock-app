@@ -1,6 +1,6 @@
 """
 Nightly scanner — runs at 8:00 PM PT via GitHub Actions.
-Scans full deduplicated universe, generates predictions, logs to Supabase, sends Telegram.
+Scores universe, picks top 20 stocks, one Claude call each, buckets by days_to_target.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,15 +16,21 @@ from services.yfinance_service import get_price_history, get_ticker_info
 from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history
 from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window
 from indicators.technicals import compute_all
-from indicators.scoring import compute_signal_score, determine_direction, compute_buy_range, compute_targets, FORMULA_VERSION
-
+from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error
 
-SCORE_THRESHOLD_DROP = 60
-SCORE_THRESHOLD_HIGHLIGHT = 85
-MAX_CLAUDE_CALLS = 20
+SCORE_THRESHOLD   = 60   # minimum score to be eligible
+MAX_STOCKS        = 20   # final predictions to generate (one per stock)
+
+# Claude's days_to_target → timeframe bucket
+def _bucket(days: int) -> str:
+    if days <= 10:
+        return "short"
+    if days <= 35:
+        return "medium"
+    return "long"
 
 
 def run():
@@ -43,7 +49,7 @@ def run():
     }
 
     # ── Build universe ────────────────────────────────────────────────────────
-    print("Building hot stock list...")
+    print("Building universe...")
     try:
         hot_tickers = get_hot_tickers(top_n=50)
         universe, nasdaq_count, hot_count, overlap_count = build_universe(hot_tickers)
@@ -59,11 +65,11 @@ def run():
         "universe_total": universe_total,
     })
     print(f"Universe: {universe_total} stocks ({nasdaq_count} Nasdaq + {hot_count} hot → {overlap_count} overlap)")
-    log_error("scanner", f"Universe built: {universe_total} stocks", level="INFO")
+    log_error("scanner", f"Universe: {universe_total} stocks", level="INFO")
 
     accuracy_context = _build_accuracy_context()
 
-    # ── Score all stocks ──────────────────────────────────────────────────────
+    # ── Score every stock once (no timeframe) ─────────────────────────────────
     print(f"Scoring {universe_total} stocks...")
     scored = []
     shadow = []
@@ -85,144 +91,157 @@ def run():
             scan_stats["finnhub_news_fetched"] += sentiment.get("volume", 0)
             social = get_social_sentiment(ticker)
             sentiment["mentions"] = social.get("mentions", 0)
-            analyst = get_analyst_recommendation(ticker)
+            analyst  = get_analyst_recommendation(ticker)
             earnings = get_earnings_history(ticker)
-            info = get_ticker_info(ticker)
+            info     = get_ticker_info(ticker)
 
-            best_score = 0
-            best_tf = "short"
-            for tf in ["short", "medium", "long"]:
-                s = compute_signal_score(ind, sentiment, analyst, earnings, timeframe=tf, source=source)
-                if s["total"] > best_score:
-                    best_score = s["total"]
-                    best_tf = tf
+            # Single score — no timeframe bias
+            score_data = compute_signal_score(ind, sentiment, analyst, earnings, source=source)
+            total = score_data["total"]
 
-            if best_score < SCORE_THRESHOLD_DROP:
+            if total < SCORE_THRESHOLD:
+                if 55 <= total < SCORE_THRESHOLD:
+                    shadow.append({
+                        "ticker": ticker,
+                        "scan_timestamp": start_time.isoformat(),
+                        "score_at_rejection": total,
+                        "price": ind.get("price"),
+                        "volume": None,
+                        "rsi": ind.get("rsi"),
+                        "macd_signal": ind.get("macd_signal"),
+                        "bb_squeeze": ind.get("bb_squeeze"),
+                        "volume_surge_ratio": ind.get("volume_surge_ratio"),
+                        "obv_trend": ind.get("obv_trend"),
+                        "formula_version": FORMULA_VERSION,
+                    })
                 continue
 
             scored.append({
                 "ticker": ticker,
                 "company_name": info.get("name", ticker),
                 "source": source,
-                "score": best_score,
-                "timeframe": best_tf,
+                "score": total,
+                "score_data": score_data,
                 "indicators": ind,
                 "sentiment": sentiment,
                 "analyst": analyst,
                 "earnings": earnings,
             })
 
-            if 55 <= best_score < 75:
-                shadow.append({
-                    "ticker": ticker,
-                    "scan_timestamp": start_time.isoformat(),
-                    "score_at_rejection": best_score,
-                    "price": ind.get("price"),
-                    "volume": None,
-                    "rsi": ind.get("rsi"),
-                    "macd_signal": ind.get("macd_signal"),
-                    "bb_squeeze": ind.get("bb_squeeze"),
-                    "volume_surge_ratio": ind.get("volume_surge_ratio"),
-                    "obv_trend": ind.get("obv_trend"),
-                    "formula_version": FORMULA_VERSION,
-                })
-
         except Exception as e:
             scan_stats["errors_encountered"] += 1
-            msg = f"Scoring error for {ticker}: {e}"
-            print(f"  {msg}")
-            log_error("scanner", msg, detail=str(e), ticker=ticker)
+            log_error("scanner", f"Scoring error: {ticker}: {e}", detail=str(e), ticker=ticker)
+            print(f"  Error on {ticker}: {e}")
 
+    # Sort by score, take top MAX_STOCKS
     scored.sort(key=lambda x: x["score"], reverse=True)
-    top_stocks = scored[:MAX_CLAUDE_CALLS]
+    top_stocks = scored[:MAX_STOCKS]
     scan_stats["stocks_analyzed"] = len(top_stocks)
-    print(f"Top {len(top_stocks)} stocks sent to Claude...")
+    print(f"Top {len(top_stocks)} stocks → Claude analysis...")
 
     for s in shadow:
         try:
             insert_shadow_price(s)
         except Exception as e:
-            log_error("scanner", f"Shadow price insert failed for {s.get('ticker')}: {e}", level="WARNING")
+            log_error("scanner", f"Shadow insert failed {s.get('ticker')}: {e}", level="WARNING")
 
-    # ── Claude deep analysis + prediction logging ─────────────────────────────
+    # ── One Claude call per stock ─────────────────────────────────────────────
     all_predictions = []
 
     for item in top_stocks:
         ticker = item["ticker"]
-        ind = item["indicators"]
+        ind    = item["indicators"]
         sentiment = item["sentiment"]
-        analyst = item["analyst"]
+        analyst   = item["analyst"]
+        score_data = item["score_data"]
 
-        for tf in ["short", "medium", "long"]:
-            try:
-                score_data = compute_signal_score(ind, sentiment, analyst, item["earnings"],
-                                                   timeframe=tf, source=item["source"])
-                if score_data["total"] < SCORE_THRESHOLD_DROP:
-                    continue
+        try:
+            ticker_history = _get_ticker_history(ticker)
+            ai = analyze_stock(
+                ticker, ind, sentiment, analyst, score_data,
+                accuracy_context=accuracy_context,
+                ticker_history=ticker_history,
+            )
+            scan_stats["claude_calls_made"] += 1
 
-                ticker_history = _get_ticker_history(ticker, tf)
-                ai_result = analyze_stock(ticker, tf, ind, sentiment, analyst, score_data,
-                                          accuracy_context=accuracy_context,
-                                          ticker_history=ticker_history)
-                scan_stats["claude_calls_made"] += 1
+            direction  = ai.get("direction", "NEUTRAL")
+            position   = ai.get("position", "HOLD")
+            confidence = ai.get("confidence", 50)
+            price      = ind.get("price", 0)
+            atr        = ind.get("atr", price * 0.02) or (price * 0.02)
 
-                direction = ai_result.get("direction", "NEUTRAL")
-                position = ai_result.get("position", "HOLD")
-                confidence = ai_result.get("confidence", 50)
-                price = ind.get("price", 0)
-                atr = ind.get("atr", price * 0.02)
-                buy_low, buy_high = compute_buy_range(price, atr, direction)
-                target_low, target_high, stop_loss = compute_targets(price, atr, direction)
-                buy_window = ai_result.get("buy_window") or compute_buy_window(tf, score_data["total"])
+            # Use Claude's target/stop if valid, otherwise derive from ATR
+            target_price = ai.get("target_price")
+            stop_price   = ai.get("stop_price")
 
-                days_to_target = ai_result.get("days_to_target")
-                if not days_to_target or days_to_target <= 0:
-                    target_pct = {"short": 0.04, "medium": 0.08, "long": 0.15}[tf]
-                    days_to_target = max(2, round((price * target_pct) / (atr or price * 0.02)))
-                expires_days = max(2, round(days_to_target * 1.2))
-                expires_on = (start_time + timedelta(days=expires_days)).isoformat()
+            if not target_price or target_price <= 0:
+                mult = {"BULLISH": 1.5, "BEARISH": -1.5}.get(direction, 1.0)
+                target_price = round(price + atr * mult * 1.5, 2)
+            if not stop_price or stop_price <= 0:
+                mult = {"BULLISH": -1.0, "BEARISH": 1.0}.get(direction, -1.0)
+                stop_price = round(price + atr * mult * 1.5, 2)
 
-                pred = {
-                    "ticker": ticker,
-                    "company_name": item.get("company_name", ticker),
-                    "predicted_on": start_time.isoformat(),
-                    "expires_on": expires_on,
-                    "days_to_target": days_to_target,
-                    "timing_rationale": ai_result.get("timing_rationale", ""),
-                    "timeframe": tf,
-                    "direction": direction,
-                    "position": position,
-                    "confidence": confidence,
-                    "score": score_data["total"],
-                    "price_at_prediction": price,
-                    "buy_range_low": buy_low,
-                    "buy_range_high": buy_high,
-                    "target_low": target_low,
-                    "target_high": target_high,
-                    "stop_loss": stop_loss,
-                    "reasoning": ai_result.get("reasoning", ""),
-                    "source": item["source"],
-                    "formula_version": FORMULA_VERSION,
-                    "outcome": "PENDING",
-                }
+            target_price = round(float(target_price), 2)
+            stop_price   = round(float(stop_price), 2)
 
-                saved = insert_prediction(pred)
-                pred["id"] = saved.get("id")
-                pred["buy_window"] = buy_window
-                pred["buy_low"] = buy_low
-                pred["buy_high"] = buy_high
-                all_predictions.append(pred)
-                scan_stats["predictions_created"] += 1
+            # target_low/high for UI compatibility — use ±5% of target_price
+            target_low  = round(target_price * 0.97, 2)
+            target_high = round(target_price * 1.03, 2)
 
-            except Exception as e:
-                scan_stats["errors_encountered"] += 1
-                msg = f"Prediction error {ticker}/{tf}: {e}"
-                print(f"  {msg}")
-                log_error("scanner", msg, detail=str(e), ticker=ticker)
+            buy_low, buy_high = compute_buy_range(price, atr, direction)
+            buy_window = ai.get("buy_window") or compute_buy_window("short", score_data["total"])
+
+            # Bucket by Claude's days estimate
+            days_to_target = ai.get("days_to_target")
+            if not days_to_target or days_to_target <= 0:
+                # ATR fallback: how many days to cover target distance
+                dist = abs(target_price - price)
+                days_to_target = max(2, round(dist / atr))
+
+            timeframe  = _bucket(days_to_target)
+            expires_on = (start_time + timedelta(days=round(days_to_target * 1.2))).isoformat()
+
+            pred = {
+                "ticker":               ticker,
+                "company_name":         item.get("company_name", ticker),
+                "predicted_on":         start_time.isoformat(),
+                "expires_on":           expires_on,
+                "days_to_target":       days_to_target,
+                "timing_rationale":     ai.get("timing_rationale", ""),
+                "timeframe":            timeframe,
+                "direction":            direction,
+                "position":             position,
+                "confidence":           confidence,
+                "score":                score_data["total"],
+                "price_at_prediction":  price,
+                "buy_range_low":        buy_low,
+                "buy_range_high":       buy_high,
+                "target_low":           target_low,
+                "target_high":          target_high,
+                "stop_loss":            stop_price,
+                "reasoning":            ai.get("reasoning", ""),
+                "source":               item["source"],
+                "formula_version":      FORMULA_VERSION,
+                "outcome":              "PENDING",
+            }
+
+            saved = insert_prediction(pred)
+            pred["id"]        = saved.get("id")
+            pred["buy_window"] = buy_window
+            pred["buy_low"]   = buy_low
+            pred["buy_high"]  = buy_high
+            all_predictions.append(pred)
+            scan_stats["predictions_created"] += 1
+            print(f"  {ticker} ({item['company_name']}) → {direction} {timeframe}-term, {days_to_target}d, {confidence}% conf")
+
+        except Exception as e:
+            scan_stats["errors_encountered"] += 1
+            log_error("scanner", f"Prediction error {ticker}: {e}", detail=str(e), ticker=ticker)
+            print(f"  Error on {ticker}: {e}")
 
     scan_stats["claude_cost_usd"] = estimate_cost(scan_stats["claude_calls_made"])
 
-    # ── Rank and send Telegram ────────────────────────────────────────────────
+    # ── Telegram summary ──────────────────────────────────────────────────────
     ranked = rank_predictions(all_predictions)
     top_pick = ranked.get("top_pick")
     if top_pick:
@@ -237,25 +256,18 @@ def run():
         neutral = len(open_trades) - winning - losing
     except Exception as e:
         open_trades, winning, losing, neutral = [], 0, 0, 0
-        log_error("scanner", f"Could not load open trades for Telegram summary: {e}", level="WARNING")
-
-    picks_for_telegram = {
-        "short": ranked["short"][:3],
-        "medium": ranked["medium"][:3],
-        "long": ranked["long"][:3],
-        "top_pick": top_pick,
-    }
+        log_error("scanner", f"Could not load open trades: {e}", level="WARNING")
 
     try:
         ok = send_nightly_summary(
-            picks=picks_for_telegram,
-            open_trades=len(open_trades),
-            winning=winning, losing=losing, neutral=neutral,
-            universe_total=universe_total,
-            nasdaq_count=nasdaq_count, hot_count=hot_count, overlap=overlap_count,
+            picks={"short": ranked["short"][:3], "medium": ranked["medium"][:3],
+                   "long": ranked["long"][:3], "top_pick": top_pick},
+            open_trades=len(open_trades), winning=winning, losing=losing, neutral=neutral,
+            universe_total=universe_total, nasdaq_count=nasdaq_count,
+            hot_count=hot_count, overlap=overlap_count,
         )
         if not ok:
-            log_error("telegram", "send_nightly_summary returned False — check bot token/chat ID", level="WARNING")
+            log_error("telegram", "send_nightly_summary returned False", level="WARNING")
     except Exception as e:
         log_error("telegram", f"Telegram send failed: {e}", detail=str(e), level="ERROR")
 
@@ -263,10 +275,9 @@ def run():
         insert_scan_log(scan_stats)
     except Exception as e:
         log_error("scanner", f"Scan log insert failed: {e}", detail=str(e), level="ERROR")
-        print(f"Scan log error: {e}")
 
     elapsed = (datetime.now(PT) - start_time).seconds
-    summary = f"Done in {elapsed}s. {scan_stats['predictions_created']} predictions, {scan_stats['errors_encountered']} errors."
+    summary = f"Done in {elapsed}s — {scan_stats['predictions_created']} predictions, {scan_stats['errors_encountered']} errors."
     print(summary)
     log_error("scanner", summary, level="INFO")
     return scan_stats
@@ -285,16 +296,16 @@ def _build_accuracy_context() -> str:
         return ""
 
 
-def _get_ticker_history(ticker: str, timeframe: str) -> str:
+def _get_ticker_history(ticker: str) -> str:
     try:
         from database.db import get_predictions
-        preds = get_predictions({"ticker": ticker, "timeframe": timeframe}, limit=20)
+        preds = get_predictions({"ticker": ticker}, limit=20)
         closed = [p for p in preds if p.get("outcome") in ("WIN", "LOSS")]
         if len(closed) < 3:
             return ""
         wins = sum(1 for p in closed if p["outcome"] == "WIN")
         pct = wins / len(closed) * 100
-        return f"{ticker} {timeframe}-term: {wins}/{len(closed)} wins ({pct:.0f}%) — {'be cautious' if pct < 50 else 'reliable'}"
+        return f"{ticker}: {wins}/{len(closed)} wins ({pct:.0f}%) — {'be cautious' if pct < 50 else 'reliable track record'}"
     except Exception:
         return ""
 

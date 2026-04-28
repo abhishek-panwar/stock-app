@@ -5,10 +5,10 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
                          timeframe: str = "short", source: str = "nasdaq100") -> dict:
     """
     Returns a score dict with breakdown and total (0–100).
-    timeframe: 'short' | 'medium' | 'long'
+    timeframe param kept for backwards compatibility but weights are uniform.
     source: 'nasdaq100' | 'hot_stock' | 'both'
     """
-    weights = _timeframe_weights(timeframe)
+    weights = {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
     scores = {}
 
     # ── Group 1: Momentum (25 pts max) ────────────────────────────────────────
@@ -31,7 +31,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         if ind.get("macd_hist", 0) > 0:
             macd_score += 2
 
-    roc = ind.get("roc_5", 0) if timeframe == "short" else ind.get("roc_20", 0)
+    roc = ind.get("roc_5", 0) or ind.get("roc_20", 0) or 0
     roc_score = 0
     if abs(roc) >= 5:
         roc_score = 5
@@ -187,17 +187,6 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         "formula_version": FORMULA_VERSION,
     }
 
-
-def _timeframe_weights(timeframe: str) -> dict:
-    # Weights are multipliers on each group's max score.
-    # 1.0 = use full group max. >1.0 = boost. <1.0 = reduce.
-    # Groups caps are enforced separately so total still reaches ~100.
-    if timeframe == "short":
-        return {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
-    elif timeframe == "medium":
-        return {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
-    else:  # long
-        return {"momentum": 1.0, "trend": 1.0, "volatility": 1.0, "volume": 1.0, "sentiment": 1.0, "external": 1.0}
 
 
 def determine_direction(ind: dict, score: int) -> tuple[str, str]:

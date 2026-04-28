@@ -91,10 +91,10 @@ def render():
     medium = sorted([p for p in predictions if p.get("timeframe") == "medium"], key=_sort_key)
     long_  = sorted([p for p in predictions if p.get("timeframe") == "long"],   key=_sort_key)
 
-    all_agree_tickers = (
-        {p["ticker"] for p in short} &
-        {p["ticker"] for p in medium} &
-        {p["ticker"] for p in long_}
+    # High conviction = confidence >= 75
+    high_conviction = sorted(
+        [p for p in predictions if (p.get("confidence") or 0) >= 75],
+        key=_sort_key
     )
 
     if "chart_ticker" not in st.session_state:
@@ -104,18 +104,14 @@ def render():
     _chart_panel()
     st.markdown("---")
 
-    # ── All Timeframes Agree ──────────────────────────────────────────────────
-    if all_agree_tickers:
-        st.markdown("### 🎯 All Timeframes Agree — Highest Conviction")
-        agree_list = sorted(all_agree_tickers)
-        chunks = [agree_list[i:i+5] for i in range(0, len(agree_list), 5)]
+    # ── High conviction picks ─────────────────────────────────────────────────
+    if high_conviction:
+        st.markdown("### 🎯 High Conviction Picks")
+        chunks = [high_conviction[i:i+5] for i in range(0, len(high_conviction), 5)]
         for chunk in chunks:
             cols = st.columns(len(chunk))
-            for col, ticker in zip(cols, chunk):
-                p = next((x for x in short if x["ticker"] == ticker), None) or \
-                    next((x for x in medium if x["ticker"] == ticker), None)
-                if not p:
-                    continue
+            for col, p in zip(cols, chunk):
+                ticker    = p.get("ticker", "—")
                 direction = p.get("direction", "NEUTRAL")
                 bg, border, text = DIR_COLORS.get(direction, DIR_COLORS["NEUTRAL"])
                 entry  = p.get("price_at_prediction") or 0
@@ -124,13 +120,14 @@ def render():
                 days = p.get("days_to_target", "?")
                 company = p.get("company_name") or _get_company_name(ticker)
                 _, age_badge = _age_info(p.get("predicted_on", ""))
+                tf_label = {"short": "⚡ Short", "medium": "📈 Mid", "long": "🌱 Long"}.get(p.get("timeframe",""), "")
                 with col:
                     st.markdown(
                         f"""<div style="background:{bg};border:1.5px solid {border};border-radius:10px;
                         padding:10px 12px;text-align:left">
                         <div style="font-size:17px;font-weight:700;color:{text}">{ticker}</div>
                         <div style="font-size:11px;color:#475569;margin-bottom:4px">{company}</div>
-                        <div style="font-size:11px;font-weight:600;color:{text}">{direction}</div>
+                        <div style="font-size:11px;font-weight:600;color:{text}">{direction} · {tf_label}</div>
                         <div style="font-size:12px;color:#1e293b">{p.get('confidence',0)}% conf · {p.get('score',0)}/100</div>
                         <div style="font-size:12px;font-weight:600;color:#15803d">+{profit_pct:.1f}% · ~{days}d</div>
                         <div style="margin-top:5px">{age_badge}</div>
@@ -141,15 +138,15 @@ def render():
 
     # ── Timeframe sections ────────────────────────────────────────────────────
     for label, emoji, preds in [
-        ("Short-term",  "⚡", short[:10]),
-        ("Medium-term", "📈", medium[:10]),
-        ("Long-term",   "🌱", long_[:10]),
+        ("Short-term  (≤10 days)",   "⚡", short[:10]),
+        ("Medium-term (11–35 days)", "📈", medium[:10]),
+        ("Long-term   (>35 days)",   "🌱", long_[:10]),
     ]:
         if not preds:
             continue
         st.markdown(f"### {emoji} {label}")
         for p in preds:
-            _prediction_card(p, all_agree_tickers)
+            _prediction_card(p, set())   # no all_agree concept any more
 
     if not short and not medium and not long_:
         _show_empty_state()
@@ -195,14 +192,13 @@ def _chart_panel():
             st.error(f"Chart error: {e}")
 
 
-def _prediction_card(p: dict, all_agree_tickers: set):
+def _prediction_card(p: dict, _unused: set = None):
     ticker      = p.get("ticker", "—")
     direction   = p.get("direction", "NEUTRAL")
     confidence  = p.get("confidence", 0)
     score       = p.get("score", 0)
     position    = p.get("position", "HOLD")
     timeframe   = p.get("timeframe", "short")
-    agreed      = ticker in all_agree_tickers
     predicted_on = p.get("predicted_on", "")
 
     company = p.get("company_name") or _get_company_name(ticker)
@@ -220,18 +216,18 @@ def _prediction_card(p: dict, all_agree_tickers: set):
 
     age_days, age_badge = _age_info(predicted_on)
 
-    dir_icon  = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
-    age_tag   = f"  ·  NEW" if age_days == 0 else f"  ·  {age_days}d old"
-    agree_tag = "  🎯" if agreed else ""
-    pos_tag   = f"  ·  {position}" if position not in ("HOLD", "") else ""
-    exp_tag   = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  **expired**" if days_left is not None and days_left <= 0 else "")
+    dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
+    hc_tag   = "  🎯" if confidence >= 75 else ""
+    age_tag  = "  ·  NEW" if age_days == 0 else f"  ·  {age_days}d old"
+    pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
+    exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  **expired**" if days_left is not None and days_left <= 0 else "")
 
     header = (
         f"**{ticker}** — {company}  ·  "
         f"{dir_icon} {direction}  ·  "
         f"{confidence}% conf  ·  {score}/100  ·  "
         f"{profit_str}{pos_tag}  ·  ~{tenure_str}"
-        f"{exp_tag}{age_tag}{agree_tag}"
+        f"{exp_tag}{age_tag}{hc_tag}"
     )
 
     with st.expander(header, expanded=False):
