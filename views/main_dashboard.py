@@ -237,7 +237,8 @@ def _prediction_card(p: dict, all_agree_tickers: set):
     with st.expander(header, expanded=False):
         btn_col, badge_col = st.columns([2, 8])
         with btn_col:
-            if st.button(f"📈 View Chart", key=f"chartbtn_{ticker}_{timeframe}"):
+            pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+        if st.button(f"📈 View Chart", key=f"chartbtn_{pred_id}"):
                 st.session_state.chart_ticker = ticker
                 st.session_state.chart_pred   = p
                 st.rerun()

@@ -20,7 +20,7 @@ from indicators.scoring import compute_signal_score, determine_direction, comput
 
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error
 
 SCORE_THRESHOLD_DROP = 60
 SCORE_THRESHOLD_HIGHLIGHT = 85
@@ -44,8 +44,13 @@ def run():
 
     # ── Build universe ────────────────────────────────────────────────────────
     print("Building hot stock list...")
-    hot_tickers = get_hot_tickers(top_n=50)
-    universe, nasdaq_count, hot_count, overlap_count = build_universe(hot_tickers)
+    try:
+        hot_tickers = get_hot_tickers(top_n=50)
+        universe, nasdaq_count, hot_count, overlap_count = build_universe(hot_tickers)
+    except Exception as e:
+        log_error("scanner", f"Failed to build universe: {e}", level="ERROR")
+        raise
+
     universe_total = len(universe)
     scan_stats.update({
         "nasdaq100_count": nasdaq_count,
@@ -54,8 +59,8 @@ def run():
         "universe_total": universe_total,
     })
     print(f"Universe: {universe_total} stocks ({nasdaq_count} Nasdaq + {hot_count} hot → {overlap_count} overlap)")
+    log_error("scanner", f"Universe built: {universe_total} stocks", level="INFO")
 
-    # ── Load accuracy context for Claude prompts ──────────────────────────────
     accuracy_context = _build_accuracy_context()
 
     # ── Score all stocks ──────────────────────────────────────────────────────
@@ -84,7 +89,6 @@ def run():
             earnings = get_earnings_history(ticker)
             info = get_ticker_info(ticker)
 
-            # Score for all three timeframes, take max
             best_score = 0
             best_tf = "short"
             for tf in ["short", "medium", "long"]:
@@ -108,7 +112,6 @@ def run():
                 "earnings": earnings,
             })
 
-            # Shadow portfolio: track score 55–74 for missed opportunity detection
             if 55 <= best_score < 75:
                 shadow.append({
                     "ticker": ticker,
@@ -126,22 +129,22 @@ def run():
 
         except Exception as e:
             scan_stats["errors_encountered"] += 1
-            print(f"  Error on {ticker}: {e}")
+            msg = f"Scoring error for {ticker}: {e}"
+            print(f"  {msg}")
+            log_error("scanner", msg, detail=str(e), ticker=ticker)
 
-    # Sort by score, take top MAX_CLAUDE_CALLS for deep analysis
     scored.sort(key=lambda x: x["score"], reverse=True)
     top_stocks = scored[:MAX_CLAUDE_CALLS]
     scan_stats["stocks_analyzed"] = len(top_stocks)
     print(f"Top {len(top_stocks)} stocks sent to Claude...")
 
-    # ── Log shadow portfolio ──────────────────────────────────────────────────
     for s in shadow:
         try:
             insert_shadow_price(s)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("scanner", f"Shadow price insert failed for {s.get('ticker')}: {e}", level="WARNING")
 
-    # ── Claude deep analysis + prediction logging ──────────────────────────────
+    # ── Claude deep analysis + prediction logging ─────────────────────────────
     all_predictions = []
 
     for item in top_stocks:
@@ -172,12 +175,10 @@ def run():
                 target_low, target_high, stop_loss = compute_targets(price, atr, direction)
                 buy_window = ai_result.get("buy_window") or compute_buy_window(tf, score_data["total"])
 
-                # Use Claude's data-driven estimate; fall back to ATR-derived if missing
                 days_to_target = ai_result.get("days_to_target")
                 if not days_to_target or days_to_target <= 0:
                     target_pct = {"short": 0.04, "medium": 0.08, "long": 0.15}[tf]
                     days_to_target = max(2, round((price * target_pct) / (atr or price * 0.02)))
-                # Add 20% buffer so predictions don't expire just before target
                 expires_days = max(2, round(days_to_target * 1.2))
                 expires_on = (start_time + timedelta(days=expires_days)).isoformat()
 
@@ -215,7 +216,9 @@ def run():
 
             except Exception as e:
                 scan_stats["errors_encountered"] += 1
-                print(f"  Prediction error {ticker}/{tf}: {e}")
+                msg = f"Prediction error {ticker}/{tf}: {e}"
+                print(f"  {msg}")
+                log_error("scanner", msg, detail=str(e), ticker=ticker)
 
     scan_stats["claude_cost_usd"] = estimate_cost(scan_stats["claude_calls_made"])
 
@@ -230,10 +233,11 @@ def run():
         from database.db import get_open_predictions
         open_trades = get_open_predictions()
         winning = sum(1 for t in open_trades if (t.get("price_at_prediction") or 0) < (t.get("price_at_close") or t.get("price_at_prediction") or 0))
-        losing = sum(1 for t in open_trades if (t.get("price_at_prediction") or 0) > (t.get("price_at_close") or t.get("price_at_prediction") or 1e9))
+        losing  = sum(1 for t in open_trades if (t.get("price_at_prediction") or 0) > (t.get("price_at_close") or t.get("price_at_prediction") or 1e9))
         neutral = len(open_trades) - winning - losing
-    except Exception:
+    except Exception as e:
         open_trades, winning, losing, neutral = [], 0, 0, 0
+        log_error("scanner", f"Could not load open trades for Telegram summary: {e}", level="WARNING")
 
     picks_for_telegram = {
         "short": ranked["short"][:3],
@@ -242,26 +246,29 @@ def run():
         "top_pick": top_pick,
     }
 
-    send_nightly_summary(
-        picks=picks_for_telegram,
-        open_trades=len(open_trades),
-        winning=winning,
-        losing=losing,
-        neutral=neutral,
-        universe_total=universe_total,
-        nasdaq_count=nasdaq_count,
-        hot_count=hot_count,
-        overlap=overlap_count,
-    )
+    try:
+        ok = send_nightly_summary(
+            picks=picks_for_telegram,
+            open_trades=len(open_trades),
+            winning=winning, losing=losing, neutral=neutral,
+            universe_total=universe_total,
+            nasdaq_count=nasdaq_count, hot_count=hot_count, overlap=overlap_count,
+        )
+        if not ok:
+            log_error("telegram", "send_nightly_summary returned False — check bot token/chat ID", level="WARNING")
+    except Exception as e:
+        log_error("telegram", f"Telegram send failed: {e}", detail=str(e), level="ERROR")
 
-    # ── Write scan log ────────────────────────────────────────────────────────
     try:
         insert_scan_log(scan_stats)
     except Exception as e:
+        log_error("scanner", f"Scan log insert failed: {e}", detail=str(e), level="ERROR")
         print(f"Scan log error: {e}")
 
     elapsed = (datetime.now(PT) - start_time).seconds
-    print(f"Done in {elapsed}s. {scan_stats['predictions_created']} predictions logged.")
+    summary = f"Done in {elapsed}s. {scan_stats['predictions_created']} predictions, {scan_stats['errors_encountered']} errors."
+    print(summary)
+    log_error("scanner", summary, level="INFO")
     return scan_stats
 
 

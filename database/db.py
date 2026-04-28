@@ -113,6 +113,32 @@ def get_analyst_predictions(analyst_id: str) -> list:
     return get_client().table("analyst_predictions").select("*").eq("analyst_id", analyst_id).order("article_published_at", desc=True).execute().data
 
 
+# ── Error Logs ────────────────────────────────────────────────────────────────
+
+def log_error(source: str, message: str, detail: str = "", ticker: str = "", level: str = "ERROR"):
+    """Write an error/warning/info entry. Silently no-ops if DB is unavailable."""
+    try:
+        get_client().table("error_logs").insert({
+            "source": source,
+            "level": level,
+            "ticker": ticker or None,
+            "message": str(message)[:500],
+            "detail": str(detail)[:2000] if detail else None,
+        }).execute()
+    except Exception:
+        pass  # never let logging crash the caller
+
+def get_error_logs(days: int = 30, source: str = None, level: str = None) -> list:
+    from datetime import datetime, timedelta
+    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    q = get_client().table("error_logs").select("*").gte("occurred_at", since).order("occurred_at", desc=True).limit(500)
+    if source:
+        q = q.eq("source", source)
+    if level:
+        q = q.eq("level", level)
+    return q.execute().data
+
+
 # ── Forensic Sessions ──────────────────────────────────────────────────────────
 
 def insert_forensic_session(data: dict) -> dict:

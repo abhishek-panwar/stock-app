@@ -12,7 +12,7 @@ load_dotenv()
 import pytz
 PT = pytz.timezone("America/Los_Angeles")
 
-from database.db import get_open_predictions, update_prediction
+from database.db import get_open_predictions, update_prediction, log_error
 from services.yfinance_service import get_multiple_prices
 from services.telegram_service import send_stop_loss_alert, send_target_hit_alert
 
@@ -27,10 +27,15 @@ def run():
     open_preds = get_open_predictions()
     if not open_preds:
         print("No open predictions.")
+        log_error("verifier", "No open predictions to verify", level="INFO")
         return
 
     tickers = list({p["ticker"] for p in open_preds})
-    prices = get_multiple_prices(tickers)
+    try:
+        prices = get_multiple_prices(tickers)
+    except Exception as e:
+        log_error("verifier", f"Failed to fetch prices: {e}", detail=str(e), level="ERROR")
+        raise
     print(f"Checking {len(open_preds)} open predictions across {len(tickers)} tickers...")
 
     verified = 0
@@ -95,13 +100,21 @@ def run():
                 print(f"  {ticker} {timeframe}: {outcome} ({return_pct:+.2f}%) — {closed_reason}")
 
                 if closed_reason == "STOP_LOSS":
-                    send_stop_loss_alert(ticker, entry, current, abs(return_pct))
+                    ok = send_stop_loss_alert(ticker, entry, current, abs(return_pct))
+                    if not ok:
+                        log_error("telegram", f"Stop loss alert failed for {ticker}", ticker=ticker, level="WARNING")
                 elif closed_reason == "TARGET_HIT":
-                    send_target_hit_alert(ticker, entry, current, return_pct)
+                    ok = send_target_hit_alert(ticker, entry, current, return_pct)
+                    if not ok:
+                        log_error("telegram", f"Target hit alert failed for {ticker}", ticker=ticker, level="WARNING")
             except Exception as e:
-                print(f"  Error updating {ticker}: {e}")
+                msg = f"Error updating {ticker}: {e}"
+                print(f"  {msg}")
+                log_error("verifier", msg, detail=str(e), ticker=ticker, level="ERROR")
 
-    print(f"Verified {verified} predictions.")
+    summary = f"Verified {verified} predictions."
+    print(summary)
+    log_error("verifier", summary, level="INFO")
 
 
 if __name__ == "__main__":

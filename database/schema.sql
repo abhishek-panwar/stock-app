@@ -174,6 +174,19 @@ create table if not exists publication_scores (
   last_updated        timestamptz default now()
 );
 
+-- ── Error Logs ───────────────────────────────────────────────────────────────
+create table if not exists error_logs (
+  id          uuid primary key default gen_random_uuid(),
+  occurred_at timestamptz not null default now(),
+  source      text not null,  -- scanner / verifier / telegram / app
+  level       text not null default 'ERROR' check (level in ('ERROR', 'WARNING', 'INFO')),
+  ticker      text,
+  message     text not null,
+  detail      text,
+  created_at  timestamptz default now()
+);
+create index if not exists error_logs_occurred_at on error_logs (occurred_at desc);
+
 -- ── Forensic Sessions ─────────────────────────────────────────────────────────
 create table if not exists forensic_sessions (
   id                      uuid primary key default gen_random_uuid(),
