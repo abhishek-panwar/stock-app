@@ -50,7 +50,7 @@ def nightly_scanner():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("30 3 * * *"),
+    schedule=modal.Cron("0 22 * * 1-5"),  # 2:00 PM PT (22:00 UTC)
 )
 def prediction_verifier():
     import sys
@@ -64,7 +64,7 @@ def prediction_verifier():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("45 3 * * *"),
+    schedule=modal.Cron("30 22 * * 1-5"),  # 2:30 PM PT (22:30 UTC)
 )
 def feedback_engine():
     import sys
@@ -78,7 +78,7 @@ def feedback_engine():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("0 13 * * 1-5"),
+    schedule=modal.Cron("0 13 * * 1"),  # 6:00 AM PT Mondays only
 )
 def health_monitor():
     import sys
