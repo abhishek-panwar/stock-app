@@ -119,6 +119,17 @@ h3 { font-size: 1.05rem !important; font-weight: 600 !important; color: #1e293b 
 
 /* ── Caption text ── */
 [data-testid="stCaptionContainer"] p { color: #64748b !important; font-size: 12px !important; }
+
+/* ── Force left alignment everywhere in main content ── */
+[data-testid="stMain"] p,
+[data-testid="stMain"] li,
+[data-testid="stMain"] span,
+[data-testid="stMain"] div,
+[data-testid="stMain"] label,
+[data-testid="stMain"] .stMarkdown,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] p {
+    text-align: left !important;
+}
 </style>
 """, unsafe_allow_html=True)
 

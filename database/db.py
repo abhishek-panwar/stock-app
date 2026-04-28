@@ -19,7 +19,7 @@ def get_client() -> Client:
 
 # ── Predictions ────────────────────────────────────────────────────────────────
 
-_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale"}
+_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name"}
 
 def insert_prediction(data: dict) -> dict:
     try:

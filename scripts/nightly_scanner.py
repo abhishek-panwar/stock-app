@@ -82,6 +82,7 @@ def run():
             sentiment["mentions"] = social.get("mentions", 0)
             analyst = get_analyst_recommendation(ticker)
             earnings = get_earnings_history(ticker)
+            info = get_ticker_info(ticker)
 
             # Score for all three timeframes, take max
             best_score = 0
@@ -97,6 +98,7 @@ def run():
 
             scored.append({
                 "ticker": ticker,
+                "company_name": info.get("name", ticker),
                 "source": source,
                 "score": best_score,
                 "timeframe": best_tf,
@@ -181,6 +183,7 @@ def run():
 
                 pred = {
                     "ticker": ticker,
+                    "company_name": item.get("company_name", ticker),
                     "predicted_on": start_time.isoformat(),
                     "expires_on": expires_on,
                     "days_to_target": days_to_target,

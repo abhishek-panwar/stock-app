@@ -7,6 +7,7 @@ create extension if not exists "pgcrypto";
 create table if not exists predictions (
   id                  uuid primary key default gen_random_uuid(),
   ticker              text not null,
+  company_name        text,
   predicted_on        timestamptz not null,
   expires_on          timestamptz,           -- data-driven: predicted_on + days_to_target * 1.2
   days_to_target      integer,               -- Claude's ATR/momentum-based estimate

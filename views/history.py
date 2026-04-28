@@ -1,9 +1,29 @@
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
-TIMEFRAME_DAYS = {"short": 5, "medium": 28, "long": 180}
 PT = pytz.timezone("America/Los_Angeles")
+
+
+@st.cache_data(ttl=3600)
+def _get_company_name(ticker: str) -> str:
+    try:
+        from services.yfinance_service import get_ticker_info
+        return get_ticker_info(ticker).get("name", ticker)
+    except Exception:
+        return ticker
+
+
+def _expiry(p: dict):
+    raw = p.get("expires_on") or ""
+    if not raw:
+        return "—", None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+        days_left = (dt - datetime.utcnow()).days
+        return dt.strftime("%b %d, %Y"), days_left
+    except Exception:
+        return "—", None
 
 
 def render():
@@ -107,28 +127,18 @@ def render():
         profit_str = f"+{profit_pct:.1f}%" if profit_pct > 0 else f"{profit_pct:.1f}%"
 
         # Expiry
-        expiry_dt = None
-        try:
-            raw = p.get("expires_on", "")
-            if raw:
-                expiry_dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
-            else:
-                pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)
-                expiry_dt = pred_dt + timedelta(days=TIMEFRAME_DAYS.get(timeframe, 5))
-        except Exception:
-            pass
-        days_left = (expiry_dt - datetime.utcnow()).days if expiry_dt else None
-        expiry_str = expiry_dt.strftime("%b %d, %Y") if expiry_dt else "—"
+        expiry_str, days_left = _expiry(p)
         days_to_target = p.get("days_to_target")
-        tenure_str = f"{days_to_target}d" if days_to_target else f"{TIMEFRAME_DAYS.get(timeframe, '?')}d"
+        tenure_str = f"{days_to_target}d" if days_to_target else "—"
 
+        company = p.get("company_name") or _get_company_name(ticker)
         outcome_icon = "🟢" if outcome == "WIN" else "🔴" if outcome == "LOSS" else "🟡"
         dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
         days_label = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
         pos_tag = f"  ·  {position}" if position not in ("HOLD", "") else ""
 
         header = (
-            f"{outcome_icon} **{ticker}**  ·  {dir_icon} {direction}  ·  "
+            f"{outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
             f"{confidence}% conf  ·  {score}/100  ·  "
             f"{profit_str} potential  ·  ~{tenure_str}"
             f"{pos_tag}  ·  {ret_str}{days_label}"
@@ -176,7 +186,10 @@ def render():
                 st.markdown("**Timing**")
                 st.write(f"Timeframe: {timeframe}  ·  Position: {position}")
                 st.write(f"Est. days to target: {days_to_target or '—'}")
-                st.write(f"Expires: {expiry_str}{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
+                if expiry_str != "—":
+                    st.write(f"Expires: {expiry_str}{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
+                else:
+                    st.write("Expires: run scanner to populate")
                 if p.get("timing_rationale"):
                     st.caption(f"💡 {p['timing_rationale']}")
 
