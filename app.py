@@ -142,12 +142,13 @@ with st.sidebar:
     st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:8px 0 10px'>", unsafe_allow_html=True)
 
     pages = [
-        ("Today's Best Setups", "🏠"),
-        ("History & Accuracy",  "📜"),
-        ("Deep Dive",           "🔬"),
-        ("Analysts",            "👤"),
-        ("System Evolution",    "🧠"),
-        ("Health Dashboard",    "🔧"),
+        ("Today's Best Setups",   "🏠"),
+        ("History & Accuracy",    "📜"),
+        ("Deleted Predictions",   "🗑️"),
+        ("Deep Dive",             "🔬"),
+        ("Analysts",              "👤"),
+        ("System Evolution",      "🧠"),
+        ("Health Dashboard",      "🔧"),
     ]
 
     if "page" not in st.session_state:
@@ -174,6 +175,8 @@ if page == "Today's Best Setups":
     from views import main_dashboard;  main_dashboard.render()
 elif page == "History & Accuracy":
     from views import history;         history.render()
+elif page == "Deleted Predictions":
+    from views import deleted_predictions; deleted_predictions.render()
 elif page == "Deep Dive":
     from views import deep_dive;       deep_dive.render()
 elif page == "Analysts":

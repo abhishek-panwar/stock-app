@@ -35,11 +35,32 @@ def get_open_predictions() -> list:
     return get_client().table("predictions").select("*").eq("outcome", "PENDING").execute().data
 
 def get_predictions(filters: dict = None, limit: int = 500) -> list:
-    q = get_client().table("predictions").select("*").order("predicted_on", desc=True).limit(limit)
+    q = (get_client().table("predictions").select("*")
+         .is_("deleted_at", "null")          # exclude soft-deleted
+         .order("predicted_on", desc=True).limit(limit))
     if filters:
         for k, v in filters.items():
             q = q.eq(k, v)
     return q.execute().data
+
+def soft_delete_prediction(prediction_id: str) -> None:
+    from datetime import datetime
+    get_client().table("predictions").update(
+        {"deleted_at": datetime.utcnow().isoformat()}
+    ).eq("id", prediction_id).execute()
+
+def restore_prediction(prediction_id: str) -> None:
+    from datetime import datetime
+    get_client().table("predictions").update(
+        {"deleted_at": None,
+         "predicted_on": datetime.utcnow().isoformat()}  # refresh timestamp
+    ).eq("id", prediction_id).execute()
+
+def get_deleted_predictions(limit: int = 200) -> list:
+    return (get_client().table("predictions").select("*")
+            .not_.is_("deleted_at", "null")
+            .order("deleted_at", desc=True).limit(limit)
+            .execute().data)
 
 def update_prediction(prediction_id: str, data: dict) -> dict:
     return get_client().table("predictions").update(data).eq("id", prediction_id).execute().data[0]

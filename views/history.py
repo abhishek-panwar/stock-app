@@ -144,10 +144,20 @@ def render():
             f"{pos_tag}  ·  {ret_str}{days_label}"
         )
 
+        pred_id = p.get("id") or f"{ticker}_{timeframe}_{p.get('predicted_on','')[:10]}"
         with st.expander(header, expanded=False):
             stop  = p.get("stop_loss") or 0
             rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
             closed_reason = p.get("closed_reason", "")
+
+            # Delete button
+            if st.button("✕ Delete prediction", key=f"hdel_{pred_id}"):
+                try:
+                    from database.db import soft_delete_prediction
+                    soft_delete_prediction(pred_id)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
 
             # Stat pills
             dir_color     = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"

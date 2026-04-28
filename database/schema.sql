@@ -31,6 +31,7 @@ create table if not exists predictions (
   outcome             text default 'PENDING' check (outcome in ('WIN', 'LOSS', 'PENDING')),
   return_pct          numeric(6,2),
   closed_reason       text check (closed_reason in ('TARGET_HIT', 'STOP_LOSS', 'EXPIRED', null)),
+  deleted_at          timestamptz,   -- soft delete; NULL = active
   created_at          timestamptz default now()
 );
 

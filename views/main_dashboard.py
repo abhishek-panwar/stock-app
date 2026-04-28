@@ -231,15 +231,23 @@ def _prediction_card(p: dict, _unused: set = None):
     )
 
     with st.expander(header, expanded=False):
-        btn_col, badge_col = st.columns([2, 8])
+        pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+        btn_col, badge_col, del_col = st.columns([2, 7, 1])
         with btn_col:
-            pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
-        if st.button(f"📈 View Chart", key=f"chartbtn_{pred_id}"):
+            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
                 st.session_state.chart_ticker = ticker
                 st.session_state.chart_pred   = p
                 st.rerun()
         with badge_col:
             st.markdown(f"<div style='padding-top:6px'>{age_badge}</div>", unsafe_allow_html=True)
+        with del_col:
+            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
+                try:
+                    from database.db import soft_delete_prediction
+                    soft_delete_prediction(pred_id)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
 
         # ── Stat pills ────────────────────────────────────────────────────────
         dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
