@@ -328,7 +328,7 @@ def _prediction_card(p: dict, _unused: set = None):
         with c3:
             st.markdown("**Timing**")
             try:
-                pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).strftime("%b %d  %I:%M %p PT")
+                pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT).strftime("%b %d  %I:%M %p PT")
             except Exception:
                 pred_dt_str = "—"
             st.markdown(f"Predicted: `{pred_dt_str}`")
