@@ -103,38 +103,36 @@ def render():
             f"deleted {deleted_at_str}"
         )
 
-        # ── Row: [undo] [expander····················] [purge]
-        undo_col, row_col, purge_col = st.columns([1, 9, 1])
-
-        with undo_col:
-            if st.button("↩", key=f"undo_{pred_id}", help="Restore prediction", type="primary"):
-                try:
-                    from database.db import restore_prediction
-                    restore_prediction(pred_id)
-                    st.success(f"{ticker} restored.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Restore failed: {e}")
-
-        with purge_col:
-            if st.button("🗑️", key=f"purge_{pred_id}", help="Permanently delete"):
-                try:
-                    _purge_one(pred_id)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed: {e}")
-
-        with row_col:
-            with st.expander(header, expanded=False):
+        with st.container(border=True):
+            title_col, btn_col = st.columns([9, 2])
+            with title_col:
+                st.markdown(header)
                 st.markdown(
-                    f'<div style="font-size:12px;color:#64748b;margin-bottom:10px">'
-                    f'Originally predicted: {predicted_str}  ·  '
-                    f'Outcome when deleted: {outcome_icon} {outcome}  ·  '
-                    f'Timeframe: {timeframe}  ·  Position: {position}'
+                    f'<div style="font-size:12px;color:#64748b;margin-top:2px">'
+                    f'Predicted: {predicted_str}  ·  {outcome_icon} {outcome}  ·  {timeframe}  ·  {position}'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
+            with btn_col:
+                undo_c, purge_c = st.columns(2)
+                with undo_c:
+                    if st.button("↩ Undo", key=f"undo_{pred_id}", type="primary"):
+                        try:
+                            from database.db import restore_prediction
+                            restore_prediction(pred_id)
+                            st.success(f"{ticker} restored.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Restore failed: {e}")
+                with purge_c:
+                    if st.button("🗑️ Delete", key=f"purge_{pred_id}"):
+                        try:
+                            _purge_one(pred_id)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
 
+            with st.expander("Details", expanded=False):
                 stop = p.get("stop_loss") or 0
                 rr   = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
 

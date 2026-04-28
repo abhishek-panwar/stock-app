@@ -231,29 +231,31 @@ def _prediction_card(p: dict, _unused: set = None):
     )
 
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
-    row_col, del_col = st.columns([11, 1])
-    with del_col:
-        st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
-        if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
-            try:
-                from database.db import soft_delete_prediction
-                soft_delete_prediction(pred_id)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
-        st.markdown("</div>", unsafe_allow_html=True)
-    with row_col:
-        with st.expander(header, expanded=False):
-            btn_col, badge_col = st.columns([2, 8])
+
+    with st.container(border=True):
+        # ── Card header row ───────────────────────────────────────────────────
+        title_col, del_col = st.columns([11, 1])
+        with title_col:
+            st.markdown(f"{header}", unsafe_allow_html=False)
+            st.markdown(f"<div style='margin-top:2px'>{age_badge}{_asset_badge(p)}</div>", unsafe_allow_html=True)
+        with del_col:
+            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
+                try:
+                    from database.db import soft_delete_prediction
+                    soft_delete_prediction(pred_id)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
+
+        # ── Expandable details ────────────────────────────────────────────────
+        with st.expander("Details", expanded=False):
+            btn_col, _ = st.columns([2, 8])
             with btn_col:
                 if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
                     st.session_state.chart_ticker = ticker
                     st.session_state.chart_pred   = p
                     st.rerun()
-            with badge_col:
-                st.markdown(f"<div style='padding-top:6px'>{age_badge}{_asset_badge(p)}</div>", unsafe_allow_html=True)
 
-            # ── Stat pills ────────────────────────────────────────────────────
             dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
             prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
             st.markdown(
