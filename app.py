@@ -144,11 +144,11 @@ with st.sidebar:
     pages = [
         ("Today's Best Setups",   "🏠"),
         ("History & Accuracy",    "📜"),
-        ("Deleted Predictions",   "🗑️"),
         ("Deep Dive",             "🔬"),
         ("Analysts",              "👤"),
         ("System Evolution",      "🧠"),
         ("Health Dashboard",      "🔧"),
+        ("Deleted Predictions",   "🗑️"),
     ]
 
     if "page" not in st.session_state:
