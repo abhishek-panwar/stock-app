@@ -222,7 +222,7 @@ def _prediction_card(p: dict, _unused: set = None):
     pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
     exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
 
-    dir_label = f"▲ BULLISH" if direction == "BULLISH" else f"▼ BEARISH" if direction == "BEARISH" else "● NEUTRAL"
+    dir_label = ":green[▲ BULLISH]" if direction == "BULLISH" else ":red[▼ BEARISH]" if direction == "BEARISH" else "● NEUTRAL"
 
     header = (
         f"**{ticker}** — {company}  ·  "
