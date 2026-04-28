@@ -288,8 +288,8 @@ def _prediction_card(p: dict, _unused: set = None):
         dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
         prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
 
-        pill_left_col, btn_col = st.columns([7, 3])
-        with pill_left_col:
+        pill_col, chart_col, del_col = st.columns([5, 2.5, 1])
+        with pill_col:
             st.markdown(
                 f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
                 {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
@@ -301,21 +301,19 @@ def _prediction_card(p: dict, _unused: set = None):
                 </div>""",
                 unsafe_allow_html=True,
             )
-        with btn_col:
-            b1, b2 = st.columns(2)
-            with b1:
-                if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
-                    st.session_state.chart_ticker = ticker
-                    st.session_state.chart_pred   = p
+        with chart_col:
+            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}", use_container_width=True):
+                st.session_state.chart_ticker = ticker
+                st.session_state.chart_pred   = p
+                st.rerun()
+        with del_col:
+            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction", use_container_width=True):
+                try:
+                    from database.db import soft_delete_prediction
+                    soft_delete_prediction(pred_id)
                     st.rerun()
-            with b2:
-                if st.button("✕ Delete", key=f"del_{pred_id}"):
-                    try:
-                        from database.db import soft_delete_prediction
-                        soft_delete_prediction(pred_id)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Delete failed: {e}")
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
 
         c1, c2, c3 = st.columns(3)
         with c1:
