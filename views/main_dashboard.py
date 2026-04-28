@@ -1,6 +1,4 @@
 import streamlit as st
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import pytz
 
@@ -156,113 +154,17 @@ def _prediction_card(p: dict, all_agree_tickers: set):
 def _stock_chart(ticker: str, prediction: dict = None):
     try:
         from services.yfinance_service import get_price_history
-        from indicators.technicals import get_ma_series
-        import ta as ta_lib
-        import pandas as pd
+        from services.chart_service import build_stock_chart
+        from streamlit_lightweight_charts import renderLightweightCharts
 
         df = get_price_history(ticker, period="3mo")
         if df.empty or len(df) < 15:
             return
 
-        df.index = pd.to_datetime(df.index)
-        rsi_series = ta_lib.momentum.RSIIndicator(df["close"], window=14).rsi()
-        ma20 = get_ma_series(df["close"], 20)
-        ma50 = get_ma_series(df["close"], 50)
-        bb = ta_lib.volatility.BollingerBands(df["close"], window=20, window_dev=2)
-
-        fig = make_subplots(
-            rows=3, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.04,
-            row_heights=[0.55, 0.22, 0.23],
-            subplot_titles=("Price  (MA20 · MA50 · Bollinger Bands)", "Volume", "RSI (14)"),
-        )
-
-        # Price candles
-        fig.add_trace(go.Candlestick(
-            x=df.index, open=df["open"], high=df["high"],
-            low=df["low"], close=df["close"],
-            name=ticker,
-            increasing_line_color="#26a641", decreasing_line_color="#e74c3c",
-            showlegend=False,
-        ), row=1, col=1)
-
-        # Bollinger bands (shaded)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=bb.bollinger_hband(),
-            line=dict(color="rgba(130,130,220,0.35)", width=1),
-            name="BB Upper", showlegend=False,
-        ), row=1, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=bb.bollinger_lband(),
-            line=dict(color="rgba(130,130,220,0.35)", width=1),
-            fill="tonexty", fillcolor="rgba(130,130,220,0.07)",
-            name="BB Lower", showlegend=False,
-        ), row=1, col=1)
-
-        # MAs
-        fig.add_trace(go.Scatter(
-            x=df.index, y=ma20,
-            line=dict(color="#f39c12", width=1.5), name="MA20",
-        ), row=1, col=1)
-        fig.add_trace(go.Scatter(
-            x=df.index, y=ma50,
-            line=dict(color="#3498db", width=1.5), name="MA50",
-        ), row=1, col=1)
-
-        # Target / stop lines
-        if prediction:
-            target_low = prediction.get("target_low") or 0
-            stop       = prediction.get("stop_loss") or 0
-            x0 = df.index[-15]
-            x1 = df.index[-1]
-            if target_low:
-                fig.add_shape(type="line", x0=x0, x1=x1, y0=target_low, y1=target_low,
-                              line=dict(color="#26a641", dash="dash", width=1.5), row=1, col=1)
-                fig.add_annotation(x=x1, y=target_low, text=f" ▶ Target ${target_low:.2f}",
-                                   xanchor="left", showarrow=False,
-                                   font=dict(size=10, color="#26a641"), row=1, col=1)
-            if stop:
-                fig.add_shape(type="line", x0=x0, x1=x1, y0=stop, y1=stop,
-                              line=dict(color="#e74c3c", dash="dash", width=1.5), row=1, col=1)
-                fig.add_annotation(x=x1, y=stop, text=f" ▶ Stop ${stop:.2f}",
-                                   xanchor="left", showarrow=False,
-                                   font=dict(size=10, color="#e74c3c"), row=1, col=1)
-
-        # Volume bars
-        vol_colors = ["#26a641" if c >= o else "#e74c3c"
-                      for c, o in zip(df["close"], df["open"])]
-        fig.add_trace(go.Bar(
-            x=df.index, y=df["volume"],
-            marker_color=vol_colors,
-            name="Volume", showlegend=False,
-        ), row=2, col=1)
-
-        # RSI
-        fig.add_trace(go.Scatter(
-            x=df.index, y=rsi_series,
-            line=dict(color="#9b59b6", width=1.5),
-            name="RSI", showlegend=False,
-        ), row=3, col=1)
-        fig.add_hrect(y0=70, y1=100, fillcolor="rgba(231,76,60,0.07)", line_width=0, row=3, col=1)
-        fig.add_hrect(y0=0,  y1=30,  fillcolor="rgba(38,166,65,0.07)",  line_width=0, row=3, col=1)
-        fig.add_hline(y=70, line_color="rgba(231,76,60,0.4)", line_dash="dot", line_width=1, row=3, col=1)
-        fig.add_hline(y=30, line_color="rgba(38,166,65,0.4)",  line_dash="dot", line_width=1, row=3, col=1)
-
-        fig.update_layout(
-            height=500,
-            margin=dict(l=0, r=80, t=30, b=0),
-            xaxis_rangeslider_visible=False,
-            legend=dict(orientation="h", y=1.03, x=0, font=dict(size=11)),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            hovermode="x unified",
-        )
-        fig.update_yaxes(showgrid=True, gridcolor="rgba(128,128,128,0.12)", zeroline=False)
-        fig.update_xaxes(showgrid=False)
-        fig.update_yaxes(title_text="RSI", row=3, col=1, range=[0, 100])
-
-        st.plotly_chart(fig, use_container_width=True, key=f"chart_{ticker}_{id(prediction)}")
+        charts = build_stock_chart(df, prediction=prediction, ticker=ticker, height=460)
+        if charts:
+            st.caption(f"**{ticker}** · Candlestick · MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI(14)")
+            renderLightweightCharts(charts, key=f"tv_{ticker}_{id(prediction)}")
 
     except Exception:
         pass

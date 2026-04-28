@@ -1,5 +1,4 @@
 import streamlit as st
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import pytz
 
@@ -65,69 +64,38 @@ def _run_analysis(ticker: str, date_from: str, date_to: str):
     st.markdown("### 1. Event Timeline")
 
     ind = compute_all(df)
-    from indicators.technicals import get_ma_series
 
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=df_range.index,
-        open=df_range["open"], high=df_range["high"],
-        low=df_range["low"], close=df_range["close"],
-        name=ticker,
-    ))
-
-    # MA overlays
-    ma20 = get_ma_series(df["close"], 20)
-    ma50 = get_ma_series(df["close"], 50)
-    ma20_range = ma20.reindex(df_range.index)
-    ma50_range = ma50.reindex(df_range.index)
-    fig.add_trace(go.Scatter(x=df_range.index, y=ma20_range, name="MA20",
-                              line=dict(color="orange", width=1.5)))
-    fig.add_trace(go.Scatter(x=df_range.index, y=ma50_range, name="MA50",
-                              line=dict(color="royalblue", width=1.5)))
-
-    # News markers
-    for article in news[:10]:
-        ts = article.get("datetime", 0)
-        if ts:
-            try:
-                dt = pd.Timestamp(ts, unit="s")
-                if dt in df_range.index or (df_range.index.min() <= dt <= df_range.index.max()):
-                    closest_date = df_range.index[abs(df_range.index - dt).argmin()]
-                    price_at = df_range.loc[closest_date, "high"] * 1.01
-                    fig.add_annotation(
-                        x=closest_date, y=price_at,
-                        text="📰", showarrow=False, font=dict(size=12),
-                    )
-            except Exception:
-                pass
-
-    fig.update_layout(
-        height=400, xaxis_rangeslider_visible=False,
-        title=f"{ticker} — {info.get('name', ticker)} ({info.get('sector', 'Unknown')})",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Detect largest move
+    # Detect largest move for metrics
+    total_move = 0
     if len(df_range) > 1:
         total_move = ((df_range["close"].iloc[-1] - df_range["close"].iloc[0]) / df_range["close"].iloc[0]) * 100
         max_drawup = df_range["close"].pct_change().max() * 100
         max_drawdown = df_range["close"].pct_change().min() * 100
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Period Move", f"{total_move:+.2f}%")
+            st.metric(f"{ticker} — {info.get('name', ticker)}", f"{total_move:+.2f}%", "Period move")
         with col2:
-            st.metric("Best Day", f"+{max_drawup:.2f}%")
+            st.metric("Best single day", f"+{max_drawup:.2f}%")
         with col3:
-            st.metric("Worst Day", f"{max_drawdown:.2f}%")
+            st.metric("Worst single day", f"{max_drawdown:.2f}%")
 
-    # Volume chart
-    fig_vol = go.Figure()
-    colors = ["green" if c >= o else "red" for c, o in zip(df_range["close"], df_range["open"])]
-    fig_vol.add_trace(go.Bar(x=df_range.index, y=df_range["volume"], marker_color=colors, name="Volume"))
-    fig_vol.update_layout(height=120, margin=dict(t=10, b=0), showlegend=False,
-                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_vol, use_container_width=True)
+    # Build news timestamps for markers
+    news_timestamps = []
+    for article in news[:10]:
+        ts = article.get("datetime", 0)
+        if ts:
+            try:
+                news_timestamps.append(int(ts))
+            except Exception:
+                pass
+
+    from services.chart_service import build_forensic_chart
+    from streamlit_lightweight_charts import renderLightweightCharts
+
+    charts = build_forensic_chart(df_range, news_dates=news_timestamps, ticker=ticker, height=500)
+    if charts:
+        st.caption(f"**{ticker}** · MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI  |  📰 = news article")
+        renderLightweightCharts(charts, key=f"forensic_{ticker}_{date_from}")
 
     # ── 2. Signal Autopsy ─────────────────────────────────────────────────────
     st.markdown("### 2. Signal Autopsy")

@@ -7,5 +7,6 @@ anthropic>=0.25.0
 supabase>=2.4.0
 python-dotenv>=1.0.0
 plotly>=5.20.0
+streamlit-lightweight-charts>=0.7.0
 requests>=2.31.0
 pytz>=2024.1
