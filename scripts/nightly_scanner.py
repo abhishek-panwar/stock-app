@@ -22,7 +22,8 @@ from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error
 
 SCORE_THRESHOLD   = 60   # minimum score to be eligible
-MAX_STOCKS        = 20   # final predictions to generate (one per stock)
+MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
+MIN_RR            = 4.0  # minimum risk/reward ratio (1:4)
 
 # Claude's days_to_target → timeframe bucket
 def _bucket(days: int) -> str:
@@ -186,6 +187,15 @@ def run():
 
             target_price = round(float(target_price), 2)
             stop_price   = round(float(stop_price), 2)
+
+            # R/R filter — skip predictions below 1:4
+            price = ind.get("price", 0)
+            reward = abs(target_price - price)
+            risk   = abs(price - stop_price)
+            rr = reward / risk if risk > 0 else 0
+            if rr < MIN_RR:
+                print(f"  {ticker} skipped — R/R {rr:.1f} < {MIN_RR}")
+                continue
 
             # target_low/high for UI compatibility — use ±5% of target_price
             target_low  = round(target_price * 0.97, 2)

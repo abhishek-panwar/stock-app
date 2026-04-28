@@ -170,3 +170,28 @@ def get_forensic_sessions(ticker: str = None) -> list:
     if ticker:
         q = q.eq("ticker", ticker)
     return q.execute().data
+
+
+# ── Optimization Queue ────────────────────────────────────────────────────────
+
+def insert_optimization(data: dict) -> dict:
+    return get_client().table("optimization_queue").insert(data).execute().data[0]
+
+def get_pending_optimizations() -> list:
+    return (get_client().table("optimization_queue").select("*")
+            .eq("status", "PENDING")
+            .order("created_at", desc=True)
+            .execute().data)
+
+def get_all_optimizations(limit: int = 50) -> list:
+    return (get_client().table("optimization_queue").select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute().data)
+
+def update_optimization_status(opt_id: str, status: str) -> dict:
+    from datetime import datetime
+    return get_client().table("optimization_queue").update({
+        "status": status,
+        "reviewed_at": datetime.utcnow().isoformat(),
+    }).eq("id", opt_id).execute().data[0]

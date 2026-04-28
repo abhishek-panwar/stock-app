@@ -225,6 +225,78 @@ Only output the JSON."""
         return {"pattern_summary": f"Analysis failed: {e}", "suggestions": []}
 
 
+def analyze_prediction_outcomes(wins: list, losses: list) -> dict:
+    """Analyze why predictions failed and whether winning timing was accurate."""
+    def _summarize(p: dict) -> str:
+        entry  = p.get("price_at_prediction") or 0
+        close  = p.get("price_at_close") or 0
+        target = p.get("target_low") or 0
+        stop   = p.get("stop_loss") or 0
+        days_pred = p.get("days_to_target") or "?"
+        predicted_on = p.get("predicted_on", "")[:10]
+        verified_on  = p.get("verified_on", "") or ""
+        try:
+            from datetime import datetime
+            actual_days = (datetime.fromisoformat(verified_on[:10]) - datetime.fromisoformat(predicted_on)).days if verified_on else None
+        except Exception:
+            actual_days = None
+        days_str = f"predicted {days_pred}d, actual {actual_days}d" if actual_days is not None else f"predicted {days_pred}d"
+        return (
+            f"{p.get('ticker')} [{p.get('outcome')}] {p.get('direction')} {p.get('timeframe')}-term | "
+            f"entry=${entry:.2f} target=${target:.2f} stop=${stop:.2f} close=${close:.2f} | "
+            f"conf={p.get('confidence')}% score={p.get('score')} | timing: {days_str} | "
+            f"reason={p.get('closed_reason','')} | signals={p.get('reasoning','')[:120]}"
+        )
+
+    loss_lines = [_summarize(p) for p in losses[-30:]]
+    win_lines  = [_summarize(p) for p in wins[-20:]]
+
+    prompt = f"""You are analyzing a stock prediction system's track record to improve it.
+
+LOSSES ({len(loss_lines)} recent):
+{chr(10).join(loss_lines) if loss_lines else "None yet"}
+
+WINS ({len(win_lines)} recent):
+{chr(10).join(win_lines) if win_lines else "None yet"}
+
+Analyze:
+1. WHY did the losses happen? Look for common patterns (wrong direction, bad timing, weak signals, etc.)
+2. For wins: was the timing accurate? Were predicted days close to actual days?
+3. What specific changes to the screening/scoring logic would improve success rate?
+
+Respond in this exact JSON:
+{{
+  "failure_pattern": "<2-3 sentences: main reasons predictions are failing>",
+  "timing_accuracy_note": "<1-2 sentences: how accurate is our timing on winning trades>",
+  "suggestions": [
+    {{
+      "plain_english": "<what to change, written simply for a non-technical user>",
+      "technical_detail": "<specific: which indicator, threshold, weight, or filter to change>",
+      "evidence_tickers": ["TICK1", "TICK2"],
+      "projected_improvement_pct": <estimated win rate improvement as a number, e.g. 8.0>
+    }}
+  ]
+}}
+
+Only output the JSON. Maximum 4 suggestions."""
+
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text)
+    except Exception as e:
+        return {"failure_pattern": f"Analysis failed: {e}", "timing_accuracy_note": "", "suggestions": []}
+
+
 def estimate_cost(claude_calls: int) -> float:
     """Rough cost estimate. Haiku 4.5: ~$0.00025 per call at our token usage."""
     return round(claude_calls * 0.00025, 4)

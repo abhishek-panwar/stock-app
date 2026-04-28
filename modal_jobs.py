@@ -87,17 +87,19 @@ def health_monitor():
     s.run()
 
 
-# ── Opportunity Analyzer ───────────────────────────────────────────────────────
+# Opportunity Analyzer moved to GitHub Actions (Modal free tier limit is 5 crons)
+
+# ── Failure Analyzer ──────────────────────────────────────────────────────────
 @app.function(
     image=image,
     secrets=secrets,
-    timeout=600,
-    schedule=modal.Cron("0 3 * * 0"),
+    timeout=300,
+    schedule=modal.Cron("0 1 * * 1-5"),  # 5:00 PM PT (1:00 AM UTC next day)
 )
-def opportunity_analyzer():
+def failure_analyzer():
     import sys
     sys.path.insert(0, "/root/app")
-    import scripts.opportunity_analyzer as s
+    import scripts.failure_analyzer as s
     s.run()
 
 

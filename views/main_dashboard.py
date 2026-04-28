@@ -28,10 +28,10 @@ def _age_info(predicted_on: str):
     except Exception:
         return 0, ""
     if age == 0:
-        return 0, '<span style="background:#dcfce7;color:#14532d;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">NEW TODAY</span>'
+        return 0, '<span style="background:#dcfce7;color:#14532d;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">Today</span>'
     if age == 1:
-        return 1, '<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">1 day old</span>'
-    return age, f'<span style="background:#fee2e2;color:#7f1d1d;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">{age}d old</span>'
+        return 1, '<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">1d old</span>'
+    return age, f'<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:500">{age}d old</span>'
 
 
 def _sort_key(p: dict):
@@ -247,7 +247,7 @@ def _prediction_card(p: dict, _unused: set = None):
 
     dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
     hc_tag   = "  🎯" if confidence >= 75 else ""
-    age_tag  = "  ·  ✨ NEW" if age_days == 0 else f"  ·  {age_days}d old"
+    age_tag  = "  ·  Today" if age_days == 0 else f"  ·  {age_days}d old"
     pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
     exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
 
@@ -354,6 +354,34 @@ def _prediction_card(p: dict, _unused: set = None):
 
         if position == "SHORT":
             st.warning("SHORT position — margin/options account required")
+
+        st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+        ms_col, mf_col, _ = st.columns([1.5, 1.5, 7])
+        with ms_col:
+            if st.button("✅ Mark Success", key=f"win_{pred_id}"):
+                try:
+                    from database.db import update_prediction
+                    import pytz as _pytz
+                    update_prediction(pred_id, {
+                        "outcome": "WIN",
+                        "closed_reason": "MANUAL",
+                        "verified_on": datetime.now(PT).isoformat(),
+                    })
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
+        with mf_col:
+            if st.button("❌ Mark Failure", key=f"loss_{pred_id}"):
+                try:
+                    from database.db import update_prediction
+                    update_prediction(pred_id, {
+                        "outcome": "LOSS",
+                        "closed_reason": "MANUAL",
+                        "verified_on": datetime.now(PT).isoformat(),
+                    })
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
 
 
 def _news_links(ticker: str):
