@@ -70,7 +70,7 @@ def render():
         entry  = p.get("price_at_prediction") or 0
         target = p.get("target_low") or 0
         profit = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
-        return (age, -profit, -p.get("score", 0))
+        return (age, -abs(profit), -p.get("score", 0))
     filtered = sorted(filtered, key=_sort_key)
 
     # ── Accuracy Summary ──────────────────────────────────────────────────────

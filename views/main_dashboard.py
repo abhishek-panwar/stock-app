@@ -36,7 +36,7 @@ def _age_info(predicted_on: str):
 
 
 def _sort_key(p: dict):
-    """Newest first → highest profit% → highest score."""
+    """Newest first → highest absolute profit% → highest score."""
     try:
         age = (datetime.utcnow() - datetime.fromisoformat(
             p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)).days
@@ -45,7 +45,7 @@ def _sort_key(p: dict):
     entry  = p.get("price_at_prediction") or 0
     target = p.get("target_low") or 0
     profit = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
-    return (age, -profit, -p.get("score", 0))
+    return (age, -abs(profit), -p.get("score", 0))
 
 
 def _expiry(p: dict):
@@ -218,12 +218,22 @@ def _prediction_card(p: dict, _unused: set = None):
 
     dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
     hc_tag   = "  🎯" if confidence >= 75 else ""
-    age_tag  = "  ·  NEW" if age_days == 0 else f"  ·  {age_days}d old"
+    age_tag  = "  ·  🆕 NEW" if age_days == 0 else f"  ·  {age_days}d old"
     pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
     exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  **expired**" if days_left is not None and days_left <= 0 else "")
 
+    # Color indicator: green for new+bullish, red for bearish, blue for bullish, grey for neutral
+    if age_days == 0:
+        color_dot = "🟢"
+    elif direction == "BEARISH":
+        color_dot = "🔴"
+    elif direction == "BULLISH":
+        color_dot = "🔵"
+    else:
+        color_dot = "⚪"
+
     header = (
-        f"**{ticker}** — {company}  ·  "
+        f"{color_dot} **{ticker}** — {company}  ·  "
         f"{dir_icon} {direction}  ·  "
         f"{confidence}% conf  ·  {score}/100  ·  "
         f"{profit_str}{pos_tag}  ·  ~{tenure_str}"

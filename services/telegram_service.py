@@ -84,39 +84,78 @@ def send_sentiment_spike(ticker: str, article_count: int, current_price: float) 
     return _send(msg)
 
 
+def _prediction_line(p: dict) -> str:
+    ticker    = p.get("ticker", "—")
+    company   = p.get("company_name") or ticker
+    direction = p.get("direction", "NEUTRAL")
+    confidence = p.get("confidence", 0)
+    entry     = p.get("price_at_prediction") or 0
+    target    = p.get("target_low") or 0
+    stop      = p.get("stop_loss") or 0
+    buy_low   = p.get("buy_range_low") or p.get("buy_low") or entry
+    buy_high  = p.get("buy_range_high") or p.get("buy_high") or entry
+    days      = p.get("days_to_target") or "?"
+    buy_win   = p.get("buy_window") or "—"
+    profit_pct = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+
+    dir_icon  = "🟢 BULLISH" if direction == "BULLISH" else "🔴 BEARISH" if direction == "BEARISH" else "⚪ NEUTRAL"
+    profit_str = f"+{profit_pct:.1f}%" if profit_pct >= 0 else f"{profit_pct:.1f}%"
+
+    # Buy date = tomorrow in PT
+    tomorrow = datetime.now(PT).strftime("%b %d")
+
+    return (
+        f"<b>{ticker}</b> — {company}\n"
+        f"  {dir_icon}  |  {profit_str} profit  |  {confidence}% conf\n"
+        f"  Buy: ${buy_low:.2f}–${buy_high:.2f}  →  Target: ${target:.2f}  |  Stop: ${stop:.2f}\n"
+        f"  Window: {buy_win} on {tomorrow}  |  Hold ~{days}d"
+    )
+
+
 def send_nightly_summary(picks: dict, open_trades: int, winning: int,
                          losing: int, neutral: int, universe_total: int,
                          nasdaq_count: int, hot_count: int, overlap: int) -> bool:
     now = _now_pt()
-    short = [p["ticker"] for p in picks.get("short", [])]
-    medium = [p["ticker"] for p in picks.get("medium", [])]
-    long_ = [p["ticker"] for p in picks.get("long", [])]
-    top = picks.get("top_pick")
 
-    universe_line = f"Universe tonight: {universe_total} stocks ({nasdaq_count} Nasdaq + {hot_count} hot → {overlap} overlap)"
+    # Collect all predictions and sort by absolute profit descending
+    all_preds = (
+        picks.get("short", []) +
+        picks.get("medium", []) +
+        picks.get("long", [])
+    )
+    seen = set()
+    unique_preds = []
+    for p in all_preds:
+        if p["ticker"] not in seen:
+            seen.add(p["ticker"])
+            unique_preds.append(p)
 
-    top_section = ""
-    if top:
-        top_section = (
-            f"\n\nTop pick:\n"
-            f"<b>{top['ticker']}</b> — {top['timeframe'].capitalize()}-term {top['direction']}\n"
-            f"Confidence: {top['confidence']}%\n"
-            f"Buy window: {top.get('buy_window', 'N/A')} tomorrow\n"
-            f"Buy: ${top.get('buy_low', 0):.2f}–${top.get('buy_high', 0):.2f} | "
-            f"Target: ${top.get('target_low', 0):.2f}–${top.get('target_high', 0):.2f} | "
-            f"Stop: ${top.get('stop_loss', 0):.2f}"
-        )
-        if top.get("all_timeframes_agree"):
-            top_section += "\nAll timeframes aligned 🎯"
+    def _profit(p):
+        e = p.get("price_at_prediction") or 0
+        t = p.get("target_low") or 0
+        return abs((t - e) / e * 100) if e > 0 and t > 0 else 0
+
+    unique_preds.sort(key=_profit, reverse=True)
+
+    universe_line = (
+        f"🔭 Universe: <b>{universe_total} stocks</b> "
+        f"({nasdaq_count} core + {hot_count} hot → {overlap} overlap)"
+    )
+
+    pred_lines = "\n\n".join(_prediction_line(p) for p in unique_preds) if unique_preds else "No predictions tonight."
+
+    tf_summary = (
+        f"⚡ Short: {len(picks.get('short',[]))}  "
+        f"📈 Mid: {len(picks.get('medium',[]))}  "
+        f"🌱 Long: {len(picks.get('long',[]))}"
+    )
 
     msg = (
-        f"📊 <b>Tonight's Top Picks — {now}</b>\n\n"
-        f"{universe_line}\n\n"
-        f"⚡ Short-term: {', '.join(short) or 'None'}\n"
-        f"📈 Medium-term: {', '.join(medium) or 'None'}\n"
-        f"🌱 Long-term: {', '.join(long_) or 'None'}"
-        f"{top_section}\n\n"
-        f"Open trades: {open_trades} | Winning: {winning} | Losing: {losing} | Neutral: {neutral}"
+        f"📊 <b>Tonight's Picks — {now}</b>\n\n"
+        f"{universe_line}\n"
+        f"{tf_summary}\n\n"
+        f"{pred_lines}\n\n"
+        f"Open trades: {open_trades} | ✅ {winning} winning | ❌ {losing} losing | ➖ {neutral} neutral"
     )
     return _send(msg)
 
