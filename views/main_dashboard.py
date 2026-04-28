@@ -302,7 +302,7 @@ def _prediction_card(p: dict, _unused: set = None):
                 unsafe_allow_html=True,
             )
         with btn_col:
-            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
+            if st.button("📈 Chart", key=f"chartbtn_{pred_id}"):
                 st.session_state.chart_ticker = ticker
                 st.session_state.chart_pred   = p
                 st.rerun()
