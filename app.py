@@ -144,9 +144,10 @@ with st.sidebar:
     pages = [
         ("Today's Best Setups",   "🏠"),
         ("History & Accuracy",    "📜"),
+        ("Optimizations",         "🧠"),
         ("Deep Dive",             "🔬"),
         ("Analysts",              "👤"),
-        ("System Evolution",      "🧠"),
+        ("System Evolution",      "⚙️"),
         ("Health Dashboard",      "🔧"),
         ("Deleted Predictions",   "🗑️"),
     ]
@@ -181,6 +182,8 @@ elif page == "Deep Dive":
     from views import deep_dive;       deep_dive.render()
 elif page == "Analysts":
     from views import analysts;        analysts.render()
+elif page == "Optimizations":
+    from views import optimizations; optimizations.render()
 elif page == "System Evolution":
     from views import system_evolution; system_evolution.render()
 elif page == "Health Dashboard":

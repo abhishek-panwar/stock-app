@@ -41,7 +41,6 @@ def render():
 
     if not all_closed:
         st.info("No closed predictions yet. Predictions are closed automatically when target or stop loss is hit, or manually from the main dashboard.")
-        _render_optimization_queue()
         return
 
     # ── Global success rate banner ────────────────────────────────────────────
@@ -133,11 +132,6 @@ def render():
         rate = tf_wins / len(tf_closed) * 100 if tf_closed else 0
         with tf_cols[i]:
             st.metric(f"{tf.capitalize()}-term", f"{rate:.1f}%", f"{len(tf_closed)} trades")
-
-    st.markdown("---")
-
-    # ── Optimization queue ────────────────────────────────────────────────────
-    _render_optimization_queue()
 
     st.markdown("---")
 
@@ -296,105 +290,6 @@ def render():
 
                     if position == "SHORT":
                         st.warning("SHORT position — margin/options account required")
-
-
-def _render_optimization_queue():
-    st.markdown("### 🧠 Optimization Queue")
-
-    run_col, _ = st.columns([2, 8])
-    with run_col:
-        if st.button("▶ Run Analysis Now", type="primary", key="run_analysis_btn"):
-            with st.spinner("Running failure analysis..."):
-                try:
-                    import sys, os
-                    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    import scripts.failure_analyzer as fa
-                    import importlib
-                    importlib.reload(fa)
-                    result = fa.run()
-                    if result:
-                        st.success(f"Analysis done — {result.get('suggestions_saved', 0)} new suggestions added.")
-                    else:
-                        st.info("Not enough closed predictions to analyze yet.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Analysis failed: {e}")
-
-    try:
-        from database.db import get_all_optimizations, update_optimization_status
-        opts = get_all_optimizations(limit=20)
-    except Exception as e:
-        st.warning(f"Could not load optimization queue: {e}")
-        return
-
-    pending = [o for o in opts if o.get("status") == "PENDING"]
-    reviewed = [o for o in opts if o.get("status") != "PENDING"]
-
-    if not opts:
-        st.caption("No analysis run yet. Click 'Run Analysis Now' or wait for the 5 PM PT automated run.")
-        return
-
-    if pending:
-        st.markdown(f"**{len(pending)} pending suggestion{'s' if len(pending) != 1 else ''} awaiting your approval:**")
-        for opt in pending:
-            opt_id = opt.get("id", "")
-            with st.expander(
-                f"💡 {opt.get('suggestion_plain', 'Optimization suggestion')[:80]}  ·  "
-                f"+{opt.get('projected_improvement', 0):.0f}% projected improvement",
-                expanded=True,
-            ):
-                st.markdown(f"**Analysis date:** {opt.get('analysis_date', '—')}")
-                st.markdown(f"**Analyzed:** {opt.get('total_analyzed', 0)} trades "
-                            f"({opt.get('wins_analyzed', 0)} wins, {opt.get('losses_analyzed', 0)} losses)")
-
-                if opt.get("failure_pattern"):
-                    st.markdown(
-                        f"""<div style="background:#fef2f2;border-left:3px solid #dc2626;border-radius:0 6px 6px 0;
-                        padding:8px 12px;margin:8px 0;font-size:13px;color:#374151">
-                        <strong>Why predictions failed:</strong><br>{opt['failure_pattern']}</div>""",
-                        unsafe_allow_html=True,
-                    )
-                if opt.get("timing_accuracy_note"):
-                    st.markdown(
-                        f"""<div style="background:#f0fdf4;border-left:3px solid #16a34a;border-radius:0 6px 6px 0;
-                        padding:8px 12px;margin:8px 0;font-size:13px;color:#374151">
-                        <strong>Timing accuracy:</strong><br>{opt['timing_accuracy_note']}</div>""",
-                        unsafe_allow_html=True,
-                    )
-
-                st.markdown(f"**What to change:** {opt.get('suggestion_plain', '—')}")
-                st.markdown(f"**Technical detail:** `{opt.get('suggestion_technical', '—')}`")
-                if opt.get("evidence_tickers"):
-                    st.markdown(f"**Evidence tickers:** {opt['evidence_tickers']}")
-                st.markdown(f"**Projected win rate improvement:** +{opt.get('projected_improvement', 0):.0f}%")
-
-                a_col, r_col, _ = st.columns([1.2, 1.2, 7])
-                with a_col:
-                    if st.button("✅ Approve", key=f"approve_{opt_id}"):
-                        try:
-                            update_optimization_status(opt_id, "APPROVED")
-                            st.success("Approved! Apply the technical change above to the scoring/scanner code.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed: {e}")
-                with r_col:
-                    if st.button("❌ Reject", key=f"reject_{opt_id}"):
-                        try:
-                            update_optimization_status(opt_id, "REJECTED")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed: {e}")
-
-    if reviewed:
-        with st.expander(f"Past reviews ({len(reviewed)})", expanded=False):
-            for opt in reviewed:
-                status = opt.get("status", "")
-                icon   = "✅" if status == "APPROVED" else "❌"
-                st.markdown(
-                    f"{icon} **{opt.get('analysis_date','—')}** — "
-                    f"{opt.get('suggestion_plain','')[:80]}  ·  "
-                    f"*{status}*"
-                )
 
 
 _CRYPTO_TICKERS = {
