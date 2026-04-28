@@ -364,4 +364,28 @@ def _pill(label: str, value: str, color: str) -> str:
 
 def _show_empty_state():
     st.info("No predictions yet. The nightly scanner runs at 8:00 PM PT.")
-    st.markdown("**Run manually:** `python3 scripts/nightly_scanner.py`")
+    if st.button("🚀 Run Scanner Now", type="primary", key="run_scanner_empty"):
+        _trigger_scanner()
+
+
+def _trigger_scanner():
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    status = st.status("Running scanner…", expanded=True)
+    try:
+        import scripts.nightly_scanner as scanner
+        import importlib
+        importlib.reload(scanner)
+        import builtins
+        _orig = builtins.print
+        builtins.print = lambda *a, **k: (status.write(" ".join(str(x) for x in a)), _orig(*a, **k))
+        try:
+            stats = scanner.run()
+        finally:
+            builtins.print = _orig
+        status.update(label="✅ Done!", state="complete", expanded=False)
+        st.success(f"{stats.get('predictions_created', 0)} predictions created")
+        st.rerun()
+    except Exception as e:
+        status.update(label="❌ Failed", state="error", expanded=True)
+        st.error(f"Scanner error: {e}")

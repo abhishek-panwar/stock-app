@@ -101,11 +101,77 @@ def render():
             except Exception as e:
                 st.error(f"Error: {e}")
     with col2:
-        if st.button("🚀 Run Scanner Now"):
-            st.info("To run the scanner manually, open a terminal and run:\n```\npython3 scripts/nightly_scanner.py\n```")
+        if st.button("🚀 Run Scanner Now", type="primary"):
+            _run_scanner()
     with col3:
         if st.button("✅ Run Verifier Now"):
-            st.info("To run the verifier manually:\n```\npython3 scripts/prediction_verifier.py\n```")
+            _run_verifier()
+
+
+def _run_scanner():
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    log_lines = []
+    status = st.status("Running nightly scanner…", expanded=True)
+
+    def _capture(msg):
+        log_lines.append(msg)
+        status.write(msg)
+
+    try:
+        import scripts.nightly_scanner as scanner
+        import importlib
+        importlib.reload(scanner)  # pick up any code changes
+
+        # Monkey-patch print so progress shows in the UI
+        import builtins
+        _orig_print = builtins.print
+        builtins.print = lambda *a, **k: (_capture(" ".join(str(x) for x in a)), _orig_print(*a, **k))
+
+        try:
+            stats = scanner.run()
+        finally:
+            builtins.print = _orig_print
+
+        status.update(label="✅ Scanner finished!", state="complete", expanded=False)
+        preds = stats.get("predictions_created", 0)
+        cost  = stats.get("claude_cost_usd", 0)
+        errs  = stats.get("errors_encountered", 0)
+        st.success(f"Done — **{preds} predictions** created  ·  ${cost:.4f} Claude cost  ·  {errs} errors")
+        st.rerun()
+
+    except Exception as e:
+        status.update(label="❌ Scanner failed", state="error", expanded=True)
+        st.error(f"Error: {e}")
+
+
+def _run_verifier():
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    status = st.status("Running prediction verifier…", expanded=True)
+    try:
+        import scripts.prediction_verifier as verifier
+        import importlib
+        importlib.reload(verifier)
+
+        import builtins
+        _orig_print = builtins.print
+        builtins.print = lambda *a, **k: (status.write(" ".join(str(x) for x in a)), _orig_print(*a, **k))
+
+        try:
+            verifier.run()
+        finally:
+            builtins.print = _orig_print
+
+        status.update(label="✅ Verifier finished!", state="complete", expanded=False)
+        st.success("Predictions verified and outcomes updated.")
+        st.rerun()
+
+    except Exception as e:
+        status.update(label="❌ Verifier failed", state="error", expanded=True)
+        st.error(f"Error: {e}")
 
 
 def _check_all_components() -> list[dict]:
