@@ -23,8 +23,9 @@ def _get_company_name(ticker: str) -> str:
 
 def _age_info(predicted_on: str):
     try:
-        pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).replace(tzinfo=None)
-        age = (datetime.utcnow() - pred_dt).days
+        pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT)
+        today_pt = datetime.now(PT).date()
+        age = (today_pt - pred_dt.date()).days
     except Exception:
         return 0, ""
     if age <= 1:
@@ -34,8 +35,8 @@ def _age_info(predicted_on: str):
 
 def _sort_key(p: dict):
     try:
-        age = (datetime.utcnow() - datetime.fromisoformat(
-            p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)).days
+        pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT)
+        age = (datetime.now(PT).date() - pred_dt.date()).days
     except Exception:
         age = 999
     entry  = p.get("price_at_prediction") or 0
