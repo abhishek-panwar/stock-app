@@ -1,4 +1,6 @@
 import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import pytz
 
@@ -79,23 +81,80 @@ def _run_analysis(ticker: str, date_from: str, date_to: str):
         with col3:
             st.metric("Worst single day", f"{max_drawdown:.2f}%")
 
-    # Build news timestamps for markers
-    news_timestamps = []
+    from indicators.technicals import get_ma_series
+    import ta as ta_lib
+
+    ma20 = get_ma_series(df["close"], 20).reindex(df_range.index)
+    ma50 = get_ma_series(df["close"], 50).reindex(df_range.index)
+    rsi  = ta_lib.momentum.RSIIndicator(df["close"], window=14).rsi().reindex(df_range.index)
+    bb   = ta_lib.volatility.BollingerBands(df["close"], window=20, window_dev=2)
+    bb_upper = bb.bollinger_hband().reindex(df_range.index)
+    bb_lower = bb.bollinger_lband().reindex(df_range.index)
+
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True,
+        vertical_spacing=0.03, row_heights=[0.55, 0.20, 0.25],
+    )
+
+    fig.add_trace(go.Candlestick(
+        x=df_range.index, open=df_range["open"], high=df_range["high"],
+        low=df_range["low"], close=df_range["close"],
+        increasing_line_color="#16a34a", decreasing_line_color="#dc2626",
+        name=ticker, showlegend=False,
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=df_range.index, y=bb_upper,
+        line=dict(color="rgba(99,102,241,0.4)", width=1),
+        name="BB Upper", showlegend=False), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_range.index, y=bb_lower,
+        line=dict(color="rgba(99,102,241,0.4)", width=1),
+        fill="tonexty", fillcolor="rgba(99,102,241,0.05)",
+        name="BB Lower", showlegend=False), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_range.index, y=ma20,
+        line=dict(color="#d97706", width=1.5), name="MA20"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_range.index, y=ma50,
+        line=dict(color="#2563eb", width=1.5), name="MA50"), row=1, col=1)
+
+    # News markers
     for article in news[:10]:
         ts = article.get("datetime", 0)
         if ts:
             try:
-                news_timestamps.append(int(ts))
+                dt = pd.Timestamp(ts, unit="s").normalize()
+                if df_range.index.min() <= dt <= df_range.index.max():
+                    closest = df_range.index[abs(df_range.index - dt).argmin()]
+                    fig.add_annotation(
+                        x=closest, y=df_range.loc[closest, "high"] * 1.015,
+                        text="📰", showarrow=False, font=dict(size=13),
+                        row=1, col=1,
+                    )
             except Exception:
                 pass
 
-    from services.chart_service import build_forensic_chart
-    from streamlit_lightweight_charts import renderLightweightCharts
+    vol_colors = ["#16a34a" if c >= o else "#dc2626"
+                  for c, o in zip(df_range["close"], df_range["open"])]
+    fig.add_trace(go.Bar(x=df_range.index, y=df_range["volume"],
+        marker_color=vol_colors, showlegend=False), row=2, col=1)
 
-    charts = build_forensic_chart(df_range, news_dates=news_timestamps, ticker=ticker, height=500)
-    if charts:
-        st.caption(f"**{ticker}** · MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI  |  📰 = news article")
-        renderLightweightCharts(charts, key=f"forensic_{ticker}_{date_from}")
+    fig.add_trace(go.Scatter(x=df_range.index, y=rsi,
+        line=dict(color="#7c3aed", width=1.5),
+        name="RSI", showlegend=False), row=3, col=1)
+    for level, color in [(70, "rgba(220,38,38,0.3)"), (30, "rgba(22,163,74,0.3)")]:
+        fig.add_hline(y=level, line_color=color, line_dash="dot", line_width=1, row=3, col=1)
+
+    fig.update_layout(
+        height=480, margin=dict(l=0, r=80, t=10, b=0),
+        xaxis_rangeslider_visible=False,
+        legend=dict(orientation="h", y=1.02, x=0, font=dict(size=10)),
+        paper_bgcolor="white", plot_bgcolor="white",
+        hovermode="x unified", font=dict(size=11),
+    )
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(0,0,0,0.06)", zeroline=False)
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(range=[0, 100], row=3, col=1)
+
+    st.caption("MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI(14) · 📰 = news article")
+    st.plotly_chart(fig, use_container_width=True, key=f"forensic_{ticker}_{date_from}")
 
     # ── 2. Signal Autopsy ─────────────────────────────────────────────────────
     st.markdown("### 2. Signal Autopsy")

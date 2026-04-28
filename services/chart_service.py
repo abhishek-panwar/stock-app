@@ -120,20 +120,20 @@ def build_stock_chart(df: pd.DataFrame, prediction: dict = None,
     # ── Common chart options ──────────────────────────────────────────────────
     common_layout = {
         "layout": {
-            "background": {"type": "solid", "color": "#0e1117"},
-            "textColor": "#d1d4dc",
+            "background": {"type": "solid", "color": "#ffffff"},
+            "textColor": "#1a1a1a",
         },
         "grid": {
-            "vertLines": {"color": "rgba(255,255,255,0.05)"},
-            "horzLines": {"color": "rgba(255,255,255,0.05)"},
+            "vertLines": {"color": "rgba(0,0,0,0.05)"},
+            "horzLines": {"color": "rgba(0,0,0,0.05)"},
         },
         "crosshair": {"mode": 1},
         "timeScale": {
-            "borderColor": "rgba(255,255,255,0.1)",
+            "borderColor": "rgba(0,0,0,0.1)",
             "timeVisible": True,
             "secondsVisible": False,
         },
-        "rightPriceScale": {"borderColor": "rgba(255,255,255,0.1)"},
+        "rightPriceScale": {"borderColor": "rgba(0,0,0,0.1)"},
     }
 
     # ── Chart 1: Price ────────────────────────────────────────────────────────
