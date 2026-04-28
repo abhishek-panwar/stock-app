@@ -5,7 +5,7 @@ Scans full deduplicated universe, generates predictions, logs to Supabase, sends
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,7 +18,6 @@ from services.screener_service import build_universe, get_hot_tickers, rank_pred
 from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, determine_direction, compute_buy_range, compute_targets, FORMULA_VERSION
 
-TIMEFRAME_DAYS = {"short": 5, "medium": 28, "long": 180}
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats
@@ -171,11 +170,9 @@ def run():
                 target_low, target_high, stop_loss = compute_targets(price, atr, direction)
                 buy_window = ai_result.get("buy_window") or compute_buy_window(tf, score_data["total"])
 
-                expires_on = (start_time + timedelta(days=TIMEFRAME_DAYS.get(tf, 5))).isoformat()
                 pred = {
                     "ticker": ticker,
                     "predicted_on": start_time.isoformat(),
-                    "expires_on": expires_on,
                     "timeframe": tf,
                     "direction": direction,
                     "position": position,
