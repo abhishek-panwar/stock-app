@@ -40,8 +40,18 @@ def render():
     if ticker_filter != "All":
         filtered = [p for p in filtered if p.get("ticker") == ticker_filter]
     filtered = [p for p in filtered if (p.get("confidence") or 0) >= conf_min]
-    # Sort by confidence desc
-    filtered = sorted(filtered, key=lambda x: x.get("confidence", 0), reverse=True)
+    # Sort: newest first, then max profit, then max score
+    def _sort_key(p):
+        try:
+            age = (datetime.utcnow() - datetime.fromisoformat(
+                p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)).days
+        except Exception:
+            age = 999
+        entry  = p.get("price_at_prediction") or 0
+        target = p.get("target_low") or 0
+        profit = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+        return (age, -profit, -p.get("score", 0))
+    filtered = sorted(filtered, key=_sort_key)
 
     # ── Accuracy Summary ──────────────────────────────────────────────────────
     closed = [p for p in filtered if p.get("outcome") in ("WIN", "LOSS")]
@@ -130,18 +140,20 @@ def render():
             closed_reason = p.get("closed_reason", "")
 
             # Stat pills
-            pill_color = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#64748b"
-            outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c" if outcome == "LOSS" else "#d97706"
+            dir_color     = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
+            outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c" if outcome == "LOSS" else "#b45309"
+            prof_color    = "#15803d" if profit_pct > 0 else "#b91c1c"
+            ret_color     = "#15803d" if (ret or 0) > 0 else "#b91c1c"
             st.markdown(
-                f"""<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">
-                {_pill("Direction", f"{dir_icon} {direction}", pill_color)}
+                f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px">
+                {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
                 {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
                 {_pill("Score", f"{score}/100", "#7c3aed")}
-                {_pill("Profit target", profit_str, "#15803d" if profit_pct > 0 else "#b91c1c")}
+                {_pill("Profit target", profit_str, prof_color)}
                 {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
-                {_pill("R/R", f"1 : {rr:.1f}", "#d97706")}
+                {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
                 {_pill("Outcome", outcome, outcome_color)}
-                {_pill("Return", ret_str, "#15803d" if (ret or 0) > 0 else "#b91c1c")}
+                {_pill("Return", ret_str, ret_color)}
                 </div>""",
                 unsafe_allow_html=True,
             )
@@ -182,8 +194,9 @@ def render():
 
 def _pill(label: str, value: str, color: str) -> str:
     return (
-        f'<span style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:20px;'
-        f'padding:4px 10px;font-size:12px;color:#374151">'
-        f'<span style="color:#94a3b8">{label}: </span>'
+        f'<span style="display:inline-flex;align-items:center;gap:4px;'
+        f'background:#f1f5f9;border:1px solid #e2e8f0;border-radius:20px;'
+        f'padding:4px 10px;font-size:12px">'
+        f'<span style="color:#64748b;font-weight:400">{label}:</span>'
         f'<strong style="color:{color}">{value}</strong></span>'
     )
