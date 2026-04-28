@@ -145,81 +145,77 @@ def render():
         )
 
         pred_id = p.get("id") or f"{ticker}_{timeframe}_{p.get('predicted_on','')[:10]}"
+        with st.expander(header, expanded=False):
+            stop  = p.get("stop_loss") or 0
+            rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
+            closed_reason = p.get("closed_reason", "")
 
-        with st.container(border=True):
-            title_col, del_col = st.columns([11, 1])
-            with title_col:
-                st.markdown(header)
-                badge_html = _asset_badge(p)
-                if badge_html:
-                    st.markdown(f"<div style='margin-top:2px'>{badge_html}</div>", unsafe_allow_html=True)
-            with del_col:
-                if st.button("✕", key=f"hdel_{pred_id}", help="Delete prediction"):
-                    try:
-                        from database.db import soft_delete_prediction
-                        soft_delete_prediction(pred_id)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Delete failed: {e}")
+            # Asset badge + delete button
+            badge_html = _asset_badge(p)
+            if badge_html:
+                st.markdown(f"<div style='margin-bottom:6px'>{badge_html}</div>", unsafe_allow_html=True)
+            if st.button("✕ Delete prediction", key=f"hdel_{pred_id}"):
+                try:
+                    from database.db import soft_delete_prediction
+                    soft_delete_prediction(pred_id)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Delete failed: {e}")
 
-            with st.expander("Details", expanded=False):
-                stop  = p.get("stop_loss") or 0
-                rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
-                closed_reason = p.get("closed_reason", "")
+            # Stat pills
+            dir_color     = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
+            outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c" if outcome == "LOSS" else "#b45309"
+            prof_color    = "#15803d" if profit_pct > 0 else "#b91c1c"
+            ret_color     = "#15803d" if (ret or 0) > 0 else "#b91c1c"
+            st.markdown(
+                f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px">
+                {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
+                {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
+                {_pill("Score", f"{score}/100", "#7c3aed")}
+                {_pill("Profit target", profit_str, prof_color)}
+                {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
+                {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
+                {_pill("Outcome", outcome, outcome_color)}
+                {_pill("Return", ret_str, ret_color)}
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
-                dir_color     = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
-                outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c" if outcome == "LOSS" else "#b45309"
-                prof_color    = "#15803d" if profit_pct > 0 else "#b91c1c"
-                ret_color     = "#15803d" if (ret or 0) > 0 else "#b91c1c"
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("**Entry**")
+                st.write(f"Price at signal: ${entry:.2f}")
+                st.write(f"Buy range: ${p.get('buy_range_low', 0):.2f} – ${p.get('buy_range_high', 0):.2f}")
+                st.write(f"Confidence: {confidence}%  ·  Score: {score}/100")
+            with c2:
+                st.markdown("**Exit**")
+                close_price = p.get("price_at_close")
+                st.write(f"Close price: ${close_price:.2f}" if close_price else "Not closed yet")
+                st.write(f"Target: ${p.get('target_low', 0):.2f} – ${p.get('target_high', 0):.2f}")
+                st.write(f"Stop loss: ${stop:.2f}")
+                if closed_reason:
+                    st.write(f"Closed by: {closed_reason}")
+            with c3:
+                st.markdown("**Timing**")
+                st.write(f"Timeframe: {timeframe}  ·  Position: {position}")
+                st.write(f"Est. days to target: {days_to_target or '—'}")
+                if expiry_str != "—":
+                    st.write(f"Expires: {expiry_str}{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
+                else:
+                    st.write("Expires: run scanner to populate")
+                if p.get("timing_rationale"):
+                    st.caption(f"💡 {p['timing_rationale']}")
+
+            if p.get("reasoning"):
                 st.markdown(
-                    f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px">
-                    {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
-                    {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
-                    {_pill("Score", f"{score}/100", "#7c3aed")}
-                    {_pill("Profit target", profit_str, prof_color)}
-                    {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
-                    {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
-                    {_pill("Outcome", outcome, outcome_color)}
-                    {_pill("Return", ret_str, ret_color)}
-                    </div>""",
+                    f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;
+                    border-radius:0 6px 6px 0;padding:8px 12px;margin-top:8px;
+                    font-size:13px;color:#374151">{p['reasoning']}</div>""",
                     unsafe_allow_html=True,
                 )
 
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown("**Entry**")
-                    st.write(f"Price at signal: ${entry:.2f}")
-                    st.write(f"Buy range: ${p.get('buy_range_low', 0):.2f} – ${p.get('buy_range_high', 0):.2f}")
-                    st.write(f"Confidence: {confidence}%  ·  Score: {score}/100")
-                with c2:
-                    st.markdown("**Exit**")
-                    close_price = p.get("price_at_close")
-                    st.write(f"Close price: ${close_price:.2f}" if close_price else "Not closed yet")
-                    st.write(f"Target: ${p.get('target_low', 0):.2f} – ${p.get('target_high', 0):.2f}")
-                    st.write(f"Stop loss: ${stop:.2f}")
-                    if closed_reason:
-                        st.write(f"Closed by: {closed_reason}")
-                with c3:
-                    st.markdown("**Timing**")
-                    st.write(f"Timeframe: {timeframe}  ·  Position: {position}")
-                    st.write(f"Est. days to target: {days_to_target or '—'}")
-                    if expiry_str != "—":
-                        st.write(f"Expires: {expiry_str}{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
-                    else:
-                        st.write("Expires: run scanner to populate")
-                    if p.get("timing_rationale"):
-                        st.caption(f"💡 {p['timing_rationale']}")
-
-                if p.get("reasoning"):
-                    st.markdown(
-                        f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;
-                        border-radius:0 6px 6px 0;padding:8px 12px;margin-top:8px;
-                        font-size:13px;color:#374151">{p['reasoning']}</div>""",
-                        unsafe_allow_html=True,
-                    )
-
-                if position == "SHORT":
-                    st.warning("SHORT position — margin/options account required")
+            if position == "SHORT":
+                st.warning("SHORT position — margin/options account required")
 
 
 _CRYPTO_TICKERS = {
