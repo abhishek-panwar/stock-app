@@ -1,6 +1,8 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+
+TIMEFRAME_DAYS = {"short": 5, "medium": 28, "long": 180}
 
 PT = pytz.timezone("America/Los_Angeles")
 
@@ -90,6 +92,20 @@ def render():
             expanded=False,
         ):
             c1, c2, c3 = st.columns(3)
+            # Compute expires_on for display
+            expires_display = p.get("expires_on", "")
+            if not expires_display:
+                try:
+                    pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)
+                    expires_display = (pred_dt + timedelta(days=TIMEFRAME_DAYS.get(p.get("timeframe","short"), 5))).strftime("%b %d, %Y")
+                except Exception:
+                    expires_display = "—"
+            else:
+                try:
+                    expires_display = datetime.fromisoformat(expires_display.replace("Z", "+00:00")).strftime("%b %d, %Y")
+                except Exception:
+                    pass
+
             with c1:
                 st.markdown("**Entry**")
                 st.write(f"Price: ${p.get('price_at_prediction', 0):.2f}")
@@ -100,6 +116,7 @@ def render():
                 st.markdown("**Exit**")
                 close_price = p.get("price_at_close")
                 st.write(f"Close price: ${close_price:.2f}" if close_price else "Not closed yet")
+                st.write(f"Expires: {expires_display}")
                 st.write(f"Target: ${p.get('target_low', 0):.2f} – ${p.get('target_high', 0):.2f}")
                 st.write(f"Stop loss: ${p.get('stop_loss', 0):.2f}")
                 if closed_reason:

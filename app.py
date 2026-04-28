@@ -33,25 +33,25 @@ st.sidebar.caption("All times Pacific Time (Seattle)")
 
 # ── Route to page ─────────────────────────────────────────────────────────────
 if page == "Today's Best Setups":
-    from pages import main_dashboard
+    from views import main_dashboard
     main_dashboard.render()
 
 elif page == "History & Accuracy":
-    from pages import history
+    from views import history
     history.render()
 
 elif page == "Deep Dive":
-    from pages import deep_dive
+    from views import deep_dive
     deep_dive.render()
 
 elif page == "Analysts":
-    from pages import analysts
+    from views import analysts
     analysts.render()
 
 elif page == "System Evolution":
-    from pages import system_evolution
+    from views import system_evolution
     system_evolution.render()
 
 elif page == "Health Dashboard":
-    from pages import health_dashboard
+    from views import health_dashboard
     health_dashboard.render()
