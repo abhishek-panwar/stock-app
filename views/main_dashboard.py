@@ -83,9 +83,6 @@ def render():
             f"→ {log.get('overlap_count','—')} overlap, deduplicated"
         )
 
-    short  = sorted([p for p in predictions if p.get("timeframe") == "short"],  key=_sort_key)
-    medium = sorted([p for p in predictions if p.get("timeframe") == "medium"], key=_sort_key)
-    long_  = sorted([p for p in predictions if p.get("timeframe") == "long"],   key=_sort_key)
     high_conviction = sorted(
         [p for p in predictions if (p.get("confidence") or 0) >= 75],
         key=_sort_key
@@ -121,21 +118,18 @@ def render():
                     border_col = "#16a34a"
                     glow       = "rgba(22,163,74,0.12)"
                     dir_color  = "#15803d"
-                    text_color = "#14532d"
                     dir_icon   = "▲"
                 elif direction == "BEARISH":
                     card_bg    = "linear-gradient(145deg,#fef2f2,#fee2e2)"
                     border_col = "#dc2626"
                     glow       = "rgba(220,38,38,0.12)"
                     dir_color  = "#b91c1c"
-                    text_color = "#7f1d1d"
                     dir_icon   = "▼"
                 else:
                     card_bg    = "linear-gradient(145deg,#f8fafc,#f1f5f9)"
                     border_col = "#94a3b8"
                     glow       = "rgba(71,85,105,0.1)"
                     dir_color  = "#475569"
-                    text_color = "#1e293b"
                     dir_icon   = "●"
 
                 profit_color = "#15803d" if profit_pct >= 0 else "#b91c1c"
@@ -164,19 +158,48 @@ def render():
                     )
         st.markdown("")
 
-    # ── Timeframe sections ────────────────────────────────────────────────────
-    for label, emoji, preds in [
-        ("Short-term  (≤10 days)",   "⚡", short[:10]),
-        ("Medium-term (11–35 days)", "📈", medium[:10]),
-        ("Long-term   (>35 days)",   "🌱", long_[:10]),
-    ]:
-        if not preds:
-            continue
-        st.markdown(f"### {emoji} {label}")
-        for p in preds:
-            _prediction_card(p)
+    # ── Date-grouped prediction sections ─────────────────────────────────────
+    def _abs_profit(p):
+        entry  = p.get("price_at_prediction") or 0
+        target = p.get("target_low") or 0
+        return -abs((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
 
-    if not short and not medium and not long_:
+    today_pt = datetime.now(PT).date()
+
+    def _pred_date(p):
+        try:
+            return datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT).date()
+        except Exception:
+            return today_pt
+
+    groups = {"✨ New": [], "Yesterday": [], "This Week": [], "This Month": [], "Older": []}
+    for p in predictions:
+        delta = (today_pt - _pred_date(p)).days
+        if delta == 0:
+            groups["✨ New"].append(p)
+        elif delta == 1:
+            groups["Yesterday"].append(p)
+        elif delta <= 7:
+            groups["This Week"].append(p)
+        elif delta <= 30:
+            groups["This Month"].append(p)
+        else:
+            groups["Older"].append(p)
+
+    for group_label, group_preds in groups.items():
+        if not group_preds:
+            continue
+        group_preds = sorted(group_preds, key=_abs_profit)
+        is_new = group_label == "✨ New"
+        header_label = (
+            f"{'✨ ' if is_new else ''}"
+            f"**{group_label}** — {len(group_preds)} prediction{'s' if len(group_preds) != 1 else ''}"
+        )
+        with st.expander(header_label, expanded=True):
+            for p in group_preds:
+                _prediction_card(p)
+
+    if not predictions:
         _show_empty_state()
 
 
