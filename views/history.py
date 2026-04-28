@@ -47,10 +47,13 @@ def render():
     # ── Global success rate banner ────────────────────────────────────────────
     all_wins   = [p for p in all_closed if p.get("outcome") == "WIN"]
     all_losses = [p for p in all_closed if p.get("outcome") == "LOSS"]
-    global_rate = len(all_wins) / len(all_closed) * 100 if all_closed else 0
-    rate_color  = "#15803d" if global_rate >= 60 else "#b45309" if global_rate >= 40 else "#b91c1c"
+    global_rate  = len(all_wins) / len(all_closed) * 100 if all_closed else 0
+    rate_color   = "#15803d" if global_rate >= 60 else "#b45309" if global_rate >= 40 else "#b91c1c"
     avg_win_all  = sum(p.get("return_pct") or 0 for p in all_wins)  / len(all_wins)  if all_wins  else 0
     avg_loss_all = sum(p.get("return_pct") or 0 for p in all_losses) / len(all_losses) if all_losses else 0
+    net_profit_all = sum(p.get("return_pct") or 0 for p in all_closed)
+    net_color_all  = "#15803d" if net_profit_all >= 0 else "#b91c1c"
+    net_str_all    = f"+{net_profit_all:.1f}%" if net_profit_all >= 0 else f"{net_profit_all:.1f}%"
 
     st.markdown(
         f"""<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
@@ -60,6 +63,13 @@ def render():
             <div style="font-size:36px;font-weight:800;color:{rate_color}">{global_rate:.1f}%</div>
             <div style="font-size:12px;color:#64748b">{len(all_closed)} closed trades</div>
           </div>
+          <div style="width:1px;background:#e2e8f0;align-self:stretch"></div>
+          <div>
+            <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px">Net Profit</div>
+            <div style="font-size:36px;font-weight:800;color:{net_color_all}">{net_str_all}</div>
+            <div style="font-size:12px;color:#64748b">sum of all returns</div>
+          </div>
+          <div style="width:1px;background:#e2e8f0;align-self:stretch"></div>
           <div style="display:flex;gap:24px;flex-wrap:wrap">
             <div>
               <div style="font-size:11px;color:#64748b;margin-bottom:2px">Wins</div>
@@ -161,7 +171,14 @@ def render():
         dir_icon     = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
         pos_tag      = f"  ·  {position}" if position not in ("HOLD", "") else ""
         closed_reason = p.get("closed_reason", "")
-        reason_tag   = f"  ·  {closed_reason}" if closed_reason else ""
+        if closed_reason == "TARGET_HIT":
+            reason_tag = "  ·  :green[TARGET HIT]"
+        elif closed_reason == "STOP_LOSS":
+            reason_tag = "  ·  :red[STOP LOSS]"
+        elif closed_reason:
+            reason_tag = f"  ·  {closed_reason}"
+        else:
+            reason_tag = ""
 
         header = (
             f"{outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "

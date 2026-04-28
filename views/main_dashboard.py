@@ -27,10 +27,8 @@ def _age_info(predicted_on: str):
         age = (datetime.utcnow() - pred_dt).days
     except Exception:
         return 0, ""
-    if age == 0:
-        return 0, '<span style="background:#dcfce7;color:#14532d;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">Today</span>'
-    if age == 1:
-        return 1, '<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">1d old</span>'
+    if age <= 1:
+        return age, f'<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">{age}d old</span>'
     return age, f'<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:500">{age}d old</span>'
 
 
@@ -247,7 +245,7 @@ def _prediction_card(p: dict, _unused: set = None):
 
     dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
     hc_tag   = "  🎯" if confidence >= 75 else ""
-    age_tag  = "  ·  Today" if age_days == 0 else f"  ·  {age_days}d old"
+    age_tag  = f"  ·  {age_days}d old"
     pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
     exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
 
