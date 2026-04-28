@@ -230,79 +230,83 @@ def _prediction_card(p: dict, _unused: set = None):
         f"{exp_tag}{age_tag}{hc_tag}"
     )
 
-    with st.expander(header, expanded=False):
-        pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
-        btn_col, badge_col, del_col = st.columns([2, 7, 1])
-        with btn_col:
-            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
-                st.session_state.chart_ticker = ticker
-                st.session_state.chart_pred   = p
-                st.rerun()
-        with badge_col:
-            st.markdown(f"<div style='padding-top:6px'>{age_badge}{_asset_badge(p)}</div>", unsafe_allow_html=True)
-        with del_col:
-            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
-                try:
-                    from database.db import soft_delete_prediction
-                    soft_delete_prediction(pred_id)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete failed: {e}")
-
-        # ── Stat pills ────────────────────────────────────────────────────────
-        dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
-        prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
-        st.markdown(
-            f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 14px;text-align:left">
-            {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
-            {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
-            {_pill("Score", f"{score}/100", "#7c3aed")}
-            {_pill("Profit target", profit_str, prof_color)}
-            {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
-            {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
-            {_pill("Position", position, "#374151")}
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("**Entry**")
-            st.markdown(f"Price at signal: `${entry:.2f}`")
-            st.markdown(f"Buy range: `${p.get('buy_range_low',0):.2f} – ${p.get('buy_range_high',0):.2f}`")
-            st.markdown(f"Stop loss: `${stop:.2f}`")
-        with c2:
-            st.markdown("**Target**")
-            st.markdown(f"Range: `${p.get('target_low',0):.2f} – ${p.get('target_high',0):.2f}`")
-            st.markdown(f"Profit potential: `{profit_str}`")
-            st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
-        with c3:
-            st.markdown("**Timing**")
+    pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+    row_col, del_col = st.columns([11, 1])
+    with del_col:
+        st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
+        if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
             try:
-                pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).strftime("%b %d  %I:%M %p PT")
-            except Exception:
-                pred_dt_str = "—"
-            st.markdown(f"Predicted: `{pred_dt_str}`")
-            st.markdown(f"Est. days to target: `{days_to_target or '—'}`")
-            if expiry_str != "—":
-                st.markdown(f"Expires: `{expiry_str}`{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
-            else:
-                st.markdown("Expires: `run scanner to populate`")
-            if p.get("timing_rationale"):
-                st.caption(f"💡 {p['timing_rationale']}")
+                from database.db import soft_delete_prediction
+                soft_delete_prediction(pred_id)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+        st.markdown("</div>", unsafe_allow_html=True)
+    with row_col:
+        with st.expander(header, expanded=False):
+            btn_col, badge_col = st.columns([2, 8])
+            with btn_col:
+                if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
+                    st.session_state.chart_ticker = ticker
+                    st.session_state.chart_pred   = p
+                    st.rerun()
+            with badge_col:
+                st.markdown(f"<div style='padding-top:6px'>{age_badge}{_asset_badge(p)}</div>", unsafe_allow_html=True)
 
-        if p.get("reasoning"):
+            # ── Stat pills ────────────────────────────────────────────────────
+            dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
+            prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
             st.markdown(
-                f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;
-                padding:10px 14px;margin:12px 0 8px;font-size:13px;color:#1e293b;
-                line-height:1.6;text-align:left">{p['reasoning']}</div>""",
+                f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 14px;text-align:left">
+                {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
+                {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
+                {_pill("Score", f"{score}/100", "#7c3aed")}
+                {_pill("Profit target", profit_str, prof_color)}
+                {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
+                {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
+                {_pill("Position", position, "#374151")}
+                </div>""",
                 unsafe_allow_html=True,
             )
 
-        _news_links(ticker)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("**Entry**")
+                st.markdown(f"Price at signal: `${entry:.2f}`")
+                st.markdown(f"Buy range: `${p.get('buy_range_low',0):.2f} – ${p.get('buy_range_high',0):.2f}`")
+                st.markdown(f"Stop loss: `${stop:.2f}`")
+            with c2:
+                st.markdown("**Target**")
+                st.markdown(f"Range: `${p.get('target_low',0):.2f} – ${p.get('target_high',0):.2f}`")
+                st.markdown(f"Profit potential: `{profit_str}`")
+                st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
+            with c3:
+                st.markdown("**Timing**")
+                try:
+                    pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).strftime("%b %d  %I:%M %p PT")
+                except Exception:
+                    pred_dt_str = "—"
+                st.markdown(f"Predicted: `{pred_dt_str}`")
+                st.markdown(f"Est. days to target: `{days_to_target or '—'}`")
+                if expiry_str != "—":
+                    st.markdown(f"Expires: `{expiry_str}`{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
+                else:
+                    st.markdown("Expires: `run scanner to populate`")
+                if p.get("timing_rationale"):
+                    st.caption(f"💡 {p['timing_rationale']}")
 
-        if position == "SHORT":
-            st.warning("SHORT position — margin/options account required")
+            if p.get("reasoning"):
+                st.markdown(
+                    f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;
+                    padding:10px 14px;margin:12px 0 8px;font-size:13px;color:#1e293b;
+                    line-height:1.6;text-align:left">{p['reasoning']}</div>""",
+                    unsafe_allow_html=True,
+                )
+
+            _news_links(ticker)
+
+            if position == "SHORT":
+                st.warning("SHORT position — margin/options account required")
 
 
 def _news_links(ticker: str):

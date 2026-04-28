@@ -11,6 +11,11 @@ DIR_COLORS = {
 }
 
 
+def _purge_one(pred_id: str):
+    from database.db import get_client
+    get_client().table("predictions").delete().eq("id", pred_id).execute()
+
+
 def render():
     st.title("🗑️ Deleted Predictions")
     st.caption("Soft-deleted predictions. Use Undo to restore — the prediction reappears with today's timestamp so it sorts as new.")
@@ -41,8 +46,6 @@ def render():
             if st.button("Yes, permanently delete all", type="primary"):
                 try:
                     from database.db import get_client
-                    from datetime import datetime
-                    # Delete all rows where deleted_at is not null
                     get_client().table("predictions").delete().not_.is_("deleted_at", "null").execute()
                     st.session_state["confirm_purge"] = False
                     st.success("All deleted predictions permanently removed.")
@@ -58,15 +61,15 @@ def render():
 
     # ── Deleted list ──────────────────────────────────────────────────────────
     for p in deleted:
-        pred_id   = p.get("id", "")
-        ticker    = p.get("ticker", "—")
-        company   = p.get("company_name") or ticker
-        direction = p.get("direction", "NEUTRAL")
+        pred_id    = p.get("id", "")
+        ticker     = p.get("ticker", "—")
+        company    = p.get("company_name") or ticker
+        direction  = p.get("direction", "NEUTRAL")
         confidence = p.get("confidence", 0)
-        score     = p.get("score", 0)
-        timeframe = p.get("timeframe", "short")
-        outcome   = p.get("outcome", "PENDING")
-        position  = p.get("position", "HOLD")
+        score      = p.get("score", 0)
+        timeframe  = p.get("timeframe", "short")
+        outcome    = p.get("outcome", "PENDING")
+        position   = p.get("position", "HOLD")
 
         entry  = p.get("price_at_prediction") or 0
         target = p.get("target_low") or 0
@@ -75,7 +78,6 @@ def render():
         days_to_target = p.get("days_to_target")
         tenure_str = f"{days_to_target}d" if days_to_target else "—"
 
-        # When it was deleted
         deleted_at_str = "—"
         try:
             dt = datetime.fromisoformat(p["deleted_at"].replace("Z", "+00:00"))
@@ -83,17 +85,15 @@ def render():
         except Exception:
             pass
 
-        # When it was predicted
         predicted_str = "—"
         try:
-            dt = datetime.fromisoformat(p.get("predicted_on","").replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00"))
             predicted_str = dt.astimezone(PT).strftime("%b %d  %I:%M %p PT")
         except Exception:
             pass
 
-        dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
+        dir_icon     = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
         outcome_icon = "🟢" if outcome == "WIN" else "🔴" if outcome == "LOSS" else "🟡"
-        _, border, text = DIR_COLORS.get(direction, DIR_COLORS["NEUTRAL"])
 
         header = (
             f"🗑️ **{ticker}** — {company}  ·  "
@@ -103,20 +103,31 @@ def render():
             f"deleted {deleted_at_str}"
         )
 
-        with st.expander(header, expanded=False):
-            undo_col, info_col = st.columns([2, 8])
-            with undo_col:
-                if st.button("↩ Undo", key=f"undo_{pred_id}", type="primary"):
-                    try:
-                        from database.db import restore_prediction
-                        restore_prediction(pred_id)
-                        st.success(f"{ticker} restored — it will appear as new on the dashboard.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Restore failed: {e}")
-            with info_col:
+        # ── Row: [undo] [expander····················] [purge]
+        undo_col, row_col, purge_col = st.columns([1, 9, 1])
+
+        with undo_col:
+            if st.button("↩", key=f"undo_{pred_id}", help="Restore prediction", type="primary"):
+                try:
+                    from database.db import restore_prediction
+                    restore_prediction(pred_id)
+                    st.success(f"{ticker} restored.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Restore failed: {e}")
+
+        with purge_col:
+            if st.button("🗑️", key=f"purge_{pred_id}", help="Permanently delete"):
+                try:
+                    _purge_one(pred_id)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
+
+        with row_col:
+            with st.expander(header, expanded=False):
                 st.markdown(
-                    f'<div style="padding-top:8px;font-size:12px;color:#64748b">'
+                    f'<div style="font-size:12px;color:#64748b;margin-bottom:10px">'
                     f'Originally predicted: {predicted_str}  ·  '
                     f'Outcome when deleted: {outcome_icon} {outcome}  ·  '
                     f'Timeframe: {timeframe}  ·  Position: {position}'
@@ -124,42 +135,31 @@ def render():
                     unsafe_allow_html=True,
                 )
 
-            # Details
-            stop = p.get("stop_loss") or 0
-            rr   = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
+                stop = p.get("stop_loss") or 0
+                rr   = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown("**Entry**")
-                st.write(f"Price at signal: ${entry:.2f}")
-                st.write(f"Buy range: ${p.get('buy_range_low',0):.2f} – ${p.get('buy_range_high',0):.2f}")
-                st.write(f"Stop loss: ${stop:.2f}")
-            with c2:
-                st.markdown("**Target**")
-                st.write(f"Range: ${p.get('target_low',0):.2f} – ${p.get('target_high',0):.2f}")
-                st.write(f"Profit potential: {profit_str}")
-                st.write(f"R/R: 1 : {rr:.1f}")
-            with c3:
-                st.markdown("**Meta**")
-                st.write(f"Source: {p.get('source','—')}")
-                st.write(f"Formula: {p.get('formula_version','—')}")
-                if p.get("timing_rationale"):
-                    st.caption(f"💡 {p['timing_rationale']}")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown("**Entry**")
+                    st.write(f"Price at signal: ${entry:.2f}")
+                    st.write(f"Buy range: ${p.get('buy_range_low', 0):.2f} – ${p.get('buy_range_high', 0):.2f}")
+                    st.write(f"Stop loss: ${stop:.2f}")
+                with c2:
+                    st.markdown("**Target**")
+                    st.write(f"Range: ${p.get('target_low', 0):.2f} – ${p.get('target_high', 0):.2f}")
+                    st.write(f"Profit potential: {profit_str}")
+                    st.write(f"R/R: 1 : {rr:.1f}")
+                with c3:
+                    st.markdown("**Meta**")
+                    st.write(f"Source: {p.get('source', '—')}")
+                    st.write(f"Formula: {p.get('formula_version', '—')}")
+                    if p.get("timing_rationale"):
+                        st.caption(f"💡 {p['timing_rationale']}")
 
-            if p.get("reasoning"):
-                st.markdown(
-                    f'<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;'
-                    f'padding:10px 14px;margin-top:8px;font-size:13px;color:#1e293b;line-height:1.6">'
-                    f'{p["reasoning"]}</div>',
-                    unsafe_allow_html=True,
-                )
-
-            # Permanent delete for individual row
-            st.markdown("")
-            if st.button("🗑️ Permanently delete this", key=f"purge_{pred_id}"):
-                try:
-                    from database.db import get_client
-                    get_client().table("predictions").delete().eq("id", pred_id).execute()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed: {e}")
+                if p.get("reasoning"):
+                    st.markdown(
+                        f'<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;'
+                        f'padding:10px 14px;margin-top:8px;font-size:13px;color:#1e293b;line-height:1.6">'
+                        f'{p["reasoning"]}</div>',
+                        unsafe_allow_html=True,
+                    )
