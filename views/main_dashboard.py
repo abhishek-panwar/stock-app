@@ -118,25 +118,28 @@ def render():
                 conf      = p.get("confidence", 0)
 
                 if direction == "BULLISH":
-                    card_bg    = "linear-gradient(145deg,#052e16,#14532d)"
+                    card_bg    = "linear-gradient(145deg,#f0fdf4,#dcfce7)"
                     border_col = "#16a34a"
-                    glow       = "rgba(22,163,74,0.25)"
-                    dir_color  = "#4ade80"
+                    glow       = "rgba(22,163,74,0.12)"
+                    dir_color  = "#15803d"
+                    text_color = "#14532d"
                     dir_icon   = "▲"
                 elif direction == "BEARISH":
-                    card_bg    = "linear-gradient(145deg,#2d0a0a,#7f1d1d)"
+                    card_bg    = "linear-gradient(145deg,#fef2f2,#fee2e2)"
                     border_col = "#dc2626"
-                    glow       = "rgba(220,38,38,0.25)"
-                    dir_color  = "#f87171"
+                    glow       = "rgba(220,38,38,0.12)"
+                    dir_color  = "#b91c1c"
+                    text_color = "#7f1d1d"
                     dir_icon   = "▼"
                 else:
-                    card_bg    = "linear-gradient(145deg,#0f172a,#1e293b)"
-                    border_col = "#475569"
-                    glow       = "rgba(71,85,105,0.2)"
-                    dir_color  = "#94a3b8"
+                    card_bg    = "linear-gradient(145deg,#f8fafc,#f1f5f9)"
+                    border_col = "#94a3b8"
+                    glow       = "rgba(71,85,105,0.1)"
+                    dir_color  = "#475569"
+                    text_color = "#1e293b"
                     dir_icon   = "●"
 
-                profit_color = "#4ade80" if profit_pct >= 0 else "#f87171"
+                profit_color = "#15803d" if profit_pct >= 0 else "#b91c1c"
                 profit_str   = f"+{profit_pct:.1f}%" if profit_pct >= 0 else f"{profit_pct:.1f}%"
 
                 with col:
@@ -144,20 +147,18 @@ def render():
                         f"""<div style="background:{card_bg};border:1.5px solid {border_col};
                             border-radius:12px;padding:14px 14px 12px;
                             box-shadow:0 4px 20px {glow};position:relative;overflow:hidden">
-                          <div style="position:absolute;top:0;right:0;width:60px;height:60px;
-                              background:radial-gradient(circle,{glow} 0%,transparent 70%)"></div>
-                          <div style="font-size:20px;font-weight:800;color:#f8fafc;letter-spacing:-0.5px">{ticker}</div>
-                          <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;white-space:nowrap;
+                          <div style="font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-0.5px">{ticker}</div>
+                          <div style="font-size:11px;color:#64748b;margin-bottom:6px;white-space:nowrap;
                               overflow:hidden;text-overflow:ellipsis">{company}</div>
                           <div style="font-size:12px;font-weight:700;color:{dir_color};margin-bottom:4px">
                               {dir_icon} {direction} · {tf_label}
                           </div>
                           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
                             <span style="font-size:18px;font-weight:800;color:{profit_color}">{profit_str}</span>
-                            <span style="background:rgba(255,255,255,0.1);border-radius:8px;padding:2px 8px;
-                                font-size:11px;color:#e2e8f0">~{days}d</span>
+                            <span style="background:rgba(0,0,0,0.06);border-radius:8px;padding:2px 8px;
+                                font-size:11px;color:#475569">~{days}d</span>
                           </div>
-                          <div style="font-size:11px;color:#94a3b8;margin-top:4px">{conf}% conf</div>
+                          <div style="font-size:11px;color:#64748b;margin-top:4px">{conf}% conf</div>
                           <div style="margin-top:6px">{age_badge}{_asset_badge(p)}</div>
                         </div>""",
                         unsafe_allow_html=True,
