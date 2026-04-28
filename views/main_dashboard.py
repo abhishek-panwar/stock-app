@@ -284,14 +284,28 @@ def _prediction_card(p: dict, _unused: set = None):
     )
 
     with st.expander(header, expanded=False):
-        btn_col, badge_col, del_col = st.columns([2, 7, 1])
+        # ── Top action row: pills + badges + chart button + delete ────────────
+        dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
+        prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
+
+        pill_left_col, btn_col, del_col = st.columns([8, 1.4, 0.6])
+        with pill_left_col:
+            st.markdown(
+                f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
+                {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
+                {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
+                {_pill("Profit", profit_str, prof_color)}
+                {_pill("Hold", f"~{tenure_str}", "#0369a1")}
+                {_pill("Position", position, "#374151")}
+                <span style="margin-left:2px">{age_badge}{_asset_badge(p)}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
         with btn_col:
             if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
                 st.session_state.chart_ticker = ticker
                 st.session_state.chart_pred   = p
                 st.rerun()
-        with badge_col:
-            st.markdown(f"<div style='padding-top:6px'>{age_badge}{_asset_badge(p)}</div>", unsafe_allow_html=True)
         with del_col:
             if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
                 try:
@@ -300,22 +314,6 @@ def _prediction_card(p: dict, _unused: set = None):
                     st.rerun()
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
-
-        # ── Stat pills ────────────────────────────────────────────────────────
-        dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
-        prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
-        st.markdown(
-            f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 14px;text-align:left">
-            {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
-            {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
-            {_pill("Score", f"{score}/100", "#7c3aed")}
-            {_pill("Profit target", profit_str, prof_color)}
-            {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
-            {_pill("R/R", f"1 : {rr:.1f}", "#b45309")}
-            {_pill("Position", position, "#374151")}
-            </div>""",
-            unsafe_allow_html=True,
-        )
 
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -328,6 +326,7 @@ def _prediction_card(p: dict, _unused: set = None):
             st.markdown(f"Range: `${p.get('target_low',0):.2f} – ${p.get('target_high',0):.2f}`")
             st.markdown(f"Profit potential: `{profit_str}`")
             st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
+            st.markdown(f"Score: `{score}/100`")
         with c3:
             st.markdown("**Timing**")
             try:
