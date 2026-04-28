@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 import pytz
 
 TIMEFRAME_DAYS = {"short": 5, "medium": 28, "long": 180}
-
 PT = pytz.timezone("America/Los_Angeles")
 
 
@@ -41,10 +40,12 @@ def render():
     if ticker_filter != "All":
         filtered = [p for p in filtered if p.get("ticker") == ticker_filter]
     filtered = [p for p in filtered if (p.get("confidence") or 0) >= conf_min]
+    # Sort by confidence desc
+    filtered = sorted(filtered, key=lambda x: x.get("confidence", 0), reverse=True)
 
     # ── Accuracy Summary ──────────────────────────────────────────────────────
     closed = [p for p in filtered if p.get("outcome") in ("WIN", "LOSS")]
-    wins = [p for p in closed if p.get("outcome") == "WIN"]
+    wins   = [p for p in closed if p.get("outcome") == "WIN"]
     losses = [p for p in closed if p.get("outcome") == "LOSS"]
 
     st.markdown("### Accuracy Summary")
@@ -65,7 +66,6 @@ def render():
         pending = len([p for p in all_preds if p.get("outcome") == "PENDING"])
         st.metric("Open Trades", pending)
 
-    # Timeframe breakdown
     st.markdown("**By timeframe:**")
     tf_cols = st.columns(3)
     for i, tf in enumerate(["short", "medium", "long"]):
@@ -77,57 +77,113 @@ def render():
 
     st.markdown("---")
 
-    # ── Prediction Table ──────────────────────────────────────────────────────
+    # ── Prediction list ───────────────────────────────────────────────────────
     st.markdown(f"### All Predictions ({len(filtered)} shown)")
 
     for p in filtered:
-        outcome = p.get("outcome", "PENDING")
-        color = "🟢" if outcome == "WIN" else "🔴" if outcome == "LOSS" else "🟡"
-        ret = p.get("return_pct")
-        ret_str = f"{ret:+.2f}%" if ret is not None else "—"
-        closed_reason = p.get("closed_reason", "")
+        outcome  = p.get("outcome", "PENDING")
+        ticker   = p.get("ticker", "—")
+        direction = p.get("direction", "NEUTRAL")
+        timeframe = p.get("timeframe", "short")
+        confidence = p.get("confidence", 0)
+        score    = p.get("score", 0)
+        position = p.get("position", "HOLD")
+        ret      = p.get("return_pct")
+        ret_str  = f"{ret:+.2f}%" if ret is not None else "—"
 
-        with st.expander(
-            f"{color} **{p['ticker']}**  {p.get('timeframe','').capitalize()}-term  {p.get('direction','')}  |  {ret_str}  |  {outcome}",
-            expanded=False,
-        ):
+        entry  = p.get("price_at_prediction") or 0
+        target = p.get("target_low") or 0
+        profit_pct = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+        profit_str = f"+{profit_pct:.1f}%" if profit_pct > 0 else f"{profit_pct:.1f}%"
+
+        # Expiry
+        expiry_dt = None
+        try:
+            raw = p.get("expires_on", "")
+            if raw:
+                expiry_dt = datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+            else:
+                pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)
+                expiry_dt = pred_dt + timedelta(days=TIMEFRAME_DAYS.get(timeframe, 5))
+        except Exception:
+            pass
+        days_left = (expiry_dt - datetime.utcnow()).days if expiry_dt else None
+        expiry_str = expiry_dt.strftime("%b %d, %Y") if expiry_dt else "—"
+        days_to_target = p.get("days_to_target")
+        tenure_str = f"{days_to_target}d" if days_to_target else f"{TIMEFRAME_DAYS.get(timeframe, '?')}d"
+
+        outcome_icon = "🟢" if outcome == "WIN" else "🔴" if outcome == "LOSS" else "🟡"
+        dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
+        days_label = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
+        pos_tag = f"  ·  {position}" if position not in ("HOLD", "") else ""
+
+        header = (
+            f"{outcome_icon} **{ticker}**  ·  {dir_icon} {direction}  ·  "
+            f"{confidence}% conf  ·  {score}/100  ·  "
+            f"{profit_str} potential  ·  ~{tenure_str}"
+            f"{pos_tag}  ·  {ret_str}{days_label}"
+        )
+
+        with st.expander(header, expanded=False):
+            stop  = p.get("stop_loss") or 0
+            rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
+            closed_reason = p.get("closed_reason", "")
+
+            # Stat pills
+            pill_color = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#64748b"
+            outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c" if outcome == "LOSS" else "#d97706"
+            st.markdown(
+                f"""<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px">
+                {_pill("Direction", f"{dir_icon} {direction}", pill_color)}
+                {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
+                {_pill("Score", f"{score}/100", "#7c3aed")}
+                {_pill("Profit target", profit_str, "#15803d" if profit_pct > 0 else "#b91c1c")}
+                {_pill("Est. tenure", f"~{tenure_str}", "#0369a1")}
+                {_pill("R/R", f"1 : {rr:.1f}", "#d97706")}
+                {_pill("Outcome", outcome, outcome_color)}
+                {_pill("Return", ret_str, "#15803d" if (ret or 0) > 0 else "#b91c1c")}
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
             c1, c2, c3 = st.columns(3)
-            # Compute expires_on for display — prefer scanner's data-driven value
-            expires_display = "—"
-            try:
-                raw_expiry = p.get("expires_on", "")
-                if raw_expiry:
-                    expires_display = datetime.fromisoformat(raw_expiry.replace("Z", "+00:00")).strftime("%b %d, %Y")
-                else:
-                    pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).replace(tzinfo=None)
-                    expires_display = (pred_dt + timedelta(days=TIMEFRAME_DAYS.get(p.get("timeframe","short"), 5))).strftime("%b %d, %Y")
-            except Exception:
-                pass
-
             with c1:
                 st.markdown("**Entry**")
-                st.write(f"Price: ${p.get('price_at_prediction', 0):.2f}")
-                st.write(f"Range: ${p.get('buy_range_low', 0):.2f} – ${p.get('buy_range_high', 0):.2f}")
-                st.write(f"Confidence: {p.get('confidence', 0)}%")
-                st.write(f"Score: {p.get('score', 0)}/100")
+                st.write(f"Price at signal: ${entry:.2f}")
+                st.write(f"Buy range: ${p.get('buy_range_low', 0):.2f} – ${p.get('buy_range_high', 0):.2f}")
+                st.write(f"Confidence: {confidence}%  ·  Score: {score}/100")
             with c2:
                 st.markdown("**Exit**")
                 close_price = p.get("price_at_close")
                 st.write(f"Close price: ${close_price:.2f}" if close_price else "Not closed yet")
-                st.write(f"Expires: {expires_display}")
                 st.write(f"Target: ${p.get('target_low', 0):.2f} – ${p.get('target_high', 0):.2f}")
-                st.write(f"Stop loss: ${p.get('stop_loss', 0):.2f}")
+                st.write(f"Stop loss: ${stop:.2f}")
                 if closed_reason:
                     st.write(f"Closed by: {closed_reason}")
             with c3:
-                st.markdown("**Details**")
-                st.write(f"Timeframe: {p.get('timeframe', '—')}")
-                st.write(f"Position: {p.get('position', '—')}")
-                st.write(f"Source: {p.get('source', '—')}")
-                st.write(f"Formula: {p.get('formula_version', '—')}")
+                st.markdown("**Timing**")
+                st.write(f"Timeframe: {timeframe}  ·  Position: {position}")
+                st.write(f"Est. days to target: {days_to_target or '—'}")
+                st.write(f"Expires: {expiry_str}{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
+                if p.get("timing_rationale"):
+                    st.caption(f"💡 {p['timing_rationale']}")
 
             if p.get("reasoning"):
-                st.markdown(f"**Reasoning:** {p['reasoning']}")
+                st.markdown(
+                    f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;
+                    border-radius:0 6px 6px 0;padding:8px 12px;margin-top:8px;
+                    font-size:13px;color:#374151">{p['reasoning']}</div>""",
+                    unsafe_allow_html=True,
+                )
 
-            if p.get("position") == "SHORT":
-                st.warning("SHORT — margin account required")
+            if position == "SHORT":
+                st.warning("SHORT position — margin/options account required")
+
+
+def _pill(label: str, value: str, color: str) -> str:
+    return (
+        f'<span style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:20px;'
+        f'padding:4px 10px;font-size:12px;color:#374151">'
+        f'<span style="color:#94a3b8">{label}: </span>'
+        f'<strong style="color:{color}">{value}</strong></span>'
+    )
