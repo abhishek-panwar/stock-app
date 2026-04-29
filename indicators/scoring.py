@@ -89,7 +89,10 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
 
     # ── Group 3: Volatility (15 pts max) ──────────────────────────────────────
     bb_score = 0
-    if ind.get("bb_squeeze"):
+    bb_position = ind.get("bb_position", 0.5)  # 0=lower band, 0.5=middle, 1=upper band
+    bb_squeeze_valid = ind.get("bb_squeeze") and bb_position < 0.6
+    
+    if bb_squeeze_valid:
         bb_score = 9
     elif ind.get("bb_breakout_up"):
         bb_score = 7
