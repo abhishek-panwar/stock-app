@@ -275,30 +275,43 @@ Respond in this exact JSON (no other text):
 
 
 def _apply_diff(diff: dict, sel_file: str, opt_id: str, suggestion_plain: str):
-    """Write the change to disk, git-commit + push, then mark as applied in DB."""
-    import subprocess
+    """Commit the change via GitHub API, then mark as applied in DB."""
     import os
+    import base64
+    import requests
     from datetime import datetime
 
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    file_path = os.path.join(base_dir, sel_file)
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo  = os.environ.get("GITHUB_REPO", "")   # e.g. "abhishek-panwar/stock-app"
+    if not token or not repo:
+        raise ValueError("GITHUB_TOKEN and GITHUB_REPO must be set in Streamlit secrets")
+
+    api = f"https://api.github.com/repos/{repo}/contents/{sel_file}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    # Fetch current file to get sha + content
+    r = requests.get(api, headers=headers)
+    r.raise_for_status()
+    file_info = r.json()
+    current_content = base64.b64decode(file_info["content"]).decode("utf-8")
+    sha = file_info["sha"]
 
     # Apply the line replacement
-    with open(file_path, "r") as f:
-        lines = f.read().splitlines()
-
-    start = diff["start_line"] - 1      # 0-indexed
-    end   = diff["end_line"]             # exclusive slice end
+    lines = current_content.splitlines()
+    start = diff["start_line"] - 1
+    end   = diff["end_line"]
     new_lines = diff["new_code"].splitlines()
-    updated = lines[:start] + new_lines + lines[end:]
-    with open(file_path, "w") as f:
-        f.write("\n".join(updated) + "\n")
+    updated = "\n".join(lines[:start] + new_lines + lines[end:]) + "\n"
 
-    # Commit and push
+    # Push via GitHub API
     commit_msg = f"auto-apply: {suggestion_plain[:72]}"
-    subprocess.run(["git", "add", sel_file], cwd=base_dir, check=True)
-    subprocess.run(["git", "commit", "-m", commit_msg], cwd=base_dir, check=True)
-    subprocess.run(["git", "push"], cwd=base_dir, check=True)
+    payload = {
+        "message": commit_msg,
+        "content": base64.b64encode(updated.encode("utf-8")).decode("utf-8"),
+        "sha": sha,
+    }
+    r2 = requests.put(api, headers=headers, json=payload)
+    r2.raise_for_status()
 
     # Mark as applied in DB
     from database.db import mark_optimization_applied
