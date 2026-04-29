@@ -25,8 +25,9 @@ def _send(text: str) -> bool:
 
 
 def send_stop_loss_alert(ticker: str, entry: float, current: float, loss_pct: float,
-                         predicted_on: str = "", stop_loss: float = 0) -> bool:
-    age_str = _age_str(predicted_on)
+                         predicted_on: str = "", stop_loss: float = 0,
+                         direction: str = "") -> bool:
+    age_str = _age_str(predicted_on, direction)
     loss_amt = abs(current - entry)
     stop_str = f"  |  Stop: ${stop_loss:.2f}" if stop_loss else ""
     msg = (
@@ -40,8 +41,9 @@ def send_stop_loss_alert(ticker: str, entry: float, current: float, loss_pct: fl
 
 
 def send_target_hit_alert(ticker: str, entry: float, current: float, return_pct: float,
-                          predicted_on: str = "", target_low: float = 0) -> bool:
-    age_str = _age_str(predicted_on)
+                          predicted_on: str = "", target_low: float = 0,
+                          direction: str = "") -> bool:
+    age_str = _age_str(predicted_on, direction)
     profit_amt = abs(current - entry)
     target_str = f"  |  Target: ${target_low:.2f}" if target_low else ""
     msg = (
@@ -54,19 +56,20 @@ def send_target_hit_alert(ticker: str, entry: float, current: float, return_pct:
     return _send(msg)
 
 
-def _age_str(predicted_on: str) -> str:
+def _age_str(predicted_on: str, direction: str = "") -> str:
+    dir_label = f" {direction}" if direction else ""
     if not predicted_on:
-        return "Prediction age: unknown"
+        return f"📅 Unknown age{dir_label} prediction"
     try:
         pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT)
         age = (datetime.now(PT).date() - pred_dt.date()).days
         if age == 0:
-            return "📅 Today's prediction"
+            return f"📅 Today's{dir_label} prediction"
         if age == 1:
-            return "📅 Yesterday's prediction"
-        return f"📅 {age}-day-old prediction"
+            return f"📅 Yesterday's{dir_label} prediction"
+        return f"📅 {age}-day-old{dir_label} prediction"
     except Exception:
-        return "Prediction age: unknown"
+        return f"📅 Unknown age{dir_label} prediction"
 
 
 def send_new_prediction(ticker: str, timeframe: str, direction: str,

@@ -54,7 +54,8 @@ def run():
                 })
                 send_target_hit_alert(ticker, entry, current, return_pct,
                                       predicted_on=pred.get("predicted_on", ""),
-                                      target_low=pred.get("target_low", 0))
+                                      target_low=pred.get("target_low", 0),
+                                      direction=pred.get("direction", ""))
             except Exception:
                 pass
 
@@ -69,7 +70,8 @@ def run():
                 })
                 send_stop_loss_alert(ticker, entry, current, abs(return_pct),
                                      predicted_on=pred.get("predicted_on", ""),
-                                     stop_loss=pred.get("stop_loss", 0))
+                                     stop_loss=pred.get("stop_loss", 0),
+                                     direction=pred.get("direction", ""))
             except Exception:
                 pass
 
