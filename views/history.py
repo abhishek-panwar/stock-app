@@ -143,15 +143,17 @@ def render():
 
     today_pt = datetime.now(PT).date()
 
-    def _pred_date(p):
+    def _closed_date(p):
+        # Group by when the trade closed, not when it was predicted
+        raw = p.get("verified_on") or p.get("predicted_on") or ""
         try:
-            return datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT).date()
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(PT).date()
         except Exception:
             return today_pt
 
     groups = {"Today": [], "Yesterday": [], "This Week": [], "This Month": [], "This Year": [], "Older": []}
     for p in filtered:
-        d = _pred_date(p)
+        d = _closed_date(p)
         delta = (today_pt - d).days
         if delta == 0:
             groups["Today"].append(p)

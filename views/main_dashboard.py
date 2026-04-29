@@ -25,11 +25,15 @@ def _age_info(predicted_on: str):
     try:
         pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT)
         today_pt = datetime.now(PT).date()
-        age = (today_pt - pred_dt.date()).days
+        from datetime import timedelta
+        eff_date = pred_dt.date() + timedelta(days=1) if pred_dt.hour >= 16 else pred_dt.date()
+        age = (today_pt - eff_date).days
     except Exception:
         return 0, ""
-    if age <= 1:
-        return age, f'<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">{age}d old</span>'
+    if age < 0:
+        return age, f'<span style="background:#eff6ff;color:#1d4ed8;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">for tomorrow</span>'
+    if age == 0:
+        return age, f'<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">today</span>'
     return age, f'<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:500">{age}d old</span>'
 
 
@@ -206,15 +210,30 @@ def render():
         except Exception:
             return today_pt
 
+    MARKET_CLOSE_HOUR = 16  # 4 PM PT
+
+    def _effective_date(p):
+        """Predictions made after 4 PM PT are for the next trading day."""
+        try:
+            pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT)
+            if pred_dt.hour >= MARKET_CLOSE_HOUR:
+                from datetime import timedelta
+                return pred_dt.date() + timedelta(days=1)
+            return pred_dt.date()
+        except Exception:
+            return today_pt
+
     def _date_bucket(p):
-        delta = (today_pt - _pred_date(p)).days
-        if delta == 0:   return "✨ New"
+        eff = _effective_date(p)
+        delta = (today_pt - eff).days
+        if delta < 0:    return "📅 Tomorrow"
+        if delta == 0:   return "✨ Today"
         if delta == 1:   return "Yesterday"
         if delta <= 7:   return "This Week"
         if delta <= 30:  return "This Month"
         return "Older"
 
-    DATE_ORDER = ["✨ New", "Yesterday", "This Week", "This Month", "Older"]
+    DATE_ORDER = ["📅 Tomorrow", "✨ Today", "Yesterday", "This Week", "This Month", "Older"]
 
     TF_CONFIG = [
         ("short",  "⚡ Short-term",  "#0369a1"),
@@ -248,7 +267,7 @@ def render():
             bucket_preds = sorted(bucket_preds, key=_abs_profit)
             with st.expander(
                 f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
-                expanded=(bucket_label in ("✨ New", "Yesterday")),
+                expanded=(bucket_label in ("📅 Tomorrow", "✨ Today")),
             ):
                 for p in bucket_preds:
                     _prediction_card(p)
