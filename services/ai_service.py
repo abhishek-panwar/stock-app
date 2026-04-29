@@ -225,7 +225,7 @@ Only output the JSON."""
         return {"pattern_summary": f"Analysis failed: {e}", "suggestions": []}
 
 
-def analyze_prediction_outcomes(wins: list, losses: list) -> dict:
+def analyze_prediction_outcomes(wins: list, losses: list, existing_suggestions: list = None) -> dict:
     """Analyze why predictions failed and whether winning timing was accurate."""
     def _summarize(p: dict) -> str:
         entry  = p.get("price_at_prediction") or 0
@@ -251,6 +251,11 @@ def analyze_prediction_outcomes(wins: list, losses: list) -> dict:
     loss_lines = [_summarize(p) for p in losses[-30:]]
     win_lines  = [_summarize(p) for p in wins[-20:]]
 
+    already_known = ""
+    if existing_suggestions:
+        already_known = "\nALREADY ADDRESSED (do NOT suggest these again):\n" + \
+            "\n".join(f"- {s}" for s in existing_suggestions if s) + "\n"
+
     prompt = f"""You are analyzing a stock prediction system's track record to improve it.
 
 LOSSES ({len(loss_lines)} recent):
@@ -258,11 +263,12 @@ LOSSES ({len(loss_lines)} recent):
 
 WINS ({len(win_lines)} recent):
 {chr(10).join(win_lines) if win_lines else "None yet"}
-
+{already_known}
 Analyze:
 1. WHY did the losses happen? Look for common patterns (wrong direction, bad timing, weak signals, etc.)
 2. For wins: was the timing accurate? Were predicted days close to actual days?
 3. What specific changes to the screening/scoring logic would improve success rate?
+4. ONLY suggest improvements that are genuinely new — skip anything already in the "ALREADY ADDRESSED" list above.
 
 Respond in this exact JSON:
 {{

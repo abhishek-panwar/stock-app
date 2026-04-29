@@ -14,7 +14,7 @@ load_dotenv()
 import pytz
 PT = pytz.timezone("America/Los_Angeles")
 
-from database.db import get_predictions, insert_optimization, log_error
+from database.db import get_predictions, get_all_optimizations, insert_optimization, log_error
 from services.ai_service import analyze_prediction_outcomes
 
 
@@ -33,16 +33,29 @@ def run():
 
     print(f"  {len(closed)} closed predictions: {len(wins)} wins, {len(losses)} losses")
 
-    result = analyze_prediction_outcomes(wins, losses)
+    # Pass already-known suggestions so Claude doesn't repeat them
+    existing = get_all_optimizations(limit=200)
+    existing_suggestions = [
+        o.get("suggestion_plain", "") for o in existing
+        if o.get("status") in ("PENDING", "APPROVED")
+    ]
+    print(f"  {len(existing_suggestions)} existing suggestions passed to Claude to avoid duplicates")
+
+    result = analyze_prediction_outcomes(wins, losses, existing_suggestions=existing_suggestions)
     if not result:
         print("  Analysis returned empty result.")
         return
 
     suggestions = result.get("suggestions", [])
-    print(f"  Got {len(suggestions)} optimization suggestions")
+    print(f"  Got {len(suggestions)} new optimization suggestions")
 
     saved = 0
     for s in suggestions:
+        plain = s.get("plain_english", "").strip().lower()
+        # Skip if very similar to an existing suggestion (simple substring check)
+        if any(plain[:60] in ex.lower() or ex.lower()[:60] in plain for ex in existing_suggestions if ex):
+            print(f"  Skipping duplicate: {plain[:80]}")
+            continue
         try:
             insert_optimization({
                 "created_at":            datetime.utcnow().isoformat(),
@@ -62,7 +75,7 @@ def run():
         except Exception as e:
             log_error("failure_analyzer", f"Failed to save suggestion: {e}", level="WARNING")
 
-    print(f"  Saved {saved} suggestions to optimization_queue.")
+    print(f"  Saved {saved} new suggestions to optimization_queue.")
     return {"suggestions_saved": saved, "closed_analyzed": len(closed)}
 
 
