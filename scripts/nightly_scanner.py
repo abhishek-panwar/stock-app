@@ -199,8 +199,13 @@ def run():
             target_price = round(float(target_price), 2)
             stop_price   = round(float(stop_price), 2)
 
-            # Profit % filter — skip if absolute profit < MIN_PROFIT_PCT
-            profit_pct = abs(target_price - price) / price * 100 if price > 0 else 0
+
+            # target_low/high for UI compatibility — use ±3% of target_price
+            target_low  = round(target_price * 0.97, 2)
+            target_high = round(target_price * 1.03, 2)
+
+            # Profit % filter — based on target_low (what UI shows as "Profit potential")
+            profit_pct = abs(target_low - price) / price * 100 if price > 0 else 0
             passed_filter = profit_pct >= MIN_PROFIT_PCT
 
             # ── Collect raw Claude response before any filter ─────────────────
@@ -225,10 +230,6 @@ def run():
             if not passed_filter:
                 print(f"  {ticker} skipped — profit {profit_pct:.1f}% < {MIN_PROFIT_PCT}%")
                 continue
-
-            # target_low/high for UI compatibility — use ±5% of target_price
-            target_low  = round(target_price * 0.97, 2)
-            target_high = round(target_price * 1.03, 2)
 
             buy_low, buy_high = compute_buy_range(price, atr, direction)
             buy_window = ai.get("buy_window") or compute_buy_window("short", score_data["total"])
