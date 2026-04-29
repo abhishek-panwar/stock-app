@@ -1,8 +1,15 @@
 import streamlit as st
 from datetime import datetime
 import pytz
+import os
 
 PT = pytz.timezone("America/Los_Angeles")
+
+EDITABLE_FILES = {
+    "indicators/scoring.py":      "Scoring formula — signal weights and thresholds",
+    "scripts/nightly_scanner.py": "Scanner — thresholds, MAX_STOCKS, R/R filter",
+    "services/ai_service.py":     "AI prompt — Claude instructions",
+}
 
 
 def render():
@@ -97,11 +104,12 @@ def _render_opt(opt: dict, expanded: bool):
             pass
 
     status_icon = "⏳" if status == "PENDING" else "✅" if status == "APPROVED" else "❌"
+    applied_icon = " 🔧" if opt.get("applied") else ""
     proj = opt.get("projected_improvement", 0) or 0
 
     with st.expander(
         f"{status_icon} **{date_str}** — {opt.get('suggestion_plain', '')[:80]}  ·  "
-        f"+{proj:.0f}% projected improvement",
+        f"+{proj:.0f}% projected{applied_icon}",
         expanded=expanded,
     ):
         col_meta, col_status = st.columns([7, 3])
@@ -113,7 +121,11 @@ def _render_opt(opt: dict, expanded: bool):
             )
         with col_status:
             if reviewed_at and status != "PENDING":
-                st.markdown(f"<div style='text-align:right;font-size:12px;color:#64748b'>{status_icon} {status} on {reviewed_at}</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='text-align:right;font-size:12px;color:#64748b'>"
+                    f"{status_icon} {status} on {reviewed_at}</div>",
+                    unsafe_allow_html=True,
+                )
 
         if opt.get("failure_pattern"):
             st.markdown(
@@ -142,7 +154,6 @@ def _render_opt(opt: dict, expanded: bool):
                 if st.button("✅ Approve", key=f"approve_{opt_id}"):
                     try:
                         update_optimization_status(opt_id, "APPROVED")
-                        st.success("Approved!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed: {e}")
@@ -153,3 +164,142 @@ def _render_opt(opt: dict, expanded: bool):
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed: {e}")
+
+        # ── Apply to code (approved only, not yet applied) ────────────────────
+        st.caption(f"DEBUG: status={status!r}  applied={opt.get('applied')!r}")
+        if status == "APPROVED" and not opt.get("applied"):
+            st.markdown("---")
+            st.markdown("**Apply to code:**")
+
+            preview_key = f"preview_{opt_id}"
+            diff_key    = f"diff_{opt_id}"
+
+            file_options = list(EDITABLE_FILES.keys())
+            sel_file = st.selectbox(
+                "Which file to modify?",
+                file_options,
+                format_func=lambda f: f"{f}  —  {EDITABLE_FILES[f]}",
+                key=f"file_sel_{opt_id}",
+            )
+
+            if st.button("🔍 Preview Change", key=f"preview_btn_{opt_id}"):
+                with st.spinner("Asking Claude to generate the change..."):
+                    diff = _generate_diff(opt, sel_file)
+                st.session_state[diff_key] = diff
+
+            if diff_key in st.session_state:
+                diff = st.session_state[diff_key]
+                if diff.get("error"):
+                    st.error(diff["error"])
+                else:
+                    st.markdown("**Proposed change:**")
+                    st.code(diff.get("new_code", ""), language="python")
+                    st.caption(f"Replaces lines {diff.get('start_line')}–{diff.get('end_line')} in `{sel_file}`")
+
+                    c1, c2, _ = st.columns([1.5, 1.5, 7])
+                    with c1:
+                        if st.button("✅ Confirm & Apply", key=f"apply_{opt_id}", type="primary"):
+                            try:
+                                _apply_diff(diff, sel_file, opt_id, opt.get("suggestion_plain", ""))
+                                st.success("✅ Change applied and committed to GitHub!")
+                                del st.session_state[diff_key]
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Apply failed: {e}")
+                    with c2:
+                        if st.button("✕ Discard", key=f"discard_{opt_id}"):
+                            del st.session_state[diff_key]
+                            st.rerun()
+
+        if status == "APPROVED" and opt.get("applied"):
+            st.success(f"🔧 Applied to code on {opt.get('applied_on', '—')}")
+
+
+def _generate_diff(opt: dict, sel_file: str) -> dict:
+    """Ask Claude to produce the minimal code change for this suggestion."""
+    import anthropic
+    import json
+    import os
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    file_path = os.path.join(base_dir, sel_file)
+    try:
+        with open(file_path, "r") as f:
+            current_code = f.read()
+    except Exception as e:
+        return {"error": f"Could not read {sel_file}: {e}"}
+
+    numbered = "\n".join(f"{i+1}: {line}" for i, line in enumerate(current_code.splitlines()))
+
+    prompt = f"""You are modifying a Python file based on a specific optimization suggestion.
+
+FILE: {sel_file}
+CURRENT CONTENTS (with line numbers):
+{numbered}
+
+OPTIMIZATION TO APPLY:
+Plain English: {opt.get('suggestion_plain', '')}
+Technical Detail: {opt.get('suggestion_technical', '')}
+
+Your task:
+1. Identify exactly which lines to replace
+2. Write the replacement code (only the changed section, not the whole file)
+3. Be minimal — change only what is needed for this specific suggestion
+4. Preserve all indentation exactly
+
+Respond in this exact JSON (no other text):
+{{
+  "start_line": <integer — first line to replace, 1-indexed>,
+  "end_line": <integer — last line to replace, 1-indexed inclusive>,
+  "new_code": "<the replacement code as a string, preserving indentation, using \\n for newlines>"
+}}"""
+
+    try:
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        if not all(k in result for k in ("start_line", "end_line", "new_code")):
+            return {"error": "Claude returned incomplete response — try again"}
+        return result
+    except Exception as e:
+        return {"error": f"Failed to generate change: {e}"}
+
+
+def _apply_diff(diff: dict, sel_file: str, opt_id: str, suggestion_plain: str):
+    """Write the change to disk, git-commit + push, then mark as applied in DB."""
+    import subprocess
+    import os
+    from datetime import datetime
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    file_path = os.path.join(base_dir, sel_file)
+
+    # Apply the line replacement
+    with open(file_path, "r") as f:
+        lines = f.read().splitlines()
+
+    start = diff["start_line"] - 1      # 0-indexed
+    end   = diff["end_line"]             # exclusive slice end
+    new_lines = diff["new_code"].splitlines()
+    updated = lines[:start] + new_lines + lines[end:]
+    with open(file_path, "w") as f:
+        f.write("\n".join(updated) + "\n")
+
+    # Commit and push
+    commit_msg = f"auto-apply: {suggestion_plain[:72]}"
+    subprocess.run(["git", "add", sel_file], cwd=base_dir, check=True)
+    subprocess.run(["git", "commit", "-m", commit_msg], cwd=base_dir, check=True)
+    subprocess.run(["git", "push"], cwd=base_dir, check=True)
+
+    # Mark as applied in DB
+    from database.db import mark_optimization_applied
+    mark_optimization_applied(opt_id, datetime.utcnow().strftime("%b %d, %Y"))

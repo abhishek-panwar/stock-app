@@ -195,3 +195,9 @@ def update_optimization_status(opt_id: str, status: str) -> dict:
         "status": status,
         "reviewed_at": datetime.utcnow().isoformat(),
     }).eq("id", opt_id).execute().data[0]
+
+def mark_optimization_applied(opt_id: str, applied_on: str) -> dict:
+    return get_client().table("optimization_queue").update({
+        "applied": True,
+        "applied_on": applied_on,
+    }).eq("id", opt_id).execute().data[0]
