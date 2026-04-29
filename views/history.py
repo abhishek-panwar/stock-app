@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 PT = pytz.timezone("America/Los_Angeles")
@@ -89,6 +89,9 @@ def render():
         </div>""",
         unsafe_allow_html=True,
     )
+
+    # ── Daily success rate — last 30 days ────────────────────────────────────
+    _render_daily_chart(all_closed)
 
     # ── Filters ───────────────────────────────────────────────────────────────
     col1, col2, col3, col4 = st.columns(4)
@@ -290,6 +293,98 @@ def render():
 
                     if position == "SHORT":
                         st.warning("SHORT position — margin/options account required")
+
+
+def _render_daily_chart(all_closed: list):
+    import plotly.graph_objects as go
+    from collections import defaultdict
+
+    today_pt = datetime.now(PT).date()
+
+    # Build per-day win/loss counts for last 30 days
+    day_wins   = defaultdict(int)
+    day_losses = defaultdict(int)
+
+    for p in all_closed:
+        raw = p.get("verified_on") or p.get("predicted_on") or ""
+        if not raw:
+            continue
+        try:
+            d = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(PT).date()
+        except Exception:
+            continue
+        if (today_pt - d).days > 30:
+            continue
+        if p.get("outcome") == "WIN":
+            day_wins[d] += 1
+        else:
+            day_losses[d] += 1
+
+    all_days = sorted(set(list(day_wins.keys()) + list(day_losses.keys())))
+    if len(all_days) < 2:
+        return
+
+    rates  = []
+    labels = []
+    colors = []
+    totals = []
+    for d in all_days:
+        w = day_wins[d]
+        l = day_losses[d]
+        t = w + l
+        rate = w / t * 100 if t > 0 else 0
+        rates.append(rate)
+        totals.append(t)
+        labels.append(d.strftime("%b %d"))
+        colors.append("#16a34a" if rate >= 60 else "#f59e0b" if rate >= 40 else "#dc2626")
+
+    # 7-day rolling average
+    rolling = []
+    for i in range(len(rates)):
+        window = rates[max(0, i - 6): i + 1]
+        rolling.append(sum(window) / len(window))
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        x=labels, y=rates,
+        marker_color=colors,
+        name="Daily rate",
+        text=[f"{r:.0f}%<br><span style='font-size:10px'>{t} trade{'s' if t!=1 else ''}</span>"
+              for r, t in zip(rates, totals)],
+        textposition="outside",
+        textfont=dict(size=10),
+        hovertemplate="%{x}: %{y:.1f}%<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=labels, y=rolling,
+        mode="lines+markers",
+        line=dict(color="#6366f1", width=2, dash="dot"),
+        marker=dict(size=5),
+        name="7-day avg",
+        hovertemplate="%{x}: %{y:.1f}% avg<extra></extra>",
+    ))
+
+    fig.add_hline(y=60, line_color="rgba(22,163,74,0.3)", line_dash="dot", line_width=1)
+    fig.add_hline(y=40, line_color="rgba(220,38,38,0.3)", line_dash="dot", line_width=1)
+
+    fig.update_layout(
+        height=240,
+        margin=dict(l=0, r=0, t=28, b=0),
+        paper_bgcolor="white", plot_bgcolor="white",
+        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=11)),
+        yaxis=dict(range=[0, 115], showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+                   ticksuffix="%", tickfont=dict(size=11)),
+        xaxis=dict(showgrid=False, tickfont=dict(size=11)),
+        bargap=0.35,
+        font=dict(size=11),
+    )
+
+    st.markdown("**Daily Success Rate — Last 30 Days**")
+    st.caption("Green ≥ 60% · Yellow 40–60% · Red < 40%  ·  Dotted line = 7-day rolling average")
+    st.plotly_chart(fig, use_container_width=True, key="daily_success_chart")
+    st.markdown("---")
 
 
 _CRYPTO_TICKERS = {
