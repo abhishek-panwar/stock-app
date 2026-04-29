@@ -350,7 +350,7 @@ def _render_daily_chart(all_closed: list):
         x=labels, y=rates,
         marker_color=colors,
         name="Daily rate",
-        text=[f"{r:.0f}%  ({t})" for r, t in zip(rates, totals)],
+        text=[f"{r:.2f}%  ({t})" for r, t in zip(rates, totals)],
         textposition="outside",
         textfont=dict(size=11, color="#1e293b"),
         hovertemplate="%{x}: %{y:.1f}% — %{customdata} trades<extra></extra>",
