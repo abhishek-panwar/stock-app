@@ -62,6 +62,15 @@ def render():
     now_pt = datetime.now(PT)
     st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
 
+    # ── Scanner buttons ───────────────────────────────────────────────────────
+    btn_c1, btn_c2, _ = st.columns([2, 2, 6])
+    with btn_c1:
+        if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top"):
+            _trigger_scanner()
+    with btn_c2:
+        if st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_top"):
+            _trigger_scanner(debug=True)
+
     try:
         from database.db import get_predictions, get_scan_logs
         predictions = get_predictions({"outcome": "PENDING"}, limit=200)
