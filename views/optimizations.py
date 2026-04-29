@@ -149,7 +149,7 @@ def _render_opt(opt: dict, expanded: bool):
         st.markdown(f"**Projected win rate improvement:** +{proj:.0f}%")
 
         if status == "PENDING":
-            a_col, r_col, _ = st.columns([1.2, 1.2, 7])
+            a_col, r_col, d_col, _ = st.columns([1.2, 1.2, 1.2, 5])
             with a_col:
                 if st.button("✅ Approve", key=f"approve_{opt_id}"):
                     try:
@@ -161,6 +161,14 @@ def _render_opt(opt: dict, expanded: bool):
                 if st.button("❌ Reject", key=f"reject_{opt_id}"):
                     try:
                         update_optimization_status(opt_id, "REJECTED")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+            with d_col:
+                if st.button("🗑️ Delete", key=f"delete_{opt_id}"):
+                    try:
+                        from database.db import delete_optimization
+                        delete_optimization(opt_id)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed: {e}")
