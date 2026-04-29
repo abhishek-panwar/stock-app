@@ -151,6 +151,7 @@ def run():
 
     # ── One Claude call per stock ─────────────────────────────────────────────
     all_predictions = []
+    claude_raw_log  = []
 
     for item in top_stocks:
         ticker = item["ticker"]
@@ -178,23 +179,45 @@ def run():
             target_price = ai.get("target_price")
             stop_price   = ai.get("stop_price")
 
+            raw_target = target_price
+            raw_stop   = stop_price
+
             if not target_price or target_price <= 0:
                 mult = {"BULLISH": 1.5, "BEARISH": -1.5}.get(direction, 1.0)
                 target_price = round(price + atr * mult * 1.5, 2)
             if not stop_price or stop_price <= 0 or abs(stop_price - price) < atr * 0.3:
-                # fallback: 2% stop for BULLISH, 2% above for BEARISH
                 pct = 0.02
                 stop_price = round(price * (1 - pct) if direction == "BULLISH" else price * (1 + pct), 2)
 
             target_price = round(float(target_price), 2)
             stop_price   = round(float(stop_price), 2)
 
-            # R/R filter — skip predictions below 1:4
-            price = ind.get("price", 0)
+            # R/R filter — skip predictions below MIN_RR
             reward = abs(target_price - price)
             risk   = abs(price - stop_price)
             rr = reward / risk if risk > 0 else 0
-            if rr < MIN_RR:
+            passed_rr = rr >= MIN_RR
+
+            # ── Collect raw Claude response before any filter ─────────────────
+            claude_raw_log.append({
+                "ticker":           ticker,
+                "score":            item["score"],
+                "price":            price,
+                "direction":        direction,
+                "position":         position,
+                "confidence":       confidence,
+                "raw_target":       raw_target,
+                "raw_stop":         raw_stop,
+                "used_target":      target_price,
+                "used_stop":        stop_price,
+                "rr_ratio":         round(rr, 2),
+                "passed_rr_filter": passed_rr,
+                "days_to_target":   ai.get("days_to_target"),
+                "reasoning":        ai.get("reasoning", ""),
+                "key_signals":      ai.get("key_signals", []),
+            })
+
+            if not passed_rr:
                 print(f"  {ticker} skipped — R/R {rr:.1f} < {MIN_RR}")
                 continue
 
@@ -290,6 +313,30 @@ def run():
         insert_scan_log(scan_stats)
     except Exception as e:
         log_error("scanner", f"Scan log insert failed: {e}", detail=str(e), level="ERROR")
+
+    # ── Write raw Claude log to debug/ file ──────────────────────────────────
+    try:
+        import json, subprocess
+        base_dir  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        debug_dir = os.path.join(base_dir, "debug")
+        os.makedirs(debug_dir, exist_ok=True)
+        date_str  = start_time.strftime("%Y-%m-%d")
+        log_path  = os.path.join(debug_dir, f"claude_raw_{date_str}.json")
+        with open(log_path, "w") as f:
+            json.dump({
+                "scan_date": date_str,
+                "total_calls": len(claude_raw_log),
+                "passed_rr": sum(1 for r in claude_raw_log if r["passed_rr_filter"]),
+                "responses": claude_raw_log,
+            }, f, indent=2)
+        rel_path = f"debug/claude_raw_{date_str}.json"
+        subprocess.run(["git", "add", rel_path], cwd=base_dir, check=True)
+        subprocess.run(["git", "commit", "-m", f"debug: claude raw responses {date_str}"],
+                       cwd=base_dir, check=True)
+        subprocess.run(["git", "push"], cwd=base_dir, check=True)
+        print(f"  Raw log saved → {rel_path}")
+    except Exception as e:
+        print(f"  Warning: could not save raw log: {e}")
 
     elapsed = (datetime.now(PT) - start_time).seconds
     summary = f"Done in {elapsed}s — {scan_stats['predictions_created']} predictions, {scan_stats['errors_encountered']} errors."
