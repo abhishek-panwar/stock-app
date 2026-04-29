@@ -19,7 +19,7 @@ from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers
 
 SCORE_THRESHOLD   = 45   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
@@ -67,6 +67,13 @@ def run():
     })
     print(f"Universe: {universe_total} stocks ({nasdaq_count} Nasdaq + {hot_count} hot → {overlap_count} overlap)")
     log_error("scanner", f"Universe: {universe_total} stocks", level="INFO")
+
+    # Persist hot tickers to DB for display on dashboard
+    try:
+        save_hot_tickers(hot_tickers, start_time.isoformat())
+        print(f"  Saved {len(hot_tickers)} hot tickers to DB")
+    except Exception as e:
+        log_error("scanner", f"Failed to save hot tickers: {e}", level="WARNING")
 
     accuracy_context = _build_accuracy_context()
 

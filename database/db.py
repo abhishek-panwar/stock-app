@@ -172,6 +172,19 @@ def get_forensic_sessions(ticker: str = None) -> list:
     return q.execute().data
 
 
+# ── Hot Tickers ───────────────────────────────────────────────────────────────
+
+def save_hot_tickers(tickers: list, scanned_at: str) -> None:
+    client = get_client()
+    client.table("hot_tickers").delete().neq("id", 0).execute()  # clear all
+    rows = [{"ticker": t, "scanned_at": scanned_at} for t in tickers]
+    if rows:
+        client.table("hot_tickers").insert(rows).execute()
+
+def get_hot_tickers_from_db() -> list:
+    return get_client().table("hot_tickers").select("*").order("id").execute().data
+
+
 # ── Optimization Queue ────────────────────────────────────────────────────────
 
 def insert_optimization(data: dict) -> dict:
