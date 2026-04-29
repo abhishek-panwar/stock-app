@@ -21,9 +21,9 @@ from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error
 
-SCORE_THRESHOLD   = 60   # minimum score to be eligible
+SCORE_THRESHOLD   = 45   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
-MIN_RR            = 2.0  # minimum risk/reward ratio (1:2)
+MIN_RR            = 1.4  # minimum risk/reward ratio (1:1.4)
 
 # Claude's days_to_target → timeframe bucket
 def _bucket(days: int) -> str:
