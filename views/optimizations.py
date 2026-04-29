@@ -16,10 +16,22 @@ def render():
     st.title("🧠 Optimizations")
     st.caption("Every analysis run is stored here permanently — approve or reject suggestions, and track what's been done over time.")
 
+    # ── Check if new closed predictions exist since last analysis ─────────────
+    try:
+        from database.db import get_all_optimizations as _get_opts, get_predictions as _get_preds
+        _existing = _get_opts(limit=1)
+        _closed_count = len([p for p in _get_preds(limit=500) if p.get("outcome") in ("WIN", "LOSS")])
+        _last_analyzed = (_existing[0].get("total_analyzed", 0) or 0) if _existing else 0
+        _has_new_data = _closed_count > _last_analyzed
+    except Exception:
+        _has_new_data = True  # if check fails, allow the run
+
     # ── Run analysis button ───────────────────────────────────────────────────
     run_col, _ = st.columns([2, 8])
     with run_col:
-        if st.button("▶ Run Analysis Now", type="primary", key="run_analysis_btn"):
+        if st.button("▶ Run Analysis Now", type="primary", key="run_analysis_btn",
+                     disabled=not _has_new_data,
+                     help=None if _has_new_data else "No new closed predictions since last analysis"):
             with st.spinner("Running failure analysis..."):
                 try:
                     import sys, os
