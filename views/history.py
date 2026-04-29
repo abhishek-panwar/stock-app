@@ -173,7 +173,7 @@ def render():
         net_g   = sum(p.get("return_pct") or 0 for p in group_preds)
         net_str = f"{net_g:+.1f}%"
         losses_g = len(group_preds) - wins_g
-        net_colored = f"Net :green[{net_str}]" if net_g >= 0 else f"Net :red[{net_str}]"
+        net_colored = f"Net :green[**{net_str}**]" if net_g >= 0 else f"Net :red[**{net_str}**]"
         with st.expander(
             f"**{group_label}** — {len(group_preds)} trades · "
             f":green[{wins_g} WINS] · :red[{losses_g} LOSSES] · {net_colored}",
