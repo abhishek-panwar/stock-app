@@ -1,0 +1,30 @@
+{
+  "scan_date": "2026-04-28",
+  "total_calls": 1,
+  "passed_rr": 0,
+  "responses": [
+    {
+      "ticker": "NUE",
+      "score": 61,
+      "price": 225.11000061035156,
+      "direction": "BEARISH",
+      "position": "SHORT",
+      "confidence": 68,
+      "raw_target": 212.5,
+      "raw_stop": 233.0,
+      "used_target": 212.5,
+      "used_stop": 233.0,
+      "rr_ratio": 1.6,
+      "passed_rr_filter": false,
+      "days_to_target": 8,
+      "reasoning": "NUE is severely overbought (RSI 86.9) with price at 52-week highs and no bullish MACD crossover to confirm continuation. The lack of earnings beats (0/4Q) contradicts the strength of the rally. While ADX is strong and volume supports the move, the extreme RSI divergence and elevated position near resistance ($225.11 = MA200) create asymmetric risk-reward favoring a pullback to MA20 support ($192.97).",
+      "key_signals": [
+        "RSI 86.9 (extreme overbought)",
+        "No MACD bullish crossover (lacks confirmation)",
+        "0 earnings beats last 4 quarters (fundamental weakness)",
+        "Price at MA200 resistance (neutral setup)",
+        "Strong ADX but no golden cross"
+      ]
+    }
+  ]
+}
