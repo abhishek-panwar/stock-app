@@ -511,14 +511,20 @@ def _pill(label: str, value: str, color: str) -> str:
 
 def _show_empty_state():
     st.info("No predictions yet. The nightly scanner runs at 8:00 PM PT.")
-    if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_empty"):
-        _trigger_scanner()
+    c1, c2 = st.columns([2, 2])
+    with c1:
+        if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_empty"):
+            _trigger_scanner()
+    with c2:
+        if st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_empty"):
+            _trigger_scanner(debug=True)
 
 
-def _trigger_scanner():
+def _trigger_scanner(debug: bool = False):
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    status = st.status("Running scanner…", expanded=True)
+    label = "Running scanner (debug mode)…" if debug else "Running scanner…"
+    status = st.status(label, expanded=True)
     try:
         import scripts.nightly_scanner as scanner
         import importlib
@@ -532,7 +538,61 @@ def _trigger_scanner():
             builtins.print = _orig
         status.update(label="✅ Done!", state="complete", expanded=False)
         st.success(f"{stats.get('predictions_created', 0)} predictions created")
+
+        if debug:
+            _save_debug_log(stats.get("claude_raw_log", []))
+
         st.rerun()
     except Exception as e:
         status.update(label="❌ Failed", state="error", expanded=True)
         st.error(f"Scanner error: {e}")
+
+
+def _save_debug_log(raw_log: list):
+    import json, base64, requests, os
+    from datetime import datetime
+
+    if not raw_log:
+        st.warning("No raw Claude data to save.")
+        return
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo  = os.environ.get("GITHUB_REPO", "")
+    if not token or not repo:
+        st.error("GITHUB_TOKEN / GITHUB_REPO secrets not set — cannot save debug log.")
+        return
+
+    date_str = datetime.now(PT).strftime("%Y-%m-%d")
+    file_path = f"debug/claude_raw_{date_str}.json"
+    content = json.dumps({
+        "scan_date":   date_str,
+        "total_calls": len(raw_log),
+        "passed_rr":   sum(1 for r in raw_log if r.get("passed_rr_filter")),
+        "responses":   raw_log,
+    }, indent=2)
+
+    api = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    # Get existing sha if file already exists (for update)
+    sha = None
+    try:
+        r = requests.get(api, headers=headers)
+        if r.status_code == 200:
+            sha = r.json().get("sha")
+    except Exception:
+        pass
+
+    payload = {
+        "message": f"debug: claude raw responses {date_str}",
+        "content": base64.b64encode(content.encode()).decode(),
+    }
+    if sha:
+        payload["sha"] = sha
+
+    try:
+        r = requests.put(api, headers=headers, json=payload)
+        r.raise_for_status()
+        st.success(f"✅ Debug log saved → `{file_path}` on GitHub")
+    except Exception as e:
+        st.error(f"Failed to save debug log: {e}")

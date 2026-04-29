@@ -314,7 +314,7 @@ def run():
     except Exception as e:
         log_error("scanner", f"Scan log insert failed: {e}", detail=str(e), level="ERROR")
 
-    # ── Write raw Claude log to debug/ file ──────────────────────────────────
+    # ── Write raw Claude log via subprocess git (works in GitHub Actions) ─────
     try:
         import json, subprocess
         base_dir  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -336,7 +336,10 @@ def run():
         subprocess.run(["git", "push"], cwd=base_dir, check=True)
         print(f"  Raw log saved → {rel_path}")
     except Exception as e:
-        print(f"  Warning: could not save raw log: {e}")
+        print(f"  Warning: could not save raw log via git: {e}")
+
+    # Always return raw log so UI debug button can save via GitHub API
+    scan_stats["claude_raw_log"] = claude_raw_log
 
     elapsed = (datetime.now(PT) - start_time).seconds
     summary = f"Done in {elapsed}s — {scan_stats['predictions_created']} predictions, {scan_stats['errors_encountered']} errors."
