@@ -229,7 +229,10 @@ def determine_direction(ind: dict, score: int) -> tuple[str, str]:
     if ind.get("rsi_divergence"):
         bullish_signals += 2
 
+    # Hard filter: reject bullish trades when RSI > 70 (overbought, prone to reversals)
     if bullish_signals > bearish_signals + 1:
+        if ind.get("rsi", 50) > 70:
+            return "NEUTRAL", "HOLD"
         return "BULLISH", "LONG"
     elif bearish_signals > bullish_signals + 1:
         return "BEARISH", "SHORT"
