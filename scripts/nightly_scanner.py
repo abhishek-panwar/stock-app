@@ -23,7 +23,7 @@ from database.db import insert_prediction, insert_scan_log, insert_shadow_price,
 
 SCORE_THRESHOLD   = 60   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
-MIN_RR            = 4.0  # minimum risk/reward ratio (1:4)
+MIN_RR            = 2.0  # minimum risk/reward ratio (1:2)
 
 # Claude's days_to_target → timeframe bucket
 def _bucket(days: int) -> str:
@@ -181,9 +181,10 @@ def run():
             if not target_price or target_price <= 0:
                 mult = {"BULLISH": 1.5, "BEARISH": -1.5}.get(direction, 1.0)
                 target_price = round(price + atr * mult * 1.5, 2)
-            if not stop_price or stop_price <= 0:
-                mult = {"BULLISH": -1.0, "BEARISH": 1.0}.get(direction, -1.0)
-                stop_price = round(price + atr * mult * 1.5, 2)
+            if not stop_price or stop_price <= 0 or abs(stop_price - price) < atr * 0.3:
+                # fallback: 2% stop for BULLISH, 2% above for BEARISH
+                pct = 0.02
+                stop_price = round(price * (1 - pct) if direction == "BULLISH" else price * (1 + pct), 2)
 
             target_price = round(float(target_price), 2)
             stop_price   = round(float(stop_price), 2)
