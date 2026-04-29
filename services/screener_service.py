@@ -51,32 +51,49 @@ def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
 
 
 def get_hot_tickers(top_n: int = 50) -> list[str]:
-    """Computes hot scores for a candidate pool and returns top N."""
-    from services.finnhub_service import compute_hot_score
-    from services.yfinance_service import get_price_momentum
+    """
+    Dynamically discovers trending tickers from Finnhub market news,
+    then ranks them by hot score (analyst rating + news volume + momentum).
+    """
+    from services.finnhub_service import compute_hot_score, get_client as _fc
+    import re
 
-    # Candidate pool: well-known trending tickers beyond Nasdaq 100
-    candidates = [
-        "SMCI", "PLTR", "HOOD", "SOFI", "UPST", "AFRM",
-        "COIN", "MSTR", "GME", "AMC", "SPCE", "JOBY",
-        "RBLX", "SNAP", "PINS", "UBER", "LYFT", "DASH",
-        "ROKU", "SHOP", "SE", "GRAB", "BABA",
-        "JD", "NIO", "XPEV", "LI", "F", "GM", "STLA",
-        "MVIS", "OUST",
-        "NET", "SNOW", "OKTA", "S", "TENB",
-        "VRNS", "QLYS",
-        "AI", "BBAI", "SOUN", "IREN", "CORZ", "RIOT", "MARA", "HUT",
-        "BTBT", "CIFR", "WULF", "CLSK",
-    ]
-    # Remove duplicates
-    seen = set()
-    unique = [t for t in candidates if t not in seen and not seen.add(t)]
+    # Pull general market news from last 48h
+    raw_tickers: set[str] = set()
+    try:
+        news_items = _fc().general_news("general", min_id=0)
+        ticker_pattern = re.compile(r'\b([A-Z]{2,5})\b')
+        # Common words to exclude that look like tickers
+        exclude = {
+            "A", "I", "IT", "AT", "BE", "ON", "OR", "BY", "IF", "IN", "IS",
+            "NO", "OF", "TO", "UP", "US", "AI", "AN", "AS", "DO", "GO",
+            "HE", "MY", "SO", "WE", "CEO", "CFO", "COO", "IPO", "SEC",
+            "FDA", "FED", "GDP", "ETF", "NYSE", "NYSE", "NASDAQ", "S&P",
+            "USA", "EUR", "USD", "GBP", "JPY", "API", "APP", "THE", "AND",
+            "FOR", "ARE", "BUT", "NOT", "ALL", "NEW", "CAN", "HAS", "ITS",
+            "WAS", "HAD", "ONE", "TWO", "YOU", "HIM", "HER", "OUR", "OUT",
+            "WHO", "HOW", "GET", "SET", "PUT", "MAY", "NOW", "YET", "TOO",
+            "BOT", "TAX", "LAW", "ACT", "WAR", "OIL", "GAS", "ESG",
+        }
+        for item in news_items[:100]:
+            headline = item.get("headline", "") + " " + item.get("summary", "")
+            found = ticker_pattern.findall(headline)
+            for t in found:
+                if t not in exclude and len(t) >= 2:
+                    raw_tickers.add(t)
+    except Exception:
+        pass
 
+    # Also pull crypto/commodity tickers that are always relevant
+    raw_tickers.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
+
+    # Score each candidate by hot score and filter out duds
     scored = []
-    for ticker in unique[:80]:
+    for ticker in list(raw_tickers)[:150]:
         try:
             score = compute_hot_score(ticker)
-            scored.append((ticker, score))
+            if score > 10:  # ignore tickers with no real data
+                scored.append((ticker, score))
         except Exception:
             pass
 
