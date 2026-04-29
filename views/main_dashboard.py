@@ -92,6 +92,25 @@ def render():
             f"→ {log.get('overlap_count','—')} overlap, deduplicated"
         )
 
+    with st.expander("🔥 Today's Hot 50 (from market news)", expanded=False):
+        with st.spinner("Fetching hot tickers from news..."):
+            try:
+                from services.screener_service import get_hot_tickers
+                hot = get_hot_tickers(top_n=50)
+                if hot:
+                    cols = st.columns(10)
+                    for i, ticker in enumerate(hot):
+                        cols[i % 10].markdown(
+                            f'<span style="background:#f1f5f9;border:1px solid #e2e8f0;'
+                            f'border-radius:6px;padding:3px 8px;font-size:12px;'
+                            f'font-weight:600;color:#1e293b">{ticker}</span>',
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption("No hot tickers found.")
+            except Exception as e:
+                st.error(f"Could not fetch hot tickers: {e}")
+
     high_conviction = sorted(
         [p for p in predictions if (p.get("confidence") or 0) >= 75],
         key=_sort_key
