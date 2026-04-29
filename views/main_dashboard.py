@@ -601,7 +601,7 @@ def _save_debug_log(raw_log: list):
     content = json.dumps({
         "scan_date":   date_str,
         "total_calls": len(raw_log),
-        "passed_rr":   sum(1 for r in raw_log if r.get("passed_rr_filter")),
+        "passed_filter": sum(1 for r in raw_log if r.get("passed_filter")),
         "responses":   raw_log,
     }, indent=2)
 

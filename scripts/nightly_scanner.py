@@ -23,7 +23,7 @@ from database.db import insert_prediction, insert_scan_log, insert_shadow_price,
 
 SCORE_THRESHOLD   = 45   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
-MIN_RR            = 1.4  # minimum risk/reward ratio (1:1.4)
+MIN_PROFIT_PCT    = 4.0  # minimum absolute profit % to entry
 
 # Claude's days_to_target → timeframe bucket
 def _bucket(days: int) -> str:
@@ -199,11 +199,9 @@ def run():
             target_price = round(float(target_price), 2)
             stop_price   = round(float(stop_price), 2)
 
-            # R/R filter — skip predictions below MIN_RR
-            reward = abs(target_price - price)
-            risk   = abs(price - stop_price)
-            rr = reward / risk if risk > 0 else 0
-            passed_rr = rr >= MIN_RR
+            # Profit % filter — skip if absolute profit < MIN_PROFIT_PCT
+            profit_pct = abs(target_price - price) / price * 100 if price > 0 else 0
+            passed_filter = profit_pct >= MIN_PROFIT_PCT
 
             # ── Collect raw Claude response before any filter ─────────────────
             claude_raw_log.append({
@@ -217,15 +215,15 @@ def run():
                 "raw_stop":         raw_stop,
                 "used_target":      target_price,
                 "used_stop":        stop_price,
-                "rr_ratio":         round(rr, 2),
-                "passed_rr_filter": passed_rr,
+                "profit_pct":       round(profit_pct, 2),
+                "passed_filter":    passed_filter,
                 "days_to_target":   ai.get("days_to_target"),
                 "reasoning":        ai.get("reasoning", ""),
                 "key_signals":      ai.get("key_signals", []),
             })
 
-            if not passed_rr:
-                print(f"  {ticker} skipped — R/R {rr:.1f} < {MIN_RR}")
+            if not passed_filter:
+                print(f"  {ticker} skipped — profit {profit_pct:.1f}% < {MIN_PROFIT_PCT}%")
                 continue
 
             # target_low/high for UI compatibility — use ±5% of target_price
@@ -333,7 +331,7 @@ def run():
             json.dump({
                 "scan_date": date_str,
                 "total_calls": len(claude_raw_log),
-                "passed_rr": sum(1 for r in claude_raw_log if r["passed_rr_filter"]),
+                "passed_filter": sum(1 for r in claude_raw_log if r["passed_filter"]),
                 "responses": claude_raw_log,
             }, f, indent=2)
         rel_path = f"debug/claude_raw_{date_str}.json"
