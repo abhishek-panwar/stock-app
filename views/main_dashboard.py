@@ -158,7 +158,7 @@ def render():
                     )
         st.markdown("")
 
-    # ── Date-grouped prediction sections ─────────────────────────────────────
+    # ── Timeframe + date-grouped prediction sections ──────────────────────────
     def _abs_profit(p):
         entry  = p.get("price_at_prediction") or 0
         target = p.get("target_low") or 0
@@ -172,32 +172,52 @@ def render():
         except Exception:
             return today_pt
 
-    groups = {"✨ New": [], "Yesterday": [], "This Week": [], "This Month": [], "Older": []}
-    for p in predictions:
+    def _date_bucket(p):
         delta = (today_pt - _pred_date(p)).days
-        if delta == 0:
-            groups["✨ New"].append(p)
-        elif delta == 1:
-            groups["Yesterday"].append(p)
-        elif delta <= 7:
-            groups["This Week"].append(p)
-        elif delta <= 30:
-            groups["This Month"].append(p)
-        else:
-            groups["Older"].append(p)
+        if delta == 0:   return "✨ New"
+        if delta == 1:   return "Yesterday"
+        if delta <= 7:   return "This Week"
+        if delta <= 30:  return "This Month"
+        return "Older"
 
-    for group_label, group_preds in groups.items():
-        if not group_preds:
+    DATE_ORDER = ["✨ New", "Yesterday", "This Week", "This Month", "Older"]
+
+    TF_CONFIG = [
+        ("short",  "⚡ Short-term",  "#0369a1"),
+        ("medium", "📈 Medium-term", "#7c3aed"),
+        ("long",   "🌱 Long-term",   "#15803d"),
+    ]
+
+    for tf_key, tf_label, tf_color in TF_CONFIG:
+        tf_preds = [p for p in predictions if p.get("timeframe") == tf_key]
+        if not tf_preds:
             continue
-        group_preds = sorted(group_preds, key=_abs_profit)
-        is_new = group_label == "✨ New"
-        header_label = (
-            f"{'✨ ' if is_new else ''}"
-            f"**{group_label}** — {len(group_preds)} prediction{'s' if len(group_preds) != 1 else ''}"
+
+        tf_hc = sum(1 for p in tf_preds if (p.get("confidence") or 0) >= 75)
+        hc_badge = f"  · 🎯 {tf_hc} high conviction" if tf_hc else ""
+        st.markdown(
+            f'<div style="font-size:15px;font-weight:700;color:{tf_color};'
+            f'margin:18px 0 6px;padding-left:2px">'
+            f'{tf_label} — {len(tf_preds)} prediction{"s" if len(tf_preds) != 1 else ""}{hc_badge}</div>',
+            unsafe_allow_html=True,
         )
-        with st.expander(header_label, expanded=True):
-            for p in group_preds:
-                _prediction_card(p)
+
+        # sub-group by date within this timeframe
+        date_groups: dict = {k: [] for k in DATE_ORDER}
+        for p in tf_preds:
+            date_groups[_date_bucket(p)].append(p)
+
+        for bucket_label in DATE_ORDER:
+            bucket_preds = date_groups[bucket_label]
+            if not bucket_preds:
+                continue
+            bucket_preds = sorted(bucket_preds, key=_abs_profit)
+            with st.expander(
+                f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
+                expanded=(bucket_label in ("✨ New", "Yesterday")),
+            ):
+                for p in bucket_preds:
+                    _prediction_card(p)
 
     if not predictions:
         _show_empty_state()
