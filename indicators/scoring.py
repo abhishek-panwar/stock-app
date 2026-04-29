@@ -24,12 +24,26 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         rsi_score = 1
 
     macd_score = 0
+    macd_line = ind.get("macd_line", 0)
+    macd_signal = ind.get("macd_signal", 0)
+    macd_hist = ind.get("macd_hist", 0)
+    macd_hist_prev = ind.get("macd_hist_prev", 0)
+    macd_crossover_recent = ind.get("macd_crossover_recent", False)
+    
     if ind.get("macd_crossover"):
         macd_score = 8
-    elif ind.get("macd_line", 0) > ind.get("macd_signal", 0):
+    elif macd_crossover_recent:
+        macd_score = 7
+    elif macd_line > macd_signal and macd_hist > 0 and macd_hist_prev > 0:
         macd_score = 5
-        if ind.get("macd_hist", 0) > 0:
-            macd_score += 2
+    elif macd_line > macd_signal and macd_hist > 0:
+        macd_score = 3
+    else:
+        macd_score = 0
+    
+    # Penalize flat/declining MACD even if positive
+    if macd_line > macd_signal and macd_hist <= 0:
+        momentum_raw -= 15 if momentum_raw >= 15 else momentum_raw
 
     roc = ind.get("roc_5", 0) or ind.get("roc_20", 0) or 0
     roc_score = 0
