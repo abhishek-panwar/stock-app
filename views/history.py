@@ -172,9 +172,10 @@ def render():
         wins_g  = sum(1 for p in group_preds if p.get("outcome") == "WIN")
         net_g   = sum(p.get("return_pct") or 0 for p in group_preds)
         net_str = f"{net_g:+.1f}%"
+        losses_g = len(group_preds) - wins_g
         with st.expander(
             f"**{group_label}** — {len(group_preds)} trades · "
-            f"{wins_g}W / {len(group_preds)-wins_g}L · Net {net_str}",
+            f":green[{wins_g} WINS] · :red[{losses_g} LOSSES] · Net {net_str}",
             expanded=(group_label in ("Today", "Yesterday")),
         ):
             for p in group_preds:
