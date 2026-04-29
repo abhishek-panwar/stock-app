@@ -229,17 +229,23 @@ def compute_buy_range(price: float, atr: float, direction: str) -> tuple[float, 
     return round(price - offset, 2), round(price + offset, 2)
 
 
-def compute_targets(price: float, atr: float, direction: str) -> tuple[float, float, float]:
-    """Returns (target_low, target_high, stop_loss)."""
+def compute_targets(price: float, atr: float, direction: str, rsi: float = 50) -> tuple[float, float, float]:
+    """Returns (target_low, target_high, stop_loss). Dynamic stop-loss based on RSI level."""
+    # Tighter stop-loss when RSI is elevated (60-70) to reduce whipsaw on overbought rallies
+    if 60 <= rsi <= 70:
+        stop_distance = price * 0.02  # 2% stop for elevated RSI
+    else:
+        stop_distance = atr * 1.5  # Standard 5% equivalent stop
+    
     if direction == "BULLISH":
         target_low = round(price + atr * 1.5, 2)
         target_high = round(price + atr * 2.5, 2)
-        stop_loss = round(price - atr * 1.5, 2)
+        stop_loss = round(price - stop_distance, 2)
     elif direction == "BEARISH":
         target_low = round(price - atr * 2.5, 2)
         target_high = round(price - atr * 1.5, 2)
-        stop_loss = round(price + atr * 1.5, 2)
+        stop_loss = round(price + stop_distance, 2)
     else:
         target_low = target_high = price
-        stop_loss = round(price - atr * 1.5, 2)
+        stop_loss = round(price - stop_distance, 2)
     return target_low, target_high, stop_loss
