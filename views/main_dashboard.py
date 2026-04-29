@@ -511,7 +511,7 @@ def _pill(label: str, value: str, color: str) -> str:
 
 def _show_empty_state():
     st.info("No predictions yet. The nightly scanner runs at 8:00 PM PT.")
-    if st.button("🚀 Run Scanner Now", type="primary", key="run_scanner_empty"):
+    if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_empty"):
         _trigger_scanner()
 
 
