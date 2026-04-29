@@ -52,7 +52,9 @@ def run():
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
-                send_target_hit_alert(ticker, entry, current, return_pct)
+                send_target_hit_alert(ticker, entry, current, return_pct,
+                                      predicted_on=pred.get("predicted_on", ""),
+                                      target_low=pred.get("target_low", 0))
             except Exception:
                 pass
 
@@ -65,7 +67,9 @@ def run():
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
-                send_stop_loss_alert(ticker, entry, current, abs(return_pct))
+                send_stop_loss_alert(ticker, entry, current, abs(return_pct),
+                                     predicted_on=pred.get("predicted_on", ""),
+                                     stop_loss=pred.get("stop_loss", 0))
             except Exception:
                 pass
 

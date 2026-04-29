@@ -24,24 +24,49 @@ def _send(text: str) -> bool:
         return False
 
 
-def send_stop_loss_alert(ticker: str, entry: float, current: float, loss_pct: float) -> bool:
+def send_stop_loss_alert(ticker: str, entry: float, current: float, loss_pct: float,
+                         predicted_on: str = "", stop_loss: float = 0) -> bool:
+    age_str = _age_str(predicted_on)
+    loss_amt = abs(current - entry)
+    stop_str = f"  |  Stop: ${stop_loss:.2f}" if stop_loss else ""
     msg = (
-        f"⚠️ <b>{ticker} stop loss triggered</b>\n"
-        f"Entry: ${entry:.2f} → Current: ${current:.2f}\n"
-        f"Loss: {loss_pct:.2f}% | Trade closed as LOSS\n"
-        f"Time: {_now_pt()}"
+        f"🔴 <b>{ticker} — Stop Loss Triggered</b>\n"
+        f"{age_str}\n"
+        f"Entry: ${entry:.2f} → Close: ${current:.2f}{stop_str}\n"
+        f"Loss: <b>-{loss_pct:.2f}%</b>  (${loss_amt:.2f} per share)\n"
+        f"Trade closed as LOSS  ·  {_now_pt()}"
     )
     return _send(msg)
 
 
-def send_target_hit_alert(ticker: str, entry: float, current: float, return_pct: float) -> bool:
+def send_target_hit_alert(ticker: str, entry: float, current: float, return_pct: float,
+                          predicted_on: str = "", target_low: float = 0) -> bool:
+    age_str = _age_str(predicted_on)
+    profit_amt = abs(current - entry)
+    target_str = f"  |  Target: ${target_low:.2f}" if target_low else ""
     msg = (
-        f"✅ <b>{ticker} hit target</b>\n"
-        f"Entry: ${entry:.2f} → Current: ${current:.2f}\n"
-        f"Return: +{return_pct:.2f}% | Consider taking profit\n"
-        f"Time: {_now_pt()}"
+        f"🟢 <b>{ticker} — Target Hit!</b>\n"
+        f"{age_str}\n"
+        f"Entry: ${entry:.2f} → Close: ${current:.2f}{target_str}\n"
+        f"Profit: <b>+{return_pct:.2f}%</b>  (${profit_amt:.2f} per share)\n"
+        f"Trade closed as WIN  ·  {_now_pt()}"
     )
     return _send(msg)
+
+
+def _age_str(predicted_on: str) -> str:
+    if not predicted_on:
+        return "Prediction age: unknown"
+    try:
+        pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT)
+        age = (datetime.now(PT).date() - pred_dt.date()).days
+        if age == 0:
+            return "📅 Today's prediction"
+        if age == 1:
+            return "📅 Yesterday's prediction"
+        return f"📅 {age}-day-old prediction"
+    except Exception:
+        return "Prediction age: unknown"
 
 
 def send_new_prediction(ticker: str, timeframe: str, direction: str,
