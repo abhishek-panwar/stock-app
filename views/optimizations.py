@@ -28,7 +28,9 @@ def render():
                     import importlib
                     importlib.reload(fa)
                     result = fa.run()
-                    if result:
+                    if result and result.get("skipped"):
+                        st.info("No new closed predictions since last analysis — nothing to re-analyze.")
+                    elif result:
                         st.success(f"Analysis done — {result.get('suggestions_saved', 0)} new suggestions added.")
                     else:
                         st.info("Not enough closed predictions to analyze yet.")

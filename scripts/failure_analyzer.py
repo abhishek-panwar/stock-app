@@ -33,8 +33,14 @@ def run():
 
     print(f"  {len(closed)} closed predictions: {len(wins)} wins, {len(losses)} losses")
 
-    # Pass already-known suggestions so Claude doesn't repeat them
+    # Don't re-analyze if no new closed predictions since last run
     existing = get_all_optimizations(limit=200)
+    if existing:
+        last_analyzed = existing[0].get("total_analyzed", 0) or 0
+        if len(closed) <= last_analyzed:
+            print(f"  No new closed predictions since last analysis ({last_analyzed} then, {len(closed)} now). Skipping.")
+            return {"suggestions_saved": 0, "closed_analyzed": len(closed), "skipped": True}
+
     existing_suggestions = [
         o.get("suggestion_plain", "") for o in existing
         if o.get("status") in ("PENDING", "APPROVED")
