@@ -25,6 +25,7 @@ _COLUMN_MIGRATIONS = [
     ("predictions", "company_name",     "text"),
     ("predictions", "asset_class",      "text"),
     ("predictions", "earnings_label",   "text"),
+    ("predictions", "insider_signal",   "text"),
     ("predictions", "deleted_at",       "timestamptz"),
     ("predictions", "verified_on",      "timestamptz"),
     ("predictions", "price_at_close",   "numeric"),
@@ -80,7 +81,7 @@ def run_migrations() -> None:
 
 # ── Predictions ────────────────────────────────────────────────────────────────
 
-_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class", "earnings_label"}
+_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class", "earnings_label", "insider_signal"}
 
 def prediction_exists_today(ticker: str, scan_date: str) -> bool:
     """Returns True if a PENDING prediction for this ticker already exists from today's scan."""

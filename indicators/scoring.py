@@ -3,7 +3,8 @@ FORMULA_VERSION = "v1.0"
 
 def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: dict,
                          timeframe: str = "short", source: str = "nasdaq100",
-                         earnings_calendar: dict = None, analyst_target: dict = None) -> dict:
+                         earnings_calendar: dict = None, analyst_target: dict = None,
+                         insider_buying: dict = None) -> dict:
     """
     Returns a score dict with breakdown and total (0–100).
     timeframe param kept for backwards compatibility but weights are uniform.
@@ -215,6 +216,18 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
                 bonus += 5
                 bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% (+5)")
 
+    # ── Phase 2: Insider Buying Bonus ─────────────────────────────────────────
+    if insider_buying and insider_buying.get("has_insider_buying"):
+        strength = insider_buying.get("signal_strength", "NONE")
+        total_usd = insider_buying.get("total_purchased_usd", 0)
+        n = insider_buying.get("num_insiders", 1)
+        if strength == "STRONG":
+            bonus += 15
+            bonus_reasons.append(f"Insider buying STRONG — ${total_usd/1e6:.1f}M by {n} insider(s) (+15)")
+        elif strength == "MODERATE":
+            bonus += 8
+            bonus_reasons.append(f"Insider buying MODERATE — ${total_usd/1e3:.0f}K by {n} insider(s) (+8)")
+
     base = sum(scores.values())
     total = min(round(base + bonus), 100)
 
@@ -234,6 +247,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         "formula_version": FORMULA_VERSION,
         "analyst_upside_pct": analyst_upside_pct,
         "earnings_calendar": earnings_calendar,
+        "insider_buying": insider_buying,
     }
 
 

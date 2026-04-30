@@ -14,6 +14,7 @@ PT = pytz.timezone("America/Los_Angeles")
 
 from services.yfinance_service import get_price_history, get_ticker_info
 from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_earnings_calendar, get_analyst_price_target
+from services.edgar_service import get_insider_buying
 from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window, get_asset_class
 from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
@@ -103,16 +104,18 @@ def run():
             scan_stats["finnhub_news_fetched"] += sentiment.get("volume", 0)
             social = get_social_sentiment(ticker)
             sentiment["mentions"] = social.get("mentions", 0)
-            analyst          = get_analyst_recommendation(ticker)
-            earnings         = get_earnings_history(ticker)
+            analyst           = get_analyst_recommendation(ticker)
+            earnings          = get_earnings_history(ticker)
             earnings_calendar = get_earnings_calendar(ticker, days_ahead=7)
-            analyst_target   = get_analyst_price_target(ticker)
-            info             = get_ticker_info(ticker)
+            analyst_target    = get_analyst_price_target(ticker)
+            insider_buying    = get_insider_buying(ticker, days_back=14)
+            info              = get_ticker_info(ticker)
 
             # Single score — no timeframe bias
             score_data = compute_signal_score(
                 ind, sentiment, analyst, earnings, source=source,
                 earnings_calendar=earnings_calendar, analyst_target=analyst_target,
+                insider_buying=insider_buying,
             )
             total = score_data["total"]
 
@@ -145,6 +148,7 @@ def run():
                 "earnings": earnings,
                 "earnings_calendar": earnings_calendar,
                 "analyst_upside_pct": score_data.get("analyst_upside_pct"),
+                "insider_buying": insider_buying,
             })
 
         except Exception as e:
@@ -200,6 +204,7 @@ def run():
                 ticker_history=ticker_history,
                 earnings_calendar=item.get("earnings_calendar"),
                 analyst_upside_pct=item.get("analyst_upside_pct"),
+                insider_buying=item.get("insider_buying"),
             )
             scan_stats["claude_calls_made"] += 1
 
@@ -285,6 +290,16 @@ def run():
             else:
                 earnings_label = ""
 
+            # Build insider signal label for UI display
+            ib = item.get("insider_buying") or {}
+            if ib.get("has_insider_buying"):
+                strength = ib.get("signal_strength", "")
+                total_usd = ib.get("total_purchased_usd", 0)
+                total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1_000_000 else f"${total_usd/1e3:.0f}K"
+                insider_signal = f"🔴 INSIDER BUY {total_str}" if strength == "STRONG" else f"🟡 INSIDER BUY {total_str}"
+            else:
+                insider_signal = ""
+
             pred = {
                 "ticker":               ticker,
                 "asset_class":          get_asset_class(ticker),
@@ -309,6 +324,7 @@ def run():
                 "formula_version":      FORMULA_VERSION,
                 "outcome":              "PENDING",
                 "earnings_label":       earnings_label or None,
+                "insider_signal":       insider_signal or None,
             }
 
             replaced = replace_prediction_if_stronger(ticker, profit_pct, pred)

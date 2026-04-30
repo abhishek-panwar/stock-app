@@ -39,9 +39,23 @@ def _analyst_upside_context(upside_pct: float) -> str:
     return f"- Analyst mean target: {upside_pct:.0f}% vs current price (below)\n"
 
 
+def _insider_context(insider_buying: dict) -> str:
+    if not insider_buying or not insider_buying.get("has_insider_buying"):
+        return ""
+    strength = insider_buying.get("signal_strength", "")
+    total = insider_buying.get("total_purchased_usd", 0)
+    n = insider_buying.get("num_insiders", 1)
+    date = insider_buying.get("latest_filing_date", "")
+    total_str = f"${total/1e6:.1f}M" if total >= 1_000_000 else f"${total/1e3:.0f}K"
+    if strength == "STRONG":
+        return f"- 🔴 INSIDER BUYING (STRONG): {n} insider(s) purchased {total_str} in last 14 days (latest: {date}) — executives buying their own stock\n"
+    return f"- 🟡 INSIDER BUYING (MODERATE): {total_str} purchased by {n} insider(s) in last 14 days\n"
+
+
 def analyze_stock(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
                   score_data: dict, accuracy_context: str = "", ticker_history: str = "",
-                  earnings_calendar: dict = None, analyst_upside_pct: float = None) -> dict:
+                  earnings_calendar: dict = None, analyst_upside_pct: float = None,
+                  insider_buying: dict = None) -> dict:
     """
     Single Claude call per stock — no timeframe hint.
     Claude reads the data and decides its own target price, stop, and days.
@@ -84,7 +98,7 @@ EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 - Earnings beats (last 4Q): {analyst.get('beats', 0) if hasattr(analyst, 'get') else 0}
-{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}
+{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
