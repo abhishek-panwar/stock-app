@@ -45,6 +45,12 @@ _TABLE_MIGRATIONS = [
         message text, detail text,
         occurred_at timestamptz default now()
     )""",
+    """CREATE TABLE IF NOT EXISTS api_cache (
+        key text primary key,
+        value text not null,
+        expires_at timestamptz not null,
+        updated_at timestamptz default now()
+    )""",
 ]
 
 def run_migrations() -> None:
@@ -77,6 +83,41 @@ def run_migrations() -> None:
             pass
 
 
+
+
+# ── API Cache ─────────────────────────────────────────────────────────────────
+
+def get_cache(key: str):
+    """Returns cached value (parsed JSON) if it exists and hasn't expired. Else None."""
+    try:
+        import json
+        from datetime import datetime, timezone
+        rows = (get_client().table("api_cache")
+                .select("value,expires_at")
+                .eq("key", key)
+                .execute().data)
+        if not rows:
+            return None
+        row = rows[0]
+        expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires:
+            return None
+        return json.loads(row["value"])
+    except Exception:
+        return None
+
+def set_cache(key: str, value, ttl_hours: float) -> None:
+    """Store value (serialised to JSON) in cache with given TTL in hours."""
+    try:
+        import json
+        from datetime import datetime, timezone, timedelta
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=ttl_hours)).isoformat()
+        get_client().table("api_cache").upsert(
+            {"key": key, "value": json.dumps(value), "expires_at": expires_at},
+            on_conflict="key"
+        ).execute()
+    except Exception:
+        pass  # cache failure is never fatal
 
 
 # ── Predictions ────────────────────────────────────────────────────────────────

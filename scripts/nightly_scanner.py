@@ -13,7 +13,7 @@ load_dotenv()
 PT = pytz.timezone("America/Los_Angeles")
 
 from services.yfinance_service import get_price_history, get_ticker_info
-from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_earnings_calendar, get_analyst_price_target
+from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_upcoming_earnings_universe, get_analyst_price_target
 from services.edgar_service import get_insider_buying
 from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window, get_asset_class
 from indicators.technicals import compute_all
@@ -22,9 +22,10 @@ from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations
 
-SCORE_THRESHOLD   = 45   # minimum score to be eligible
-MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
-MIN_PROFIT_PCT    = 4.0  # minimum absolute profit % to entry
+SCORE_THRESHOLD    = 45   # minimum score to be eligible
+MAX_STOCKS         = 50   # top N scored stocks sent to Claude
+MAX_EARNINGS_PICKS = 15   # extra earnings-catalyst stocks added to Claude batch
+MIN_PROFIT_PCT     = 4.0  # minimum absolute profit % to entry
 
 # Claude's days_to_target → timeframe bucket
 def _bucket(days: int) -> str:
@@ -79,6 +80,11 @@ def run():
 
     accuracy_context = _build_accuracy_context()
 
+    # ── Load bulk data once (cached) ──────────────────────────────────────────
+    print("Loading bulk earnings calendar (1 Finnhub call, cached 24h)...")
+    earnings_universe = get_upcoming_earnings_universe(days_ahead=7)
+    universe_tickers = {item["ticker"] for item in universe}
+
     # ── Score every stock once (no timeframe) ─────────────────────────────────
     print(f"Scoring {universe_total} stocks...")
     scored = []
@@ -104,12 +110,20 @@ def run():
             scan_stats["finnhub_news_fetched"] += sentiment.get("volume", 0)
             social = get_social_sentiment(ticker)
             sentiment["mentions"] = social.get("mentions", 0)
-            analyst           = get_analyst_recommendation(ticker)
-            earnings          = get_earnings_history(ticker)
-            earnings_calendar = get_earnings_calendar(ticker, days_ahead=7)
-            analyst_target    = get_analyst_price_target(ticker)
-            insider_buying    = get_insider_buying(ticker, days_back=14)
-            info              = get_ticker_info(ticker)
+            analyst        = get_analyst_recommendation(ticker)
+            earnings       = get_earnings_history(ticker)
+            analyst_target = get_analyst_price_target(ticker)
+            insider_buying = get_insider_buying(ticker, days_back=14)
+            info           = get_ticker_info(ticker)
+
+            # Earnings calendar from bulk lookup — no per-stock API call
+            ec_data = earnings_universe.get(ticker.upper())
+            earnings_calendar = (
+                {"has_upcoming": True,
+                 "days_to_earnings": ec_data["days_to_earnings"],
+                 "earnings_date": ec_data["earnings_date"]}
+                if ec_data else {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
+            )
 
             # Single score — no timeframe bias
             score_data = compute_signal_score(
@@ -176,8 +190,62 @@ def run():
         deduped.append(s)
 
     top_stocks = deduped[:MAX_STOCKS]
+
+    # ── Earnings pickup — add below-threshold stocks with upcoming earnings ────
+    # These stocks scored < SCORE_THRESHOLD but have earnings in 1–7 days.
+    # They get a separate Claude call tagged as earnings_pickup so Claude knows.
+    scored_tickers = {s["ticker"] for s in top_stocks}
+    earnings_pickup = []
+    for item in universe:
+        ticker = item["ticker"]
+        if ticker in scored_tickers:
+            continue  # already in main batch
+        if ticker not in earnings_universe:
+            continue  # no upcoming earnings
+        if len(earnings_pickup) >= MAX_EARNINGS_PICKS:
+            break
+        ec_data = earnings_universe[ticker]
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = get_price_history(ticker, period="6mo")
+            if df.empty:
+                continue
+            ind = compute_all(df)
+            if not ind:
+                continue
+            info = get_ticker_info(ticker)
+            earnings = get_earnings_history(ticker)
+            earnings_calendar = {
+                "has_upcoming": True,
+                "days_to_earnings": ec_data["days_to_earnings"],
+                "earnings_date": ec_data["earnings_date"],
+            }
+            earnings_pickup.append({
+                "ticker": ticker,
+                "company_name": info.get("name", ticker),
+                "source": item["source"],
+                "score": 0,  # below threshold — earnings pickup only
+                "score_data": {"total": 0, "base": 0, "bonus": 0, "bonus_reasons": ["Earnings pickup"], "breakdown": {}, "formula_version": FORMULA_VERSION, "analyst_upside_pct": None, "earnings_calendar": earnings_calendar, "insider_buying": None},
+                "indicators": ind,
+                "sentiment": {"score": 0, "volume": 0, "mentions": 0},
+                "analyst": {"consensus": "HOLD", "score": 0.5},
+                "earnings": earnings,
+                "earnings_calendar": earnings_calendar,
+                "analyst_upside_pct": None,
+                "insider_buying": None,
+                "is_earnings_pickup": True,
+            })
+        except Exception:
+            continue
+
+    if earnings_pickup:
+        print(f"  Earnings pickup: {len(earnings_pickup)} below-threshold stocks with upcoming earnings added to Claude batch")
+
+    top_stocks = top_stocks + earnings_pickup
     scan_stats["stocks_analyzed"] = len(top_stocks)
-    print(f"Top {len(top_stocks)} stocks → Claude analysis...")
+    print(f"Top {len(top_stocks)} stocks → Claude analysis ({MAX_STOCKS} scored + {len(earnings_pickup)} earnings pickup)...")
 
     for s in shadow:
         try:

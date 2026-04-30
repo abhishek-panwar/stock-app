@@ -24,10 +24,24 @@ def _session() -> requests.Session:
 
 
 def _load_cik_map() -> None:
-    """Download the SEC bulk ticker→CIK map once per process."""
+    """
+    Load ticker→CIK mapping. Checks Supabase cache first (30-day TTL),
+    falls back to downloading from SEC if not cached.
+    """
     global _cik_cache_loaded
     if _cik_cache_loaded:
         return
+    try:
+        from database.db import get_cache, set_cache
+        cached = get_cache("sec_cik_map")
+        if cached:
+            _cik_cache.update(cached)
+            _cik_cache_loaded = True
+            print(f"  SEC CIK map: loaded from cache ({len(_cik_cache)} tickers)")
+            return
+    except Exception:
+        pass
+
     try:
         resp = _session().get(
             "https://www.sec.gov/files/company_tickers.json", timeout=15
@@ -40,6 +54,12 @@ def _load_cik_map() -> None:
             if ticker:
                 _cik_cache[ticker] = cik
         _cik_cache_loaded = True
+        try:
+            from database.db import set_cache
+            set_cache("sec_cik_map", dict(_cik_cache), ttl_hours=720)  # 30 days
+            print(f"  SEC CIK map: downloaded and cached ({len(_cik_cache)} tickers)")
+        except Exception:
+            pass
     except Exception:
         pass
 

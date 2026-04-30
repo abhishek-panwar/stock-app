@@ -155,6 +155,50 @@ def get_earnings_history(ticker: str) -> dict:
         return {"beats": 0, "consecutive_beats": 0}
 
 
+def get_upcoming_earnings_universe(days_ahead: int = 7) -> dict:
+    """
+    Single Finnhub call for ALL upcoming earnings in the next days_ahead days.
+    Returns {ticker: {"days_to_earnings": int, "earnings_date": str}}
+    Cached in Supabase for 24 hours — call once per nightly run, not per stock.
+    """
+    try:
+        from database.db import get_cache, set_cache
+        cache_key = f"earnings_universe_{days_ahead}d"
+        cached = get_cache(cache_key)
+        if cached is not None:
+            print(f"  Earnings calendar: loaded from cache ({len(cached)} tickers)")
+            return cached
+
+        today = datetime.utcnow().date()
+        to_dt = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        data = get_client().earnings_calendar(
+            _from=today.strftime("%Y-%m-%d"), to=to_dt, symbol=""
+        )
+        events = (data or {}).get("earningsCalendar", [])
+        result = {}
+        for e in events:
+            symbol = e.get("symbol", "").upper()
+            edate_str = e.get("date", "")
+            if not symbol or not edate_str:
+                continue
+            try:
+                edate = datetime.strptime(edate_str, "%Y-%m-%d").date()
+                days = (edate - today).days
+                if 0 <= days <= days_ahead:
+                    # Keep soonest if duplicate
+                    if symbol not in result or days < result[symbol]["days_to_earnings"]:
+                        result[symbol] = {"days_to_earnings": days, "earnings_date": edate_str}
+            except Exception:
+                continue
+
+        set_cache(cache_key, result, ttl_hours=24)
+        print(f"  Earnings calendar: fetched {len(result)} tickers with upcoming earnings")
+        return result
+    except Exception as e:
+        print(f"  Earnings calendar fetch failed: {e}")
+        return {}
+
+
 def get_earnings_calendar(ticker: str, days_ahead: int = 7) -> dict:
     """
     Returns upcoming earnings date for ticker if within days_ahead.
@@ -193,21 +237,27 @@ def get_earnings_calendar(ticker: str, days_ahead: int = 7) -> dict:
 
 def get_analyst_price_target(ticker: str) -> dict:
     """
-    Returns analyst mean price target and upside % vs current price.
-    Result: {"mean_target": float|None, "upside_pct": float|None, "num_analysts": int}
+    Returns analyst mean price target. Cached per ticker for 24h.
+    Result: {"mean_target": float|None, "num_analysts": int}
     """
     try:
+        from database.db import get_cache, set_cache
+        cache_key = f"analyst_target_{ticker}"
+        cached = get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         data = get_client().price_target(ticker)
         if not data:
-            return {"mean_target": None, "upside_pct": None, "num_analysts": 0}
-        mean_target = data.get("targetMean")
-        current = data.get("lastUpdated")  # not price — get price separately
-        num = data.get("targetHigh") and data.get("targetLow")  # proxy for coverage
-        # upside_pct calculated in scanner with actual current price
-        return {
-            "mean_target": round(float(mean_target), 2) if mean_target else None,
-            "num_analysts": int(data.get("targetHigh", 0) > 0),  # rough proxy
-        }
+            result = {"mean_target": None, "num_analysts": 0}
+        else:
+            mean_target = data.get("targetMean")
+            result = {
+                "mean_target": round(float(mean_target), 2) if mean_target else None,
+                "num_analysts": int(bool(data.get("targetHigh", 0))),
+            }
+        set_cache(cache_key, result, ttl_hours=24)
+        return result
     except Exception:
         return {"mean_target": None, "num_analysts": 0}
 
