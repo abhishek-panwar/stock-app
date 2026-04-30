@@ -50,10 +50,11 @@ def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
     return universe, len(core), len(hot), len(overlap)
 
 
-def get_hot_tickers(top_n: int = 50) -> list[str]:
+def get_hot_tickers() -> list[str]:
     """
     Fetches trending tickers from Yahoo Finance (validated symbols),
     then ranks them by hot score (analyst rating + news volume + momentum).
+    Returns all tickers scoring >5 — final selection to Claude happens in the scanner.
     """
     from services.finnhub_service import compute_hot_score
     import requests
@@ -91,8 +92,8 @@ def get_hot_tickers(top_n: int = 50) -> list[str]:
             pass
 
     scored.sort(key=lambda x: x[1], reverse=True)
-    print(f"  Hot tickers: {len(raw_tickers)} from Yahoo trending, {len(scored)} scored above threshold, returning top {min(top_n, len(scored))}")
-    return [t for t, _ in scored[:top_n]]
+    print(f"  Hot tickers: {len(raw_tickers)} from Yahoo, {len(scored)} scored above threshold")
+    return [t for t, _ in scored]
 
 
 _CRYPTO_TICKERS = {

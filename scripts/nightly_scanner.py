@@ -59,7 +59,7 @@ def run(debug: bool = False):
     # ── Build universe ────────────────────────────────────────────────────────
     print("Building universe...")
     try:
-        hot_tickers = get_hot_tickers(top_n=50)
+        hot_tickers = get_hot_tickers()
         universe, nasdaq_count, hot_count, overlap_count = build_universe(hot_tickers)
     except Exception as e:
         log_error("scanner", f"Failed to build universe: {e}", level="ERROR")
