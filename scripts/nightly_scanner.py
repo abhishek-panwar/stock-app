@@ -454,13 +454,27 @@ def run():
     except Exception as e:
         log_error("scanner", f"Scan log insert failed: {e}", detail=str(e), level="ERROR")
 
-    # ── Write raw Claude log via subprocess git (works in GitHub Actions) ─────
+    # ── Save raw Claude log to Supabase cache (works on Modal + local) ──────────
+    try:
+        import json
+        from database.db import set_cache
+        date_str = start_time.strftime("%Y-%m-%d")
+        set_cache(f"claude_raw_{date_str}", {
+            "scan_date": date_str,
+            "total_calls": len(claude_raw_log),
+            "passed_filter": sum(1 for r in claude_raw_log if r["passed_filter"]),
+            "responses": claude_raw_log,
+        }, ttl_hours=168)  # keep 7 days
+        print(f"  Raw Claude log saved to Supabase cache (key: claude_raw_{date_str})")
+    except Exception as e:
+        print(f"  Warning: could not save raw log to cache: {e}")
+
+    # ── Also write to local debug file if running locally ────────────────────
     try:
         import json, subprocess
         base_dir  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         debug_dir = os.path.join(base_dir, "debug")
         os.makedirs(debug_dir, exist_ok=True)
-        date_str  = start_time.strftime("%Y-%m-%d")
         log_path  = os.path.join(debug_dir, f"claude_raw_{date_str}.json")
         with open(log_path, "w") as f:
             json.dump({
@@ -474,9 +488,9 @@ def run():
         subprocess.run(["git", "commit", "-m", f"debug: claude raw responses {date_str}"],
                        cwd=base_dir, check=True)
         subprocess.run(["git", "push"], cwd=base_dir, check=True)
-        print(f"  Raw log saved → {rel_path}")
-    except Exception as e:
-        print(f"  Warning: could not save raw log via git: {e}")
+        print(f"  Raw log also saved → {rel_path}")
+    except Exception:
+        pass  # expected to fail on Modal — Supabase cache is the primary store
 
     # Always return raw log so UI debug button can save via GitHub API
     scan_stats["claude_raw_log"] = claude_raw_log

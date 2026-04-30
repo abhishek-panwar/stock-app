@@ -67,13 +67,16 @@ def render():
     st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
 
     # ── Scanner buttons ───────────────────────────────────────────────────────
-    btn_c1, btn_c2, _ = st.columns([2, 2, 6])
+    btn_c1, btn_c2, btn_c3, _ = st.columns([2, 2, 2, 4])
     with btn_c1:
         if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top"):
             _trigger_scanner()
     with btn_c2:
         if st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_top"):
             _trigger_scanner(debug=True)
+    with btn_c3:
+        if st.button("📋 Last Scan Raw Log", type="secondary", key="view_raw_log_top"):
+            _show_raw_log()
 
     try:
         from database.db import get_predictions, get_scan_logs
@@ -604,6 +607,48 @@ def _trigger_scanner(debug: bool = False):
     except Exception as e:
         status.update(label="❌ Failed", state="error", expanded=True)
         st.error(f"Scanner error: {e}")
+
+
+def _show_raw_log():
+    """Read last nightly scan raw Claude log from Supabase cache and display it."""
+    from database.db import get_cache
+    from datetime import datetime
+    import pytz
+    PT = pytz.timezone("America/Los_Angeles")
+    date_str = datetime.now(PT).strftime("%Y-%m-%d")
+    data = get_cache(f"claude_raw_{date_str}")
+    if not data:
+        # Try yesterday
+        from datetime import timedelta
+        yesterday = (datetime.now(PT) - timedelta(days=1)).strftime("%Y-%m-%d")
+        data = get_cache(f"claude_raw_{yesterday}")
+        if data:
+            st.info(f"No log for today yet — showing yesterday ({yesterday})")
+        else:
+            st.warning("No raw scan log found. Run the scanner first.")
+            return
+
+    responses = data.get("responses", [])
+    total = data.get("total_calls", 0)
+    passed = data.get("passed_filter", 0)
+    st.markdown(f"### 📋 Raw Scan Log — {data.get('scan_date')}  ({total} Claude calls · {passed} passed filter)")
+
+    for r in sorted(responses, key=lambda x: x.get("score", 0), reverse=True):
+        ticker    = r.get("ticker", "")
+        score     = r.get("score", 0)
+        direction = r.get("direction", "")
+        profit    = r.get("profit_pct", 0)
+        passed_f  = r.get("passed_filter", False)
+        reasoning = r.get("reasoning", "")
+        key_sigs  = r.get("key_signals", [])
+        status    = "✅ SAVED" if passed_f else "❌ filtered"
+        dir_color = "green" if direction == "BULLISH" else "red" if direction == "BEARISH" else "grey"
+        with st.expander(f"{status}  **{ticker}**  score={score}  :{dir_color}[{direction}]  profit={profit:.1f}%", expanded=False):
+            st.write(f"**Target:** ${r.get('used_target')}  **Stop:** ${r.get('used_stop')}  **Confidence:** {r.get('confidence')}%")
+            if key_sigs:
+                st.write(f"**Key signals:** {', '.join(key_sigs)}")
+            if reasoning:
+                st.caption(reasoning)
 
 
 def _save_debug_log(raw_log: list):
