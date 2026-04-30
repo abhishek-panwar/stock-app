@@ -73,6 +73,7 @@ def get_hot_tickers() -> list[str]:
 
     raw_tickers: set[str] = set()
 
+    # Yahoo Finance — trending + most active + gainers + losers
     headers = {"User-Agent": "Mozilla/5.0"}
     yahoo_sources = [
         "https://query1.finance.yahoo.com/v1/finance/trending/US",
@@ -90,6 +91,25 @@ def get_hot_tickers() -> list[str]:
                     raw_tickers.add(symbol.upper())
         except Exception:
             pass
+
+    # Alpha Vantage — gainers + losers + most active in 1 call
+    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if av_key:
+        try:
+            r = requests.get(
+                f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={av_key}",
+                timeout=10,
+            )
+            data = r.json()
+            for category in ("top_gainers", "top_losers", "most_actively_traded"):
+                for item in data.get(category, []):
+                    symbol = item.get("ticker", "")
+                    if symbol and "=" not in symbol and "/" not in symbol:
+                        raw_tickers.add(symbol.upper())
+        except Exception:
+            pass
+    else:
+        print("  Alpha Vantage key not set — skipping AV hot tickers")
 
     # Always include crypto/commodities
     raw_tickers.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
