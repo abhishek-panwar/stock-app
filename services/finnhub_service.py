@@ -5,6 +5,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+EARNINGS_UNIVERSE_TTL_H  = 168   # 7 days — refresh weekly
+ANALYST_TARGET_TTL_H     = 24    # per-ticker analyst price target cache
+CIK_MAP_TTL_H            = 720   # 30 days — SEC CIK map rarely changes
+EARNINGS_WINDOW_DAYS     = 14    # how far ahead to scan for earnings
+INSIDER_LOOKBACK_DAYS    = 14    # Form 4 filing lookback window
+INSIDER_MIN_BUY_USD      = 10_000   # ignore token/trivial purchases
+INSIDER_STRONG_USD       = 500_000  # threshold for STRONG signal
+INSIDER_STRONG_COUNT     = 3        # or this many distinct insiders
+INSIDER_MODERATE_USD     = 100_000  # threshold for MODERATE signal
+
 _client = None
 
 def get_client():
@@ -155,7 +165,7 @@ def get_earnings_history(ticker: str) -> dict:
         return {"beats": 0, "consecutive_beats": 0}
 
 
-def get_upcoming_earnings_universe(days_ahead: int = 14) -> dict:
+def get_upcoming_earnings_universe(days_ahead: int = EARNINGS_WINDOW_DAYS) -> dict:
     """
     Single Finnhub call for ALL upcoming earnings in the next days_ahead days.
     Returns {ticker: {"days_to_earnings": int, "earnings_date": str}}
@@ -191,7 +201,7 @@ def get_upcoming_earnings_universe(days_ahead: int = 14) -> dict:
             except Exception:
                 continue
 
-        set_cache(cache_key, result, ttl_hours=168)  # 7-day TTL — refresh weekly
+        set_cache(cache_key, result, ttl_hours=EARNINGS_UNIVERSE_TTL_H)
         print(f"  Earnings calendar: fetched {len(result)} tickers with upcoming earnings")
         return result
     except Exception as e:
@@ -256,7 +266,7 @@ def get_analyst_price_target(ticker: str) -> dict:
                 "mean_target": round(float(mean_target), 2) if mean_target else None,
                 "num_analysts": int(bool(data.get("targetHigh", 0))),
             }
-        set_cache(cache_key, result, ttl_hours=24)
+        set_cache(cache_key, result, ttl_hours=ANALYST_TARGET_TTL_H)
         return result
     except Exception:
         return {"mean_target": None, "num_analysts": 0}

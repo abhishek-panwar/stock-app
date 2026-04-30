@@ -10,6 +10,11 @@ _USER_AGENT = "stock-app-abhi research@example.com"
 _HEADERS = {"User-Agent": _USER_AGENT}
 _SESSION = None
 
+from services.finnhub_service import (
+    CIK_MAP_TTL_H, INSIDER_LOOKBACK_DAYS,
+    INSIDER_MIN_BUY_USD, INSIDER_STRONG_USD, INSIDER_STRONG_COUNT, INSIDER_MODERATE_USD,
+)
+
 # In-memory CIK cache to avoid repeated bulk downloads per scanner run
 _cik_cache: dict[str, str] = {}
 _cik_cache_loaded = False
@@ -56,7 +61,7 @@ def _load_cik_map() -> None:
         _cik_cache_loaded = True
         try:
             from database.db import set_cache
-            set_cache("sec_cik_map", dict(_cik_cache), ttl_hours=720)  # 30 days
+            set_cache("sec_cik_map", dict(_cik_cache), ttl_hours=CIK_MAP_TTL_H)
             print(f"  SEC CIK map: downloaded and cached ({len(_cik_cache)} tickers)")
         except Exception:
             pass
@@ -71,7 +76,7 @@ def _ticker_to_cik(ticker: str) -> str | None:
     return _cik_cache.get(clean) or _cik_cache.get(ticker.upper())
 
 
-def get_insider_buying(ticker: str, days_back: int = 14) -> dict:
+def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS) -> dict:
     """
     Checks SEC EDGAR Form 4 filings for insider purchases in the last days_back days.
 
@@ -146,7 +151,7 @@ def get_insider_buying(ticker: str, days_back: int = 14) -> dict:
             if r.status_code != 200:
                 continue
             purchase_usd = _parse_form4_purchase(r.text)
-            if purchase_usd and purchase_usd >= 10_000:  # ignore tiny/token buys
+            if purchase_usd and purchase_usd >= INSIDER_MIN_BUY_USD:
                 total_usd += purchase_usd
                 largest = max(largest, purchase_usd)
                 insiders.add(filing["accession"])  # one accession = one insider filing
@@ -159,9 +164,9 @@ def get_insider_buying(ticker: str, days_back: int = 14) -> dict:
         return empty
 
     # Signal strength thresholds
-    if total_usd >= 500_000 or len(insiders) >= 3:
+    if total_usd >= INSIDER_STRONG_USD or len(insiders) >= INSIDER_STRONG_COUNT:
         strength = "STRONG"
-    elif total_usd >= 100_000:
+    elif total_usd >= INSIDER_MODERATE_USD:
         strength = "MODERATE"
     else:
         strength = "NONE"
