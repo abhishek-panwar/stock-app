@@ -51,6 +51,13 @@ _TABLE_MIGRATIONS = [
         expires_at timestamptz not null,
         updated_at timestamptz default now()
     )""",
+    """CREATE TABLE IF NOT EXISTS earnings_calendar (
+        id bigint generated always as identity primary key,
+        ticker text not null,
+        days_to_earnings integer,
+        earnings_date text,
+        scanned_at text
+    )""",
 ]
 
 def run_migrations() -> None:
@@ -328,6 +335,22 @@ def save_hot_tickers(tickers: list, scanned_at: str) -> None:
 
 def get_hot_tickers_from_db() -> list:
     return get_client().table("hot_tickers").select("*").order("id").execute().data
+
+def save_earnings_calendar(earnings_map: dict, scanned_at: str) -> None:
+    """Persist earnings universe to DB. Clears old rows and inserts fresh data."""
+    client = get_client()
+    client.table("earnings_calendar").delete().neq("id", 0).execute()
+    rows = [
+        {"ticker": ticker, "days_to_earnings": v["days_to_earnings"],
+         "earnings_date": v["earnings_date"], "scanned_at": scanned_at}
+        for ticker, v in earnings_map.items()
+    ]
+    if rows:
+        client.table("earnings_calendar").insert(rows).execute()
+
+def get_earnings_calendar_from_db() -> list:
+    return (get_client().table("earnings_calendar").select("*")
+            .order("days_to_earnings").execute().data)
 
 
 # ── Optimization Queue ────────────────────────────────────────────────────────

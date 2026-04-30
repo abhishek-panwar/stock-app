@@ -124,6 +124,47 @@ def render():
         except Exception as e:
             st.error(f"Could not load hot tickers: {e}")
 
+    with st.expander("📅 Earnings This Week", expanded=False):
+        try:
+            from database.db import get_earnings_calendar_from_db
+            rows = get_earnings_calendar_from_db()
+            if rows:
+                scanned_at = rows[0].get("scanned_at", "")
+                try:
+                    ts = datetime.fromisoformat(scanned_at.replace("Z", "+00:00")).astimezone(PT).strftime("%b %d  %I:%M %p PT")
+                except Exception:
+                    ts = scanned_at[:10]
+                st.caption(f"Stocks reporting earnings in the next 7 days · fetched {ts}")
+
+                # Group by days_to_earnings
+                from collections import defaultdict
+                by_day = defaultdict(list)
+                for r in rows:
+                    by_day[r.get("days_to_earnings", 99)].append(r)
+
+                for days in sorted(by_day.keys()):
+                    day_rows = by_day[days]
+                    if days == 0:
+                        label = "📌 Today"
+                    elif days == 1:
+                        label = "📌 Tomorrow"
+                    else:
+                        label = f"In {days} days"
+                    st.markdown(f"**{label}**")
+                    cols = st.columns(10)
+                    for i, row in enumerate(day_rows):
+                        ticker = row["ticker"]
+                        cols[i % 10].markdown(
+                            f'<span style="background:#fefce8;border:1px solid #fde68a;'
+                            f'border-radius:6px;padding:3px 8px;font-size:12px;'
+                            f'font-weight:600;color:#92400e">{ticker}</span>',
+                            unsafe_allow_html=True,
+                        )
+            else:
+                st.caption("No data yet — will populate after the next nightly scan.")
+        except Exception as e:
+            st.error(f"Could not load earnings calendar: {e}")
+
     high_conviction = sorted(
         [p for p in predictions if (p.get("confidence") or 0) >= 75],
         key=_sort_key

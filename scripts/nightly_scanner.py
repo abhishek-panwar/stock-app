@@ -20,7 +20,7 @@ from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations, save_earnings_calendar
 
 SCORE_THRESHOLD    = 45   # minimum score to be eligible
 MAX_STOCKS         = 50   # top N scored stocks sent to Claude
@@ -84,6 +84,13 @@ def run():
     print("Loading bulk earnings calendar (1 Finnhub call, cached 24h)...")
     earnings_universe = get_upcoming_earnings_universe(days_ahead=7)
     universe_tickers = {item["ticker"] for item in universe}
+
+    # Persist earnings calendar to DB for dashboard display
+    try:
+        save_earnings_calendar(earnings_universe, start_time.isoformat())
+        print(f"  Saved {len(earnings_universe)} earnings tickers to DB")
+    except Exception as e:
+        log_error("scanner", f"Failed to save earnings calendar: {e}", level="WARNING")
 
     # ── Score every stock once (no timeframe) ─────────────────────────────────
     print(f"Scoring {universe_total} stocks...")
