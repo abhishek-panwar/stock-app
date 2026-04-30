@@ -60,21 +60,23 @@ def get_hot_tickers(top_n: int = 50) -> list[str]:
 
     raw_tickers: set[str] = set()
 
-    # Yahoo Finance trending — validated symbols, no regex guessing
-    try:
-        r = requests.get(
-            "https://query1.finance.yahoo.com/v1/finance/trending/US",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        quotes = r.json()["finance"]["result"][0]["quotes"]
-        for q in quotes:
-            symbol = q.get("symbol", "")
-            # Skip futures/forex (contain = or /)
-            if symbol and "=" not in symbol and "/" not in symbol:
-                raw_tickers.add(symbol.upper())
-    except Exception:
-        pass
+    headers = {"User-Agent": "Mozilla/5.0"}
+    yahoo_sources = [
+        "https://query1.finance.yahoo.com/v1/finance/trending/US",
+        "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=20",
+        "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=20",
+        "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_losers&count=20",
+    ]
+    for url in yahoo_sources:
+        try:
+            r = requests.get(url, headers=headers, timeout=10)
+            quotes = r.json()["finance"]["result"][0]["quotes"]
+            for q in quotes:
+                symbol = q.get("symbol", "")
+                if symbol and "=" not in symbol and "/" not in symbol:
+                    raw_tickers.add(symbol.upper())
+        except Exception:
+            pass
 
     # Always include crypto/commodities
     raw_tickers.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
