@@ -109,6 +109,43 @@ def render():
 
 
     st.markdown("---")
+
+    # ── Earnings Next 2 Weeks ─────────────────────────────────────────────────
+    with st.expander("📅 Earnings Next 2 Weeks", expanded=False):
+        try:
+            from database.db import get_earnings_calendar_from_db
+            rows = get_earnings_calendar_from_db()
+            if rows:
+                scanned_at = rows[0].get("scanned_at", "")
+                try:
+                    dt = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+                    ts = dt.astimezone(PT).strftime("%b %d  %I:%M %p PT")
+                except Exception:
+                    ts = scanned_at[:10]
+                st.caption(f"Stocks reporting earnings in the next 14 days · fetched {ts} · {len(rows)} tickers")
+
+                from collections import defaultdict
+                by_day = defaultdict(list)
+                for row in rows:
+                    by_day[row.get("days_to_earnings", 99)].append(row)
+
+                for days in sorted(by_day.keys()):
+                    tickers = by_day[days]
+                    label = "Today" if days == 0 else "Tomorrow" if days == 1 else f"In {days} days"
+                    date_str = tickers[0].get("earnings_date", "")
+                    st.markdown(f"**{label}** · {date_str}")
+                    badges = " ".join(
+                        f'<span style="background:#78350f;color:#fde68a;padding:2px 8px;border-radius:12px;font-size:0.78rem;margin:2px">'
+                        f'📅 {r["ticker"]}</span>'
+                        for r in tickers
+                    )
+                    st.markdown(badges, unsafe_allow_html=True)
+            else:
+                st.info("No earnings data yet. Run the scanner to populate.")
+        except Exception as e:
+            st.warning(f"Could not load earnings calendar: {e}")
+
+    st.markdown("---")
     _render_error_logs()
 
 
@@ -134,7 +171,7 @@ def _run_scanner():
         builtins.print = lambda *a, **k: (_capture(" ".join(str(x) for x in a)), _orig_print(*a, **k))
 
         try:
-            stats = scanner.run()
+            stats = scanner.run(debug=False)
         finally:
             builtins.print = _orig_print
 
