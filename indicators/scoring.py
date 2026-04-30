@@ -241,12 +241,13 @@ def determine_direction(ind: dict, score: int) -> tuple[str, str]:
 
 
 def compute_buy_range(price: float, atr: float, direction: str) -> tuple[float, float]:
+    decimals = 6 if price < 1 else 4 if price < 10 else 2
     offset = atr * 0.3
     if direction == "BULLISH":
-        return round(price - offset, 2), round(price + offset * 0.5, 2)
+        return round(price - offset, decimals), round(price + offset * 0.5, decimals)
     elif direction == "BEARISH":
-        return round(price - offset * 0.5, 2), round(price + offset, 2)
-    return round(price - offset, 2), round(price + offset, 2)
+        return round(price - offset * 0.5, decimals), round(price + offset, decimals)
+    return round(price - offset, decimals), round(price + offset, decimals)
 
 
 def compute_targets(price: float, atr: float, direction: str, rsi: float = 50) -> tuple[float, float, float]:

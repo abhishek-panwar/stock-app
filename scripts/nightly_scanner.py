@@ -196,13 +196,14 @@ def run():
                 pct = 0.02
                 stop_price = round(price * (1 - pct) if direction == "BULLISH" else price * (1 + pct), 2)
 
-            target_price = round(float(target_price), 2)
-            stop_price   = round(float(stop_price), 2)
-
+            # Use enough decimal places for low-price assets (crypto like DOGE)
+            decimals = 6 if price < 1 else 4 if price < 10 else 2
+            target_price = round(float(target_price), decimals)
+            stop_price   = round(float(stop_price), decimals)
 
             # target_low/high for UI compatibility — use ±3% of target_price
-            target_low  = round(target_price * 0.97, 2)
-            target_high = round(target_price * 1.03, 2)
+            target_low  = round(target_price * 0.97, decimals)
+            target_high = round(target_price * 1.03, decimals)
 
             # Profit % filter — based on target_low (what UI shows as "Profit potential")
             profit_pct = abs(target_low - price) / price * 100 if price > 0 else 0
