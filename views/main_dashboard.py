@@ -600,8 +600,7 @@ def _trigger_scanner(debug: bool = False):
         status.update(label="✅ Done!", state="complete", expanded=False)
         st.success(f"{stats.get('predictions_created', 0)} predictions created")
 
-        if debug:
-            _save_debug_log(stats.get("claude_raw_log", []))
+        _save_debug_log(stats.get("claude_raw_log", []))
 
         st.rerun()
     except Exception as e:

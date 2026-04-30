@@ -454,43 +454,62 @@ def run():
     except Exception as e:
         log_error("scanner", f"Scan log insert failed: {e}", detail=str(e), level="ERROR")
 
-    # ── Save raw Claude log to Supabase cache (works on Modal + local) ──────────
-    try:
-        import json
-        from database.db import set_cache
-        date_str = start_time.strftime("%Y-%m-%d")
-        set_cache(f"claude_raw_{date_str}", {
-            "scan_date": date_str,
-            "total_calls": len(claude_raw_log),
-            "passed_filter": sum(1 for r in claude_raw_log if r["passed_filter"]),
-            "responses": claude_raw_log,
-        }, ttl_hours=168)  # keep 7 days
-        print(f"  Raw Claude log saved to Supabase cache (key: claude_raw_{date_str})")
-    except Exception as e:
-        print(f"  Warning: could not save raw log to cache: {e}")
+    # ── Save raw Claude log — Supabase cache + GitHub file ───────────────────
+    import json
+    date_str = start_time.strftime("%Y-%m-%d")
+    raw_payload = {
+        "scan_date": date_str,
+        "total_calls": len(claude_raw_log),
+        "passed_filter": sum(1 for r in claude_raw_log if r["passed_filter"]),
+        "responses": claude_raw_log,
+    }
 
-    # ── Also write to local debug file if running locally ────────────────────
+    # 1. Supabase cache (works everywhere, 7-day TTL)
     try:
-        import json, subprocess
-        base_dir  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        debug_dir = os.path.join(base_dir, "debug")
-        os.makedirs(debug_dir, exist_ok=True)
-        log_path  = os.path.join(debug_dir, f"claude_raw_{date_str}.json")
-        with open(log_path, "w") as f:
-            json.dump({
-                "scan_date": date_str,
-                "total_calls": len(claude_raw_log),
-                "passed_filter": sum(1 for r in claude_raw_log if r["passed_filter"]),
-                "responses": claude_raw_log,
-            }, f, indent=2)
-        rel_path = f"debug/claude_raw_{date_str}.json"
-        subprocess.run(["git", "add", rel_path], cwd=base_dir, check=True)
-        subprocess.run(["git", "commit", "-m", f"debug: claude raw responses {date_str}"],
-                       cwd=base_dir, check=True)
-        subprocess.run(["git", "push"], cwd=base_dir, check=True)
-        print(f"  Raw log also saved → {rel_path}")
-    except Exception:
-        pass  # expected to fail on Modal — Supabase cache is the primary store
+        from database.db import set_cache
+        set_cache(f"claude_raw_{date_str}", raw_payload, ttl_hours=168)
+        print(f"  Raw Claude log → Supabase cache (claude_raw_{date_str})")
+    except Exception as e:
+        print(f"  Warning: Supabase cache save failed: {e}")
+
+    # 2. GitHub file via API (works on Modal — uses GITHUB_TOKEN secret)
+    try:
+        import base64, requests
+        token = os.environ.get("GITHUB_TOKEN", "")
+        repo  = os.environ.get("GITHUB_REPO", "")
+        if token and repo:
+            file_path = f"debug/claude_raw_{date_str}.json"
+            content   = base64.b64encode(json.dumps(raw_payload, indent=2).encode()).decode()
+            api       = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+            headers   = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+            sha = None
+            try:
+                r = requests.get(api, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    sha = r.json().get("sha")
+            except Exception:
+                pass
+            payload = {"message": f"debug: claude raw responses {date_str}", "content": content}
+            if sha:
+                payload["sha"] = sha
+            r = requests.put(api, headers=headers, json=payload, timeout=15)
+            r.raise_for_status()
+            print(f"  Raw Claude log → GitHub debug/claude_raw_{date_str}.json")
+        else:
+            # Fallback: local git push (works when running locally without secrets)
+            base_dir  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            debug_dir = os.path.join(base_dir, "debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            with open(os.path.join(debug_dir, f"claude_raw_{date_str}.json"), "w") as f:
+                json.dump(raw_payload, f, indent=2)
+            import subprocess
+            rel_path = f"debug/claude_raw_{date_str}.json"
+            subprocess.run(["git", "add", rel_path], cwd=base_dir, check=True)
+            subprocess.run(["git", "commit", "-m", f"debug: claude raw responses {date_str}"], cwd=base_dir, check=True)
+            subprocess.run(["git", "push"], cwd=base_dir, check=True)
+            print(f"  Raw Claude log → local git push ({rel_path})")
+    except Exception as e:
+        print(f"  Warning: GitHub file save failed: {e}")
 
     # Always return raw log so UI debug button can save via GitHub API
     scan_stats["claude_raw_log"] = claude_raw_log
