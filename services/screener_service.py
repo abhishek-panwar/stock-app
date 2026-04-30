@@ -31,23 +31,35 @@ def _is_tradable(ticker: str) -> bool:
 
 def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
     """
-    Deduplicates Nasdaq 100 + S&P 500 additions + hot stocks.
-    Returns: (universe_with_source, nasdaq_count, hot_count, overlap_count)
+    Universe = hot tickers + any Nasdaq 100 stocks with upcoming earnings.
+    Pure Nasdaq stocks with no catalyst are excluded to reduce API call volume.
+    Returns: (universe_with_source, nasdaq_earnings_count, hot_count, overlap_count)
     """
     data = load_watchlist()
     nasdaq = set(data["nasdaq100"])
-    sp500_extra = set(data.get("sp500_additions", []))
-    commodities = set(data.get("commodities_and_alts", []))
-    core = nasdaq | sp500_extra | commodities
     hot = set(hot_tickers)
-    overlap = core & hot
+    overlap = nasdaq & hot
+
+    # Pull earnings universe from DB (already fetched and persisted by scanner)
+    try:
+        from database.db import get_earnings_calendar_from_db
+        earnings_tickers = {row["ticker"] for row in get_earnings_calendar_from_db()}
+    except Exception:
+        earnings_tickers = set()
+
+    nasdaq_with_earnings = nasdaq & earnings_tickers
+
     universe = []
-    for t in core:
-        universe.append({"ticker": t, "source": "both" if t in overlap else "nasdaq100"})
+    seen = set()
     for t in hot:
-        if t not in core:
-            universe.append({"ticker": t, "source": "hot_stock"})
-    return universe, len(core), len(hot), len(overlap)
+        universe.append({"ticker": t, "source": "both" if t in overlap else "hot_stock"})
+        seen.add(t)
+    for t in nasdaq_with_earnings:
+        if t not in seen:
+            universe.append({"ticker": t, "source": "nasdaq_earnings"})
+            seen.add(t)
+
+    return universe, len(nasdaq_with_earnings), len(hot), len(overlap)
 
 
 def get_hot_tickers() -> list[str]:
