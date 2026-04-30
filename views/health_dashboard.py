@@ -36,7 +36,7 @@ def render():
             c1, c2, c3, c4 = st.columns(4)
             with c1:
                 st.metric("Universe", f"{latest.get('universe_total', 0)} stocks")
-                st.caption(f"{latest.get('nasdaq100_count', 0)} Nasdaq + {latest.get('hot_stock_count', 0)} hot → {latest.get('overlap_count', 0)} overlap")
+                st.caption(f"{latest.get('hot_stock_count', 0)} hot (Yahoo + AV) + {latest.get('nasdaq100_count', 0)} Nasdaq earnings → {latest.get('overlap_count', 0)} overlap")
             with c2:
                 st.metric("Claude Calls", latest.get("claude_calls_made", 0))
                 cost = latest.get("claude_cost_usd") or 0

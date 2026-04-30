@@ -95,8 +95,9 @@ def render():
         log = scan_logs[0]
         st.info(
             f"Universe: **{log.get('universe_total','—')} stocks** scanned  ·  "
-            f"{log.get('nasdaq100_count','—')} Nasdaq + {log.get('hot_stock_count','—')} hot "
-            f"→ {log.get('overlap_count','—')} overlap, deduplicated"
+            f"{log.get('hot_stock_count','—')} hot (Yahoo + Alpha Vantage) + "
+            f"{log.get('nasdaq100_count','—')} Nasdaq with earnings  ·  "
+            f"{log.get('overlap_count','—')} overlap deduplicated"
         )
 
     with st.expander("🔥 Today's Hot 50 (from market news)", expanded=False):
