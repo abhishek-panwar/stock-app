@@ -24,7 +24,6 @@ from database.db import insert_prediction, insert_scan_log, insert_shadow_price,
 
 SCORE_THRESHOLD        = 45    # minimum score to be eligible
 MAX_STOCKS             = 50    # top N scored stocks sent to Claude
-MAX_EARNINGS_PICKS     = 15    # extra earnings-catalyst stocks added to Claude batch
 MIN_PROFIT_PCT         = 4.0   # minimum absolute profit % to save a prediction
 EARNINGS_WINDOW_DAYS   = 14    # how far ahead to fetch the earnings calendar
 EARNINGS_CACHE_TTL_H   = 168   # cache TTL for earnings universe (7 days)
@@ -207,63 +206,8 @@ def run(debug: bool = False):
         deduped.append(s)
 
     top_stocks = deduped[:MAX_STOCKS]
-
-    # ── Earnings pickup — add below-threshold stocks with upcoming earnings ────
-    # These stocks scored < SCORE_THRESHOLD but have earnings in 1–7 days.
-    # They get a separate Claude call tagged as earnings_pickup so Claude knows.
-    scored_tickers = {s["ticker"] for s in top_stocks}
-    earnings_pickup = []
-    for item in universe:
-        ticker = item["ticker"]
-        if ticker in scored_tickers:
-            continue  # already in main batch
-        if ticker not in earnings_universe:
-            continue  # no upcoming earnings
-        if len(earnings_pickup) >= MAX_EARNINGS_PICKS:
-            break
-        ec_data = earnings_universe[ticker]
-        try:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                df = get_price_history(ticker, period="6mo")
-            if df.empty:
-                continue
-            ind = compute_all(df)
-            if not ind:
-                continue
-            info = get_ticker_info(ticker)
-            earnings = get_earnings_history(ticker)
-            earnings_calendar = {
-                "has_upcoming": True,
-                "days_to_earnings": ec_data["days_to_earnings"],
-                "earnings_date": ec_data["earnings_date"],
-            }
-            earnings_pickup.append({
-                "ticker": ticker,
-                "company_name": info.get("name", ticker),
-                "source": item["source"],
-                "score": 0,  # below threshold — earnings pickup only
-                "score_data": {"total": 0, "base": 0, "bonus": 0, "bonus_reasons": ["Earnings pickup"], "breakdown": {}, "formula_version": FORMULA_VERSION, "analyst_upside_pct": None, "earnings_calendar": earnings_calendar, "insider_buying": None},
-                "indicators": ind,
-                "sentiment": {"score": 0, "volume": 0, "mentions": 0},
-                "analyst": {"consensus": "HOLD", "score": 0.5},
-                "earnings": earnings,
-                "earnings_calendar": earnings_calendar,
-                "analyst_upside_pct": None,
-                "insider_buying": None,
-                "is_earnings_pickup": True,
-            })
-        except Exception:
-            continue
-
-    if earnings_pickup:
-        print(f"  Earnings pickup: {len(earnings_pickup)} below-threshold stocks with upcoming earnings added to Claude batch")
-
-    top_stocks = top_stocks + earnings_pickup
     scan_stats["stocks_analyzed"] = len(top_stocks)
-    earnings_tickers = [s["ticker"] for s in earnings_pickup]
-    print(f"Universe: {universe_total} stocks scanned · {nasdaq_count} Nasdaq + {hot_count} hot → {overlap_count} overlap · +{len(earnings_pickup)} earnings picks {earnings_tickers}")
+    print(f"Universe: {universe_total} stocks scanned · {nasdaq_count} Nasdaq earnings + {hot_count} hot → {overlap_count} overlap")
     print(f"Total Claude batch: {len(top_stocks)} stocks")
 
     for s in shadow:
