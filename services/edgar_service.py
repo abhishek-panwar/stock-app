@@ -10,10 +10,12 @@ _USER_AGENT = "stock-app-abhi research@example.com"
 _HEADERS = {"User-Agent": _USER_AGENT}
 _SESSION = None
 
-from services.finnhub_service import (
-    CIK_MAP_TTL_H, INSIDER_LOOKBACK_DAYS,
-    INSIDER_MIN_BUY_USD, INSIDER_STRONG_USD, INSIDER_STRONG_COUNT, INSIDER_MODERATE_USD,
-)
+CIK_MAP_TTL_H       = 720      # 30 days — SEC CIK map rarely changes
+INSIDER_LOOKBACK_DAYS   = 14
+INSIDER_MIN_BUY_USD     = 10_000   # ignore token/trivial purchases
+INSIDER_STRONG_USD      = 500_000  # threshold for STRONG signal
+INSIDER_STRONG_COUNT    = 3        # or this many distinct insiders
+INSIDER_MODERATE_USD    = 100_000  # threshold for MODERATE signal
 
 # In-memory CIK cache to avoid repeated bulk downloads per scanner run
 _cik_cache: dict[str, str] = {}

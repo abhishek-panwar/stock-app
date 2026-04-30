@@ -5,15 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-EARNINGS_UNIVERSE_TTL_H  = 168   # 7 days — refresh weekly
-ANALYST_TARGET_TTL_H     = 24    # per-ticker analyst price target cache
-CIK_MAP_TTL_H            = 720   # 30 days — SEC CIK map rarely changes
-EARNINGS_WINDOW_DAYS     = 14    # how far ahead to scan for earnings
-INSIDER_LOOKBACK_DAYS    = 14    # Form 4 filing lookback window
-INSIDER_MIN_BUY_USD      = 10_000   # ignore token/trivial purchases
-INSIDER_STRONG_USD       = 500_000  # threshold for STRONG signal
-INSIDER_STRONG_COUNT     = 3        # or this many distinct insiders
-INSIDER_MODERATE_USD     = 100_000  # threshold for MODERATE signal
+EARNINGS_UNIVERSE_TTL_H = 168   # 7 days — refresh weekly
+ANALYST_TARGET_TTL_H    = 24    # per-ticker analyst price target cache
+EARNINGS_WINDOW_DAYS    = 14    # how far ahead to scan for earnings
 
 _client = None
 
