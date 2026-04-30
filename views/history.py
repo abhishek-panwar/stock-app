@@ -405,11 +405,14 @@ def _asset_badge(p: dict) -> str:
         else "commodity" if p.get("ticker") in _COMMODITY_TICKERS
         else "stock"
     )
+    badges = ""
     if asset == "crypto":
-        return '<span style="background:#1e1b4b;color:#a5b4fc;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">₿ CRYPTO</span>'
-    if asset == "commodity":
-        return '<span style="background:#451a03;color:#fcd34d;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">⬡ COMMODITY</span>'
-    return ""
+        badges += '<span style="background:#1e1b4b;color:#a5b4fc;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">₿ CRYPTO</span>'
+    elif asset == "commodity":
+        badges += '<span style="background:#451a03;color:#fcd34d;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">⬡ COMMODITY</span>'
+    if p.get("earnings_label"):
+        badges += f'<span style="background:#78350f;color:#fde68a;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{p["earnings_label"]}</span>'
+    return badges
 
 
 def _pill(label: str, value: str, color: str) -> str:

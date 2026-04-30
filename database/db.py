@@ -19,7 +19,7 @@ def get_client() -> Client:
 
 # ── Predictions ────────────────────────────────────────────────────────────────
 
-_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class"}
+_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class", "earnings_label"}
 
 def prediction_exists_today(ticker: str, scan_date: str) -> bool:
     """Returns True if a PENDING prediction for this ticker already exists from today's scan."""
@@ -30,6 +30,38 @@ def prediction_exists_today(ticker: str, scan_date: str) -> bool:
             .is_("deleted_at", "null")
             .execute().data)
     return len(rows) > 0
+
+def get_pending_prediction_for_ticker(ticker: str) -> dict | None:
+    """Returns the existing PENDING prediction for ticker, or None."""
+    rows = (get_client().table("predictions").select("*")
+            .eq("ticker", ticker)
+            .eq("outcome", "PENDING")
+            .is_("deleted_at", "null")
+            .order("predicted_on", desc=True)
+            .limit(1)
+            .execute().data)
+    return rows[0] if rows else None
+
+def replace_prediction_if_stronger(ticker: str, new_profit_pct: float, new_pred: dict) -> str:
+    """
+    Compares new_profit_pct against any existing PENDING prediction for ticker.
+    - If no existing: returns "insert" (caller should insert).
+    - If existing profit + 2% < new_profit: soft-deletes old, returns "replaced".
+    - Otherwise: returns "skipped".
+    Threshold = 2 percentage points to avoid churn on minor differences.
+    """
+    existing = get_pending_prediction_for_ticker(ticker)
+    if not existing:
+        return "insert"
+
+    entry  = existing.get("price_at_prediction") or 0
+    target = existing.get("target_low") or 0
+    old_profit_pct = abs(target - entry) / entry * 100 if entry > 0 else 0
+
+    if new_profit_pct > old_profit_pct + 2.0:
+        soft_delete_prediction(existing["id"])
+        return "replaced"
+    return "skipped"
 
 def insert_prediction(data: dict) -> dict:
     try:

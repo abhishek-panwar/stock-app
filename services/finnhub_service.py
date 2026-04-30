@@ -155,6 +155,63 @@ def get_earnings_history(ticker: str) -> dict:
         return {"beats": 0, "consecutive_beats": 0}
 
 
+def get_earnings_calendar(ticker: str, days_ahead: int = 7) -> dict:
+    """
+    Returns upcoming earnings date for ticker if within days_ahead.
+    Result: {"has_upcoming": bool, "days_to_earnings": int|None, "earnings_date": str|None}
+    """
+    try:
+        from datetime import date
+        today = datetime.utcnow().date()
+        to_dt = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        data = get_client().earnings_calendar(
+            _from=today.strftime("%Y-%m-%d"), to=to_dt, symbol=ticker
+        )
+        events = (data or {}).get("earningsCalendar", [])
+        if not events:
+            return {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
+        # Pick the soonest event
+        soonest = None
+        soonest_days = None
+        for e in events:
+            edate_str = e.get("date", "")
+            try:
+                edate = date.fromisoformat(edate_str)
+                days = (edate - today).days
+                if 0 <= days <= days_ahead:
+                    if soonest_days is None or days < soonest_days:
+                        soonest = edate_str
+                        soonest_days = days
+            except Exception:
+                continue
+        if soonest is None:
+            return {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
+        return {"has_upcoming": True, "days_to_earnings": soonest_days, "earnings_date": soonest}
+    except Exception:
+        return {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
+
+
+def get_analyst_price_target(ticker: str) -> dict:
+    """
+    Returns analyst mean price target and upside % vs current price.
+    Result: {"mean_target": float|None, "upside_pct": float|None, "num_analysts": int}
+    """
+    try:
+        data = get_client().price_target(ticker)
+        if not data:
+            return {"mean_target": None, "upside_pct": None, "num_analysts": 0}
+        mean_target = data.get("targetMean")
+        current = data.get("lastUpdated")  # not price — get price separately
+        num = data.get("targetHigh") and data.get("targetLow")  # proxy for coverage
+        # upside_pct calculated in scanner with actual current price
+        return {
+            "mean_target": round(float(mean_target), 2) if mean_target else None,
+            "num_analysts": int(data.get("targetHigh", 0) > 0),  # rough proxy
+        }
+    except Exception:
+        return {"mean_target": None, "num_analysts": 0}
+
+
 def compute_hot_score(ticker: str) -> float:
     """0–100 hot score for dynamic universe selection."""
     try:

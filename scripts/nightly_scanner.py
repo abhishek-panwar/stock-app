@@ -13,13 +13,13 @@ load_dotenv()
 PT = pytz.timezone("America/Los_Angeles")
 
 from services.yfinance_service import get_price_history, get_ticker_info
-from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history
+from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_earnings_calendar, get_analyst_price_target
 from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window, get_asset_class
 from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, prediction_exists_today
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger
 
 SCORE_THRESHOLD   = 45   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
@@ -102,12 +102,17 @@ def run():
             scan_stats["finnhub_news_fetched"] += sentiment.get("volume", 0)
             social = get_social_sentiment(ticker)
             sentiment["mentions"] = social.get("mentions", 0)
-            analyst  = get_analyst_recommendation(ticker)
-            earnings = get_earnings_history(ticker)
-            info     = get_ticker_info(ticker)
+            analyst          = get_analyst_recommendation(ticker)
+            earnings         = get_earnings_history(ticker)
+            earnings_calendar = get_earnings_calendar(ticker, days_ahead=7)
+            analyst_target   = get_analyst_price_target(ticker)
+            info             = get_ticker_info(ticker)
 
             # Single score — no timeframe bias
-            score_data = compute_signal_score(ind, sentiment, analyst, earnings, source=source)
+            score_data = compute_signal_score(
+                ind, sentiment, analyst, earnings, source=source,
+                earnings_calendar=earnings_calendar, analyst_target=analyst_target,
+            )
             total = score_data["total"]
 
             if total < SCORE_THRESHOLD:
@@ -137,6 +142,8 @@ def run():
                 "sentiment": sentiment,
                 "analyst": analyst,
                 "earnings": earnings,
+                "earnings_calendar": earnings_calendar,
+                "analyst_upside_pct": score_data.get("analyst_upside_pct"),
             })
 
         except Exception as e:
@@ -190,6 +197,8 @@ def run():
                 ticker, ind, sentiment, analyst, score_data,
                 accuracy_context=accuracy_context,
                 ticker_history=ticker_history,
+                earnings_calendar=item.get("earnings_calendar"),
+                analyst_upside_pct=item.get("analyst_upside_pct"),
             )
             scan_stats["claude_calls_made"] += 1
 
@@ -262,6 +271,19 @@ def run():
             timeframe  = _bucket(days_to_target)
             expires_on = (start_time + timedelta(days=round(days_to_target * 1.2))).isoformat()
 
+            # Build earnings label for UI display
+            ec = item.get("earnings_calendar") or {}
+            if ec.get("has_upcoming"):
+                days_e = ec.get("days_to_earnings", 0)
+                if days_e == 0:
+                    earnings_label = "⚡ EARNINGS TODAY"
+                elif days_e == 1:
+                    earnings_label = "⚡ EARNINGS TOMORROW"
+                else:
+                    earnings_label = f"⚡ EARNINGS IN {days_e} DAYS"
+            else:
+                earnings_label = ""
+
             pred = {
                 "ticker":               ticker,
                 "asset_class":          get_asset_class(ticker),
@@ -285,12 +307,15 @@ def run():
                 "source":               item["source"],
                 "formula_version":      FORMULA_VERSION,
                 "outcome":              "PENDING",
+                "earnings_label":       earnings_label or None,
             }
 
-            scan_date = start_time.strftime("%Y-%m-%d")
-            if prediction_exists_today(ticker, scan_date):
-                print(f"  {ticker} skipped — prediction already exists for today")
+            replaced = replace_prediction_if_stronger(ticker, profit_pct, pred)
+            if replaced == "skipped":
+                print(f"  {ticker} skipped — existing prediction is stronger or equal")
                 continue
+            if replaced == "replaced":
+                print(f"  {ticker} replaced — new prediction is stronger (+{profit_pct:.1f}%)")
 
             saved = insert_prediction(pred)
             pred["id"]        = saved.get("id")

@@ -15,8 +15,33 @@ def get_client():
 MODEL = "claude-haiku-4-5"
 
 
+def _earnings_context(earnings_calendar: dict) -> str:
+    if not earnings_calendar or not earnings_calendar.get("has_upcoming"):
+        return ""
+    days = earnings_calendar.get("days_to_earnings", 0)
+    date = earnings_calendar.get("earnings_date", "")
+    if days == 0:
+        label = "TODAY"
+    elif days == 1:
+        label = "TOMORROW"
+    else:
+        label = f"IN {days} DAYS ({date})"
+    return f"- ⚡ EARNINGS CATALYST: Reports {label} — factor this into your target and timing\n"
+
+
+def _analyst_upside_context(upside_pct: float) -> str:
+    if upside_pct is None:
+        return ""
+    if upside_pct >= 20:
+        return f"- 📈 ANALYST UPSIDE: Mean price target is {upside_pct:.0f}% above current price — strong institutional conviction\n"
+    if upside_pct > 0:
+        return f"- Analyst mean target: {upside_pct:.0f}% above current price\n"
+    return f"- Analyst mean target: {upside_pct:.0f}% vs current price (below)\n"
+
+
 def analyze_stock(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
-                  score_data: dict, accuracy_context: str = "", ticker_history: str = "") -> dict:
+                  score_data: dict, accuracy_context: str = "", ticker_history: str = "",
+                  earnings_calendar: dict = None, analyst_upside_pct: float = None) -> dict:
     """
     Single Claude call per stock — no timeframe hint.
     Claude reads the data and decides its own target price, stop, and days.
@@ -59,6 +84,7 @@ EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 - Earnings beats (last 4Q): {analyst.get('beats', 0) if hasattr(analyst, 'get') else 0}
+{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}

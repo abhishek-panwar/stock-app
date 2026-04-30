@@ -2,7 +2,8 @@ FORMULA_VERSION = "v1.0"
 
 
 def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: dict,
-                         timeframe: str = "short", source: str = "nasdaq100") -> dict:
+                         timeframe: str = "short", source: str = "nasdaq100",
+                         earnings_calendar: dict = None, analyst_target: dict = None) -> dict:
     """
     Returns a score dict with breakdown and total (0–100).
     timeframe param kept for backwards compatibility but weights are uniform.
@@ -192,8 +193,37 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         bonus += 3
         bonus_reasons.append("Dual-list appearance (+3)")
 
+    # ── Phase 1: Earnings Catalyst Bonus ─────────────────────────────────────
+    if earnings_calendar and earnings_calendar.get("has_upcoming"):
+        consecutive = earnings.get("consecutive_beats", 0)
+        days_to_earn = earnings_calendar.get("days_to_earnings", 99)
+        if consecutive >= 3:
+            bonus += 10
+            label = "tomorrow" if days_to_earn <= 1 else f"in {days_to_earn}d"
+            bonus_reasons.append(f"Earnings catalyst {label} + {consecutive} consecutive beats (+10)")
+        elif consecutive >= 1:
+            bonus += 5
+            label = "tomorrow" if days_to_earn <= 1 else f"in {days_to_earn}d"
+            bonus_reasons.append(f"Earnings {label} + {consecutive} beat(s) (+5)")
+
+    # ── Phase 1: Analyst Upside Bonus ─────────────────────────────────────────
+    if analyst_target and analyst_target.get("mean_target"):
+        price = ind.get("price", 0)
+        if price and price > 0:
+            upside_pct = (analyst_target["mean_target"] - price) / price * 100
+            if upside_pct >= 20:
+                bonus += 5
+                bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% (+5)")
+
     base = sum(scores.values())
     total = min(round(base + bonus), 100)
+
+    # Compute analyst_upside_pct for Claude prompt usage
+    analyst_upside_pct = None
+    if analyst_target and analyst_target.get("mean_target"):
+        price = ind.get("price", 0)
+        if price and price > 0:
+            analyst_upside_pct = round((analyst_target["mean_target"] - price) / price * 100, 1)
 
     return {
         "total": total,
@@ -202,6 +232,8 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         "bonus_reasons": bonus_reasons,
         "breakdown": scores,
         "formula_version": FORMULA_VERSION,
+        "analyst_upside_pct": analyst_upside_pct,
+        "earnings_calendar": earnings_calendar,
     }
 
 
