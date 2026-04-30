@@ -64,11 +64,10 @@ def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
 
 def get_hot_tickers() -> list[str]:
     """
-    Fetches trending tickers from Yahoo Finance (validated symbols),
-    then ranks them by hot score (analyst rating + news volume + momentum).
-    Returns all tickers scoring >5 — final selection to Claude happens in the scanner.
+    Fetches trending tickers from Yahoo Finance + Alpha Vantage (validated symbols).
+    No Finnhub scoring here — sources already validate these as real active tickers.
+    Final selection to Claude happens in the scanner after full indicator scoring.
     """
-    from services.finnhub_service import compute_hot_score
     import requests
 
     raw_tickers: set[str] = set()
@@ -114,18 +113,9 @@ def get_hot_tickers() -> list[str]:
     # Always include crypto/commodities
     raw_tickers.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
 
-    scored = []
-    for ticker in raw_tickers:
-        try:
-            score = compute_hot_score(ticker)
-            if score > 5:
-                scored.append((ticker, score))
-        except Exception:
-            pass
-
-    scored.sort(key=lambda x: x[1], reverse=True)
-    print(f"  Hot tickers: {len(raw_tickers)} from Yahoo, {len(scored)} scored above threshold")
-    return [t for t, _ in scored]
+    tickers = sorted(raw_tickers)
+    print(f"  Hot tickers: {len(tickers)} validated symbols (Yahoo + Alpha Vantage)")
+    return tickers
 
 
 _CRYPTO_TICKERS = {
