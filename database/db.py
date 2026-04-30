@@ -21,6 +21,16 @@ def get_client() -> Client:
 
 _NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class"}
 
+def prediction_exists_today(ticker: str, scan_date: str) -> bool:
+    """Returns True if a PENDING prediction for this ticker already exists from today's scan."""
+    rows = (get_client().table("predictions").select("id")
+            .eq("ticker", ticker)
+            .eq("outcome", "PENDING")
+            .gte("predicted_on", scan_date)
+            .is_("deleted_at", "null")
+            .execute().data)
+    return len(rows) > 0
+
 def insert_prediction(data: dict) -> dict:
     try:
         return get_client().table("predictions").insert(data).execute().data[0]

@@ -19,7 +19,7 @@ from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, prediction_exists_today
 
 SCORE_THRESHOLD   = 45   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
@@ -268,6 +268,11 @@ def run():
                 "formula_version":      FORMULA_VERSION,
                 "outcome":              "PENDING",
             }
+
+            scan_date = start_time.strftime("%Y-%m-%d")
+            if prediction_exists_today(ticker, scan_date):
+                print(f"  {ticker} skipped — prediction already exists for today")
+                continue
 
             saved = insert_prediction(pred)
             pred["id"]        = saved.get("id")
