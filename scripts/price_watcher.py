@@ -36,7 +36,9 @@ def run():
         direction = pred.get("direction", "NEUTRAL")
         target_low = pred.get("target_low") or 0
         stop_loss = pred.get("stop_loss") or 0
-        return_pct = round(((current - entry) / entry) * 100, 2) if entry > 0 else 0
+        raw_pct = round(((current - entry) / entry) * 100, 2) if entry > 0 else 0
+        # For SHORT/BEARISH: profit when price falls, so flip the sign
+        return_pct = round(-raw_pct, 2) if direction == "BEARISH" else raw_pct
 
         hit_target = direction == "BULLISH" and current >= target_low
         hit_stop = direction == "BULLISH" and stop_loss > 0 and current <= stop_loss
