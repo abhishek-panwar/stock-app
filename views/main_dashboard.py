@@ -380,7 +380,7 @@ def _prediction_card(p: dict, _unused: set = None):
 
     expiry_str, days_left = _expiry(p)
     days_to_target = p.get("days_to_target")
-    tenure_str = f"{days_to_target}d" if days_to_target else "—"
+    tenure_str = f"~{days_to_target}d" if days_to_target else "?"
 
     age_days, age_badge = _age_info(predicted_on)
 
@@ -396,7 +396,7 @@ def _prediction_card(p: dict, _unused: set = None):
         f"**{ticker}** — {company}  ·  "
         f"{dir_label}  ·  "
         f"{confidence}% conf  ·  {score}/100  ·  "
-        f"{profit_str}{pos_tag}  ·  ~{tenure_str}"
+        f"{profit_str}{pos_tag}  ·  {tenure_str}"
         f"{exp_tag}{age_tag}{hc_tag}"
     )
 
@@ -434,7 +434,7 @@ def _prediction_card(p: dict, _unused: set = None):
                 {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
                 {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
                 {_pill("Profit", profit_str, prof_color)}
-                {_pill("Hold", f"~{tenure_str}", "#0369a1")}
+                {_pill("Hold", tenure_str, "#0369a1")}
                 {_pill("Position", position, "#374151")}
                 <span style="margin-left:2px">{age_badge}{_asset_badge(p)}</span>
                 </div>""",
