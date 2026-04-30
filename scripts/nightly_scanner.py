@@ -144,9 +144,26 @@ def run():
             log_error("scanner", f"Scoring error: {ticker}: {e}", detail=str(e), ticker=ticker)
             print(f"  Error on {ticker}: {e}")
 
-    # Sort by score, take top MAX_STOCKS
+    # Deduplicate alias pairs — keep highest scoring one
+    ALIASES = [
+        {"GOOGL", "GOOG"},
+        {"BRK-A", "BRK-B"},
+        {"META", "FB"},
+    ]
     scored.sort(key=lambda x: x["score"], reverse=True)
-    top_stocks = scored[:MAX_STOCKS]
+    seen_groups: list[set] = []
+    deduped = []
+    for s in scored:
+        ticker = s["ticker"]
+        in_group = next((g for g in ALIASES if ticker in g), None)
+        if in_group:
+            if in_group in seen_groups:
+                print(f"  {ticker} skipped — alias already represented")
+                continue
+            seen_groups.append(in_group)
+        deduped.append(s)
+
+    top_stocks = deduped[:MAX_STOCKS]
     scan_stats["stocks_analyzed"] = len(top_stocks)
     print(f"Top {len(top_stocks)} stocks → Claude analysis...")
 
