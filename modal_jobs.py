@@ -95,7 +95,7 @@ def health_monitor():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("0 1 * * 1-5"),  # 5:00 PM PT (1:00 AM UTC next day)
+    schedule=modal.Cron("0 1 * * 1"),  # 5:00 PM PT Mondays only (every ~3 trading days)
 )
 def failure_analyzer():
     import sys

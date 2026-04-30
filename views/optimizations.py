@@ -148,6 +148,13 @@ def _render_opt(opt: dict, expanded: bool):
                 <strong>Why predictions failed:</strong><br>{opt['failure_pattern']}</div>""",
                 unsafe_allow_html=True,
             )
+        if opt.get("success_pattern"):
+            st.markdown(
+                f"""<div style="background:#f0fdf4;border-left:3px solid #16a34a;border-radius:0 6px 6px 0;
+                padding:8px 12px;margin:8px 0;font-size:13px;color:#374151">
+                <strong>What wins had in common:</strong><br>{opt['success_pattern']}</div>""",
+                unsafe_allow_html=True,
+            )
         if opt.get("timing_accuracy_note"):
             st.markdown(
                 f"""<div style="background:#f0fdf4;border-left:3px solid #16a34a;border-radius:0 6px 6px 0;

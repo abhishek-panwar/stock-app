@@ -304,15 +304,17 @@ LOSSES ({len(loss_lines)} recent):
 WINS ({len(win_lines)} recent):
 {chr(10).join(win_lines) if win_lines else "None yet"}
 {already_known}
-Analyze:
+Analyze ALL of the above:
 1. WHY did the losses happen? Look for common patterns (wrong direction, bad timing, weak signals, etc.)
-2. For wins: was the timing accurate? Were predicted days close to actual days?
-3. What specific changes to the screening/scoring logic would improve success rate?
-4. ONLY suggest improvements that are genuinely new — skip anything already in the "ALREADY ADDRESSED" list above.
+2. WHY did the wins succeed? What signals, score ranges, timeframes, or conditions they had in common that we should reinforce.
+3. Was timing accurate on wins? Were predicted days close to actual days?
+4. What specific changes to the screening/scoring logic would improve success rate?
+5. ONLY suggest improvements that are genuinely new — skip anything already in the "ALREADY ADDRESSED" list above.
 
 Respond in this exact JSON:
 {{
   "failure_pattern": "<2-3 sentences: main reasons predictions are failing>",
+  "success_pattern": "<2-3 sentences: what the winning predictions had in common — signals, score range, conditions>",
   "timing_accuracy_note": "<1-2 sentences: how accurate is our timing on winning trades>",
   "suggestions": [
     {{

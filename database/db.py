@@ -19,6 +19,7 @@ def get_client() -> Client:
 # Each entry: (table, column, postgres_type)
 # Safe to run repeatedly — IF NOT EXISTS is a no-op.
 _COLUMN_MIGRATIONS = [
+    ("optimization_queue", "success_pattern", "text"),
     ("predictions", "expires_on",       "text"),
     ("predictions", "days_to_target",   "integer"),
     ("predictions", "timing_rationale", "text"),

@@ -68,6 +68,7 @@ def run():
                 "analysis_date":         datetime.now(PT).strftime("%Y-%m-%d"),
                 "status":                "PENDING",
                 "failure_pattern":       result.get("failure_pattern", ""),
+                "success_pattern":       result.get("success_pattern", ""),
                 "timing_accuracy_note":  result.get("timing_accuracy_note", ""),
                 "suggestion_plain":      s.get("plain_english", ""),
                 "suggestion_technical":  s.get("technical_detail", ""),
