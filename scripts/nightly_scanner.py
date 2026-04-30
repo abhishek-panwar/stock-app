@@ -68,7 +68,6 @@ def run(debug: bool = False):
         "overlap_count": overlap_count,
         "universe_total": universe_total,
     })
-    print(f"Universe: {universe_total} stocks ({nasdaq_count} Nasdaq + {hot_count} hot → {overlap_count} overlap)")
     log_error("scanner", f"Universe: {universe_total} stocks", level="INFO")
 
     # Persist hot tickers to DB for display on dashboard
@@ -259,7 +258,9 @@ def run(debug: bool = False):
 
     top_stocks = top_stocks + earnings_pickup
     scan_stats["stocks_analyzed"] = len(top_stocks)
-    print(f"Top {len(top_stocks)} stocks → Claude analysis ({MAX_STOCKS} scored + {len(earnings_pickup)} earnings pickup)...")
+    earnings_tickers = [s["ticker"] for s in earnings_pickup]
+    print(f"Universe: {universe_total} stocks scanned · {nasdaq_count} Nasdaq + {hot_count} hot → {overlap_count} overlap · +{len(earnings_pickup)} earnings picks {earnings_tickers}")
+    print(f"Total Claude batch: {len(top_stocks)} stocks")
 
     for s in shadow:
         try:
