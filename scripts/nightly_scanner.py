@@ -19,7 +19,7 @@ from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations
 
 SCORE_THRESHOLD   = 45   # minimum score to be eligible
 MAX_STOCKS        = 50   # send top 50 to Claude so R/R filter still leaves enough
@@ -37,6 +37,7 @@ def _bucket(days: int) -> str:
 def run():
     start_time = datetime.now(PT)
     print(f"[{start_time.strftime('%I:%M %p PT')}] Nightly scanner starting...")
+    run_migrations()
 
     scan_stats = {
         "timestamp": start_time.isoformat(),

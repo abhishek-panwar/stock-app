@@ -15,6 +15,67 @@ def get_client() -> Client:
     return _client
 
 
+# ── Auto-migrations ────────────────────────────────────────────────────────────
+# Each entry: (table, column, postgres_type)
+# Safe to run repeatedly — IF NOT EXISTS is a no-op.
+_COLUMN_MIGRATIONS = [
+    ("predictions", "expires_on",       "text"),
+    ("predictions", "days_to_target",   "integer"),
+    ("predictions", "timing_rationale", "text"),
+    ("predictions", "company_name",     "text"),
+    ("predictions", "asset_class",      "text"),
+    ("predictions", "earnings_label",   "text"),
+    ("predictions", "deleted_at",       "timestamptz"),
+    ("predictions", "verified_on",      "timestamptz"),
+    ("predictions", "price_at_close",   "numeric"),
+    ("predictions", "return_pct",       "numeric"),
+    ("predictions", "closed_reason",    "text"),
+]
+
+_TABLE_MIGRATIONS = [
+    """CREATE TABLE IF NOT EXISTS hot_tickers (
+        id bigint generated always as identity primary key,
+        ticker text not null,
+        scanned_at text
+    )""",
+    """CREATE TABLE IF NOT EXISTS error_logs (
+        id bigint generated always as identity primary key,
+        source text, level text, ticker text,
+        message text, detail text,
+        occurred_at timestamptz default now()
+    )""",
+]
+
+def run_migrations() -> None:
+    """
+    Apply any missing schema changes to Supabase.
+    Uses direct Postgres connection via DATABASE_URL secret.
+    Called at nightly scanner startup — safe to run on every deploy.
+    """
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        return  # secret not configured — skip silently
+    try:
+        import psycopg2
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+        for sql in _TABLE_MIGRATIONS:
+            cur.execute(sql)
+        for table, column, col_type in _COLUMN_MIGRATIONS:
+            cur.execute(
+                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_type};"
+            )
+        cur.close()
+        conn.close()
+        print("  Migrations: all schema changes applied.")
+    except Exception as e:
+        try:
+            log_error("migrations", f"Migration warning: {e}", level="WARNING")
+        except Exception:
+            pass
+
+
 
 
 # ── Predictions ────────────────────────────────────────────────────────────────

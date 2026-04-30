@@ -21,6 +21,7 @@ image = (
         "python-dotenv>=1.0.0",
         "requests>=2.31.0",
         "pytz>=2024.1",
+        "psycopg2-binary>=2.9.9",
     )
     .add_local_dir(str(project_dir), remote_path="/root/app",
         ignore=["venv", ".git", "__pycache__", "*.pyc", ".env", "*.log"]

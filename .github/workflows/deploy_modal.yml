@@ -1,0 +1,32 @@
+name: Deploy Modal Jobs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modal_jobs.py'
+      - 'scripts/**'
+      - 'services/**'
+      - 'indicators/**'
+      - 'database/**'
+      - 'requirements.txt'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - run: pip install modal
+
+      - name: Deploy to Modal
+        run: modal deploy modal_jobs.py
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
