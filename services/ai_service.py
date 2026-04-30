@@ -288,8 +288,8 @@ def analyze_prediction_outcomes(wins: list, losses: list, existing_suggestions: 
             f"reason={p.get('closed_reason','')} | signals={p.get('reasoning','')[:120]}"
         )
 
-    loss_lines = [_summarize(p) for p in losses[-30:]]
-    win_lines  = [_summarize(p) for p in wins[-20:]]
+    loss_lines = [_summarize(p) for p in losses]
+    win_lines  = [_summarize(p) for p in wins]
 
     already_known = ""
     if existing_suggestions:
