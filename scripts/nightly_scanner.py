@@ -296,7 +296,7 @@ def run():
                 strength = ib.get("signal_strength", "")
                 total_usd = ib.get("total_purchased_usd", 0)
                 total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1_000_000 else f"${total_usd/1e3:.0f}K"
-                insider_signal = f"🔴 INSIDER BUY {total_str}" if strength == "STRONG" else f"🟡 INSIDER BUY {total_str}"
+                insider_signal = f"👤 INSIDER BUY {total_str}" if strength == "STRONG" else f"👤 INSIDER BUY {total_str}"
             else:
                 insider_signal = ""
 

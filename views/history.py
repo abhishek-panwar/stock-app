@@ -413,7 +413,7 @@ def _asset_badge(p: dict) -> str:
     if p.get("earnings_label"):
         badges += f'<span style="background:#78350f;color:#fde68a;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{p["earnings_label"]}</span>'
     if p.get("insider_signal"):
-        badges += f'<span style="background:#450a0a;color:#fca5a5;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{p["insider_signal"]}</span>'
+        badges += f'<span style="background:#3b0764;color:#e9d5ff;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{p["insider_signal"]}</span>'
     return badges
 
 

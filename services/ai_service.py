@@ -48,8 +48,8 @@ def _insider_context(insider_buying: dict) -> str:
     date = insider_buying.get("latest_filing_date", "")
     total_str = f"${total/1e6:.1f}M" if total >= 1_000_000 else f"${total/1e3:.0f}K"
     if strength == "STRONG":
-        return f"- 🔴 INSIDER BUYING (STRONG): {n} insider(s) purchased {total_str} in last 14 days (latest: {date}) — executives buying their own stock\n"
-    return f"- 🟡 INSIDER BUYING (MODERATE): {total_str} purchased by {n} insider(s) in last 14 days\n"
+        return f"- 👤 INSIDER BUYING (STRONG): {n} insider(s) purchased {total_str} in last 14 days (latest: {date}) — executives buying their own stock\n"
+    return f"- 👤 INSIDER BUYING (MODERATE): {total_str} purchased by {n} insider(s) in last 14 days\n"
 
 
 def analyze_stock(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
