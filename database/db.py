@@ -113,6 +113,13 @@ def get_cache(key: str):
     except Exception:
         return None
 
+def delete_cache(key: str) -> None:
+    """Remove a cache entry so the next read triggers a fresh fetch."""
+    try:
+        get_client().table("api_cache").delete().eq("key", key).execute()
+    except Exception:
+        pass
+
 def set_cache(key: str, value, ttl_hours: float) -> None:
     """Store value (serialised to JSON) in cache with given TTL in hours."""
     try:

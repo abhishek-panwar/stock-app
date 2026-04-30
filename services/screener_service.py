@@ -92,12 +92,13 @@ def get_hot_tickers(top_n: int = 50) -> list[str]:
     for ticker in list(raw_tickers)[:150]:
         try:
             score = compute_hot_score(ticker)
-            if score > 10:  # ignore tickers with no real data
+            if score > 5:  # ignore tickers with no real data
                 scored.append((ticker, score))
         except Exception:
             pass
 
     scored.sort(key=lambda x: x[1], reverse=True)
+    print(f"  Hot tickers: {len(raw_tickers)} extracted from news, {len(scored)} scored above threshold, returning top {min(top_n, len(scored))}")
     return [t for t, _ in scored[:top_n]]
 
 

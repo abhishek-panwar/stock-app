@@ -124,7 +124,7 @@ def render():
         except Exception as e:
             st.error(f"Could not load hot tickers: {e}")
 
-    with st.expander("📅 Earnings This Week", expanded=False):
+    with st.expander("📅 Earnings Next 2 Weeks", expanded=False):
         try:
             from database.db import get_earnings_calendar_from_db
             rows = get_earnings_calendar_from_db()
@@ -134,7 +134,7 @@ def render():
                     ts = datetime.fromisoformat(scanned_at.replace("Z", "+00:00")).astimezone(PT).strftime("%b %d  %I:%M %p PT")
                 except Exception:
                     ts = scanned_at[:10]
-                st.caption(f"Stocks reporting earnings in the next 7 days · fetched {ts}")
+                st.caption(f"Stocks reporting earnings in the next 14 days · fetched {ts}")
 
                 # Group by days_to_earnings
                 from collections import defaultdict
@@ -635,7 +635,7 @@ def _trigger_scanner(debug: bool = False):
         _orig = builtins.print
         builtins.print = lambda *a, **k: (status.write(" ".join(str(x) for x in a)), _orig(*a, **k))
         try:
-            stats = scanner.run()
+            stats = scanner.run(debug=debug)
         finally:
             builtins.print = _orig
         status.update(label="✅ Done!", state="complete", expanded=False)

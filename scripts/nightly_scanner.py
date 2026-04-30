@@ -36,7 +36,7 @@ def _bucket(days: int) -> str:
     return "long"
 
 
-def run():
+def run(debug: bool = False):
     start_time = datetime.now(PT)
     print(f"[{start_time.strftime('%I:%M %p PT')}] Nightly scanner starting...")
     run_migrations()
@@ -81,8 +81,15 @@ def run():
     accuracy_context = _build_accuracy_context()
 
     # ── Load bulk data once (cached) ──────────────────────────────────────────
-    print("Loading bulk earnings calendar (1 Finnhub call, cached 24h)...")
-    earnings_universe = get_upcoming_earnings_universe(days_ahead=7)
+    if debug:
+        # Debug runs always fetch fresh earnings data and overwrite the cache
+        try:
+            from database.db import delete_cache
+            delete_cache("earnings_universe_14d")
+        except Exception:
+            pass
+    print("Loading bulk earnings calendar (1 Finnhub call, cached 7 days)...")
+    earnings_universe = get_upcoming_earnings_universe(days_ahead=14)
     universe_tickers = {item["ticker"] for item in universe}
 
     # Persist earnings calendar to DB for dashboard display

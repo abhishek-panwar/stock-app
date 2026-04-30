@@ -155,11 +155,11 @@ def get_earnings_history(ticker: str) -> dict:
         return {"beats": 0, "consecutive_beats": 0}
 
 
-def get_upcoming_earnings_universe(days_ahead: int = 7) -> dict:
+def get_upcoming_earnings_universe(days_ahead: int = 14) -> dict:
     """
     Single Finnhub call for ALL upcoming earnings in the next days_ahead days.
     Returns {ticker: {"days_to_earnings": int, "earnings_date": str}}
-    Cached in Supabase for 24 hours — call once per nightly run, not per stock.
+    Cached in Supabase for 7 days — call once per week, not per nightly run.
     """
     try:
         from database.db import get_cache, set_cache
@@ -191,7 +191,7 @@ def get_upcoming_earnings_universe(days_ahead: int = 7) -> dict:
             except Exception:
                 continue
 
-        set_cache(cache_key, result, ttl_hours=24)
+        set_cache(cache_key, result, ttl_hours=168)  # 7-day TTL — refresh weekly
         print(f"  Earnings calendar: fetched {len(result)} tickers with upcoming earnings")
         return result
     except Exception as e:
