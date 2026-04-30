@@ -52,53 +52,44 @@ def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
 
 def get_hot_tickers(top_n: int = 50) -> list[str]:
     """
-    Dynamically discovers trending tickers from Finnhub market news,
+    Fetches trending tickers from Yahoo Finance (validated symbols),
     then ranks them by hot score (analyst rating + news volume + momentum).
     """
-    from services.finnhub_service import compute_hot_score, get_client as _fc
-    import re
+    from services.finnhub_service import compute_hot_score
+    import requests
 
-    # Pull general market news from last 48h
     raw_tickers: set[str] = set()
+
+    # Yahoo Finance trending — validated symbols, no regex guessing
     try:
-        news_items = _fc().general_news("general", min_id=0)
-        ticker_pattern = re.compile(r'\b([A-Z]{2,5})\b')
-        # Common words to exclude that look like tickers
-        exclude = {
-            "A", "I", "IT", "AT", "BE", "ON", "OR", "BY", "IF", "IN", "IS",
-            "NO", "OF", "TO", "UP", "US", "AI", "AN", "AS", "DO", "GO",
-            "HE", "MY", "SO", "WE", "CEO", "CFO", "COO", "IPO", "SEC",
-            "FDA", "FED", "GDP", "ETF", "NYSE", "NYSE", "NASDAQ", "S&P",
-            "USA", "EUR", "USD", "GBP", "JPY", "API", "APP", "THE", "AND",
-            "FOR", "ARE", "BUT", "NOT", "ALL", "NEW", "CAN", "HAS", "ITS",
-            "WAS", "HAD", "ONE", "TWO", "YOU", "HIM", "HER", "OUR", "OUT",
-            "WHO", "HOW", "GET", "SET", "PUT", "MAY", "NOW", "YET", "TOO",
-            "BOT", "TAX", "LAW", "ACT", "WAR", "OIL", "GAS", "ESG",
-        }
-        for item in news_items[:100]:
-            headline = item.get("headline", "") + " " + item.get("summary", "")
-            found = ticker_pattern.findall(headline)
-            for t in found:
-                if t not in exclude and len(t) >= 2:
-                    raw_tickers.add(t)
+        r = requests.get(
+            "https://query1.finance.yahoo.com/v1/finance/trending/US",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        quotes = r.json()["finance"]["result"][0]["quotes"]
+        for q in quotes:
+            symbol = q.get("symbol", "")
+            # Skip futures/forex (contain = or /)
+            if symbol and "=" not in symbol and "/" not in symbol:
+                raw_tickers.add(symbol.upper())
     except Exception:
         pass
 
-    # Also pull crypto/commodity tickers that are always relevant
+    # Always include crypto/commodities
     raw_tickers.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
 
-    # Score each candidate by hot score and filter out duds
     scored = []
-    for ticker in list(raw_tickers)[:150]:
+    for ticker in raw_tickers:
         try:
             score = compute_hot_score(ticker)
-            if score > 5:  # ignore tickers with no real data
+            if score > 5:
                 scored.append((ticker, score))
         except Exception:
             pass
 
     scored.sort(key=lambda x: x[1], reverse=True)
-    print(f"  Hot tickers: {len(raw_tickers)} extracted from news, {len(scored)} scored above threshold, returning top {min(top_n, len(scored))}")
+    print(f"  Hot tickers: {len(raw_tickers)} from Yahoo trending, {len(scored)} scored above threshold, returning top {min(top_n, len(scored))}")
     return [t for t, _ in scored[:top_n]]
 
 
