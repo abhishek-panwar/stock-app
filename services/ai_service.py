@@ -97,7 +97,7 @@ VOLUME & STRUCTURE:
 EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
-- Earnings beats (last 4Q): {analyst.get('beats', 0) if hasattr(analyst, 'get') else 0}
+- Earnings beats (last 4Q): {analyst.get('beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100

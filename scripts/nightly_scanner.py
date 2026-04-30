@@ -296,7 +296,7 @@ def run():
                 strength = ib.get("signal_strength", "")
                 total_usd = ib.get("total_purchased_usd", 0)
                 total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1_000_000 else f"${total_usd/1e3:.0f}K"
-                insider_signal = f"👤 INSIDER BUY {total_str}" if strength == "STRONG" else f"👤 INSIDER BUY {total_str}"
+                insider_signal = f"👤 INSIDER BUY {total_str} ★" if strength == "STRONG" else f"👤 INSIDER BUY {total_str}"
             else:
                 insider_signal = ""
 
@@ -327,12 +327,13 @@ def run():
                 "insider_signal":       insider_signal or None,
             }
 
-            replaced = replace_prediction_if_stronger(ticker, profit_pct, pred)
-            if replaced == "skipped":
+            action = replace_prediction_if_stronger(ticker, profit_pct, pred)
+            if action == "skipped":
                 print(f"  {ticker} skipped — existing prediction is stronger or equal")
                 continue
-            if replaced == "replaced":
+            if action == "replaced":
                 print(f"  {ticker} replaced — new prediction is stronger (+{profit_pct:.1f}%)")
+            # action == "insert" → no existing prediction, insert normally
 
             saved = insert_prediction(pred)
             pred["id"]        = saved.get("id")

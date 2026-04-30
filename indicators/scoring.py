@@ -43,10 +43,6 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     else:
         macd_score = 0
     
-    # Penalize flat/declining MACD even if positive
-    if macd_line > macd_signal and macd_hist <= 0:
-        momentum_raw -= 15 if momentum_raw >= 15 else momentum_raw
-
     roc = ind.get("roc_5", 0) or ind.get("roc_20", 0) or 0
     roc_score = 0
     if abs(roc) >= 5:
@@ -57,6 +53,10 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         roc_score = 1
 
     momentum_raw = rsi_score + macd_score + roc_score
+
+    # Penalize flat/declining MACD even if line is above signal
+    if macd_line > macd_signal and macd_hist <= 0:
+        momentum_raw = max(0, momentum_raw - 15)
     # Cap at 25, then scale by timeframe weight (weight redistributes points, not shrinks them)
     scores["momentum"] = round(min(momentum_raw / 25 * 25 * weights["momentum"], 25), 1)
 
