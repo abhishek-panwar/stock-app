@@ -334,7 +334,18 @@ def _prediction_card(p: dict):
     rr = abs(tgt_mid - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
 
     days_to_target = p.get("days_to_target")
-    tenure_str = f"{days_to_target}d" if days_to_target else "—"
+
+    predicted_on = p.get("predicted_on", "")
+    verified_on  = p.get("verified_on", "")
+    actual_days = None
+    if predicted_on and verified_on:
+        try:
+            v_dt = datetime.fromisoformat(verified_on.replace("Z", "+00:00")).astimezone(PT).date()
+            p_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT).date()
+            actual_days = (v_dt - p_dt).days
+        except Exception:
+            pass
+    tenure_str = f"held {actual_days}d" if actual_days is not None else (f"~{days_to_target}d est." if days_to_target else "—")
 
     company      = p.get("company_name") or _get_company_name(ticker)
     outcome_icon = "🟢" if outcome == "WIN" else "🔴"
@@ -352,7 +363,7 @@ def _prediction_card(p: dict):
 
     header = (
         f"{outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
-        f"{confidence}% conf  ·  {profit_str} potential  ·  ~{tenure_str}"
+        f"{confidence}% conf  ·  {profit_str} potential  ·  {tenure_str}"
         f"{pos_tag}  ·  {ret_str}{reason_tag}"
     )
 
@@ -417,16 +428,8 @@ def _prediction_card(p: dict):
             st.markdown("**Timing**")
             st.write(f"Timeframe: {timeframe}  ·  Position: {position}")
             st.write(f"Est. days to target: {days_to_target or '—'}")
-            predicted_on = p.get("predicted_on", "")
-            verified_on  = p.get("verified_on", "")
-            if predicted_on and verified_on:
-                try:
-                    v_dt = datetime.fromisoformat(verified_on.replace("Z", "+00:00")).astimezone(PT).date()
-                    p_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT).date()
-                    actual_days = (v_dt - p_dt).days
-                    st.write(f"Actual days held: {actual_days}d")
-                except Exception:
-                    pass
+            if actual_days is not None:
+                st.write(f"Actual days held: {actual_days}d")
             if p.get("timing_rationale"):
                 st.caption(f"💡 {p['timing_rationale']}")
 
