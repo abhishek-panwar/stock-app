@@ -384,7 +384,6 @@ def render():
                         st.write(f"Stop loss: ${stop:.2f}")
                         if closed_reason:
                             st.write(f"Closed by: {closed_reason}")
-                        # Profit potential formula (using mid ranges)
                         bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
                         tl = p.get('target_low', 0);   th = p.get('target_high', 0)
                         if bl > 0 and bh > 0 and tl > 0:
@@ -392,15 +391,13 @@ def render():
                                 pot_formula = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
                             else:
                                 pot_formula = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-                            st.caption(f"Potential: {pot_formula}")
-                        # Actual return formula
-                        if close_price and entry > 0:
+                            st.write(f"Profit formula: {pot_formula}")
+                        if close_price and entry > 0 and ret is not None:
                             if direction == "BEARISH":
                                 act_formula = f"( {entry:.2f} - {close_price:.2f} ) / {entry:.2f} = {ret:+.2f}%"
                             else:
                                 act_formula = f"( {close_price:.2f} - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
-                            ret_color_hex = "#15803d" if (ret or 0) > 0 else "#b91c1c"
-                            st.caption(f"Actual: {act_formula}")
+                            st.write(f"Actual return: {act_formula}")
                     with c3:
                         st.markdown("**Timing**")
                         st.write(f"Timeframe: {timeframe}  ·  Position: {position}")

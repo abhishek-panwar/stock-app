@@ -692,14 +692,11 @@ def _prediction_card(p: dict, _unused: set = None):
             st.markdown(f"Profit potential: `{profit_str}`")
             bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
             tl = p.get('target_low', 0);   th = p.get('target_high', 0)
-            e_mid = (bl + bh) / 2 if bl > 0 and bh > 0 else entry
-            t_mid = (tl + th) / 2 if tl > 0 and th > 0 else tl
-            direction_label = "entry - target" if direction == "BEARISH" else "target - entry"
             if direction == "BEARISH":
-                formula_str = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = **{profit_pct:+.1f}%**"
+                formula_str = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
             else:
-                formula_str = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = **{profit_pct:+.1f}%**"
-            st.caption(formula_str)
+                formula_str = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+            st.markdown(f"Profit formula: `{formula_str}`")
             st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
             st.markdown(f"Score: `{score}/100`")
         with c3:
