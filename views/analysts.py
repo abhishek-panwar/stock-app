@@ -125,116 +125,157 @@ def _rebuild_scores(live: bool = False):
 
 def _analyst_card(analyst: dict):
     name = analyst.get("name", "Unknown")
-    pub = analyst.get("publication", "—")
-    binary = analyst.get("binary_score", 0)
-    weighted = analyst.get("weighted_score", 0)
     wins = analyst.get("wins", 0)
     losses = analyst.get("losses", 0)
     total = analyst.get("total_predictions", 0)
+    weighted = analyst.get("weighted_score", 0)
     win_rate = wins / total * 100 if total > 0 else 0
-    lead_time = analyst.get("avg_lead_time_days")
-
     score_emoji = "🟢" if weighted > 0 else "🔴" if weighted < 0 else "⚪"
-    lead_note = ""
-    if lead_time is not None:
-        lead_note = f" · Lead time: {lead_time:+.1f}d"
-        if lead_time < 0:
-            lead_note += " ⚠️ recapping"
+
+    # Load prediction history to compute direction breakdown for the header
+    try:
+        from database.db import get_analyst_predictions
+        ap = get_analyst_predictions(analyst["id"])
+    except Exception:
+        ap = []
+
+    closed = [p for p in ap if p.get("outcome") in ("WIN", "LOSS")]
+    bull = [p for p in closed if p.get("direction") == "BULLISH"]
+    bear = [p for p in closed if p.get("direction") == "BEARISH"]
+    bull_wr = sum(1 for p in bull if p["outcome"] == "WIN") / len(bull) * 100 if bull else None
+    bear_wr = sum(1 for p in bear if p["outcome"] == "WIN") / len(bear) * 100 if bear else None
+
+    dir_note = ""
+    if bull_wr is not None:
+        dir_note += f"  ▲ {bull_wr:.0f}%({len(bull)})"
+    if bear_wr is not None:
+        dir_note += f"  ▼ {bear_wr:.0f}%({len(bear)})"
 
     with st.expander(
-        f"{score_emoji} **{name}** — {pub}  |  Binary: {binary:+d}  |  Weighted: {weighted:+.1f}  |  {win_rate:.0f}% win ({total} predictions){lead_note}",
+        f"{score_emoji} **{name}**  |  Overall: {win_rate:.0f}% ({total} calls)"
+        f"  |  Weighted: {weighted:+.1f}{dir_note}",
         expanded=False,
     ):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"**Binary score:** {binary:+d}")
-            st.markdown(f"**Weighted score:** {weighted:+.1f}")
-            st.markdown(f"**Win rate:** {win_rate:.1f}% ({wins}W / {losses}L)")
-            if lead_time is not None:
-                sentiment = "Predictive ✅" if lead_time > 0 else "Same-day ⚪" if lead_time >= -0.5 else "Recapping ⚠️"
-                st.markdown(f"**Avg lead time:** {lead_time:+.1f} days — {sentiment}")
-
-        with c2:
-            st.markdown("**Score interpretation:**")
-            st.markdown("""
-| Binary | Weighted | Meaning |
-|---|---|---|
-| +1 per WIN | return_pct ÷ 5 | Weighted reveals magnitude |
-| -1 per LOSS | capped ±5/trade | High weighted = big correct calls |
-""")
-
-        # Load detailed prediction history
-        try:
-            from database.db import get_analyst_predictions
-            ap = get_analyst_predictions(analyst["id"])
-            if ap:
-                _show_prediction_history(ap)
-        except Exception:
-            pass
+        if ap:
+            _show_prediction_history(ap)
+        else:
+            st.caption("No prediction history yet.")
 
 
 def _show_prediction_history(ap: list):
-    wins = [p for p in ap if p.get("outcome") == "WIN"]
-    losses = [p for p in ap if p.get("outcome") == "LOSS"]
-
-    # Sector breakdown
     from collections import defaultdict
-    sector_stats = defaultdict(lambda: {"wins": 0, "total": 0, "weighted": 0})
-    for p in ap:
-        if p.get("outcome") in ("WIN", "LOSS"):
-            s = p.get("sector") or "Unknown"
-            sector_stats[s]["total"] += 1
-            sector_stats[s]["weighted"] += p.get("weighted_contribution") or 0
-            if p.get("outcome") == "WIN":
-                sector_stats[s]["wins"] += 1
 
-    if sector_stats:
-        st.markdown("**Sector breakdown:**")
-        for sector, stats in sorted(sector_stats.items(), key=lambda x: x[1]["weighted"], reverse=True):
-            rate = stats["wins"] / stats["total"] * 100 if stats["total"] > 0 else 0
-            flag = "✅" if stats["weighted"] > 0 else "⚠️"
-            st.caption(f"{flag} {sector}: {rate:.0f}% win ({stats['total']} trades), weighted: {stats['weighted']:+.1f}")
+    closed = [p for p in ap if p.get("outcome") in ("WIN", "LOSS")]
+    if not closed:
+        st.caption("No closed predictions linked yet.")
+        return
 
-    # Timeframe fit
-    tf_stats = defaultdict(lambda: {"wins": 0, "total": 0})
-    for p in ap:
-        if p.get("outcome") in ("WIN", "LOSS"):
-            tf = p.get("timeframe") or "unknown"
-            tf_stats[tf]["total"] += 1
-            if p.get("outcome") == "WIN":
-                tf_stats[tf]["wins"] += 1
+    # ── Direction breakdown ───────────────────────────────────────────────────
+    bull = [p for p in closed if p.get("direction") == "BULLISH"]
+    bear = [p for p in closed if p.get("direction") == "BEARISH"]
+
+    bull_wins = sum(1 for p in bull if p["outcome"] == "WIN")
+    bear_wins = sum(1 for p in bear if p["outcome"] == "WIN")
+    bull_wr   = bull_wins / len(bull) * 100 if bull else None
+    bear_wr   = bear_wins / len(bear) * 100 if bear else None
+    bull_net  = sum(p.get("return_pct") or 0 for p in bull)
+    bear_net  = sum(p.get("return_pct") or 0 for p in bear)
+
+    bull_color = "#15803d" if (bull_wr or 0) >= 60 else "#b45309" if (bull_wr or 0) >= 40 else "#b91c1c"
+    bear_color = "#15803d" if (bear_wr or 0) >= 60 else "#b45309" if (bear_wr or 0) >= 40 else "#b91c1c"
+
+    st.markdown("**Direction breakdown**")
+    d1, d2 = st.columns(2)
+    with d1:
+        if bull_wr is not None:
+            verdict = "✅ Trust their BULLISH calls" if bull_wr >= 60 else "⚠️ Mixed on BULLISH" if bull_wr >= 40 else "❌ Avoid their BULLISH calls"
+            st.markdown(
+                f"""<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px">
+                <div style="font-size:11px;color:#15803d;font-weight:700;text-transform:uppercase;margin-bottom:4px">▲ Bullish calls</div>
+                <div style="font-size:24px;font-weight:800;color:{bull_color}">{bull_wr:.0f}%</div>
+                <div style="font-size:12px;color:#64748b">{bull_wins}W / {len(bull)-bull_wins}L  ·  Net {bull_net:+.1f}%</div>
+                <div style="font-size:11px;margin-top:6px;color:#374151">{verdict}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("No bullish calls yet.")
+    with d2:
+        if bear_wr is not None:
+            verdict = "✅ Trust their BEARISH calls" if bear_wr >= 60 else "⚠️ Mixed on BEARISH" if bear_wr >= 40 else "❌ Avoid their BEARISH calls"
+            st.markdown(
+                f"""<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px">
+                <div style="font-size:11px;color:#b91c1c;font-weight:700;text-transform:uppercase;margin-bottom:4px">▼ Bearish calls</div>
+                <div style="font-size:24px;font-weight:800;color:{bear_color}">{bear_wr:.0f}%</div>
+                <div style="font-size:12px;color:#64748b">{bear_wins}W / {len(bear)-bear_wins}L  ·  Net {bear_net:+.1f}%</div>
+                <div style="font-size:11px;margin-top:6px;color:#374151">{verdict}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("No bearish calls yet.")
+
+    st.markdown("")
+
+    # ── Timeframe breakdown ───────────────────────────────────────────────────
+    tf_stats = defaultdict(lambda: {"wins": 0, "total": 0, "net": 0.0})
+    for p in closed:
+        tf = p.get("timeframe") or "unknown"
+        tf_stats[tf]["total"] += 1
+        tf_stats[tf]["net"] += p.get("return_pct") or 0
+        if p.get("outcome") == "WIN":
+            tf_stats[tf]["wins"] += 1
 
     if tf_stats:
-        st.markdown("**Timeframe fit:**")
-        for tf, stats in tf_stats.items():
-            rate = stats["wins"] / stats["total"] * 100 if stats["total"] > 0 else 0
-            st.caption(f"{tf.capitalize()}: {rate:.0f}% ({stats['total']} trades)")
+        st.markdown("**By timeframe**")
+        tf_cols = st.columns(len(tf_stats))
+        for i, (tf, s) in enumerate(sorted(tf_stats.items())):
+            wr = s["wins"] / s["total"] * 100 if s["total"] > 0 else 0
+            col = "#15803d" if wr >= 60 else "#b45309" if wr >= 40 else "#b91c1c"
+            with tf_cols[i]:
+                st.markdown(
+                    f'<div style="text-align:center;padding:8px;background:#f8fafc;'
+                    f'border:1px solid #e2e8f0;border-radius:8px">'
+                    f'<div style="font-size:11px;color:#64748b">{tf.capitalize()}</div>'
+                    f'<div style="font-size:20px;font-weight:700;color:{col}">{wr:.0f}%</div>'
+                    f'<div style="font-size:11px;color:#94a3b8">{s["total"]} calls · {s["net"]:+.1f}%</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
+    # ── Recent articles ───────────────────────────────────────────────────────
+    st.markdown("")
+    wins_list   = [p for p in closed if p["outcome"] == "WIN"]
+    losses_list = [p for p in closed if p["outcome"] == "LOSS"]
     col_w, col_l = st.columns(2)
     with col_w:
-        if wins:
-            st.markdown(f"**Wins ({len(wins)}):**")
-            for p in wins[:5]:
-                ret = p.get("return_pct") or 0
+        if wins_list:
+            st.markdown(f"**Recent wins ({len(wins_list)})**")
+            for p in wins_list[:5]:
+                ret   = p.get("return_pct") or 0
                 title = p.get("article_title") or "—"
-                url = p.get("article_url") or ""
-                date_str = _fmt_ts(p.get("article_published_at"))
+                url   = p.get("article_url") or ""
+                direction = p.get("direction", "")
+                dir_tag = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else ""
+                line  = f"{dir_tag} {title[:55]}"
                 if url:
-                    st.markdown(f"- [{title[:50]}]({url}) +{ret:.1f}% ({date_str})")
+                    st.markdown(f'<div style="font-size:12px;margin:3px 0"><a href="{url}" target="_blank">{line}</a> <span style="color:#15803d">+{ret:.1f}%</span></div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f"- {title[:50]} +{ret:.1f}% ({date_str})")
+                    st.markdown(f'<div style="font-size:12px;margin:3px 0;color:#374151">{line} <span style="color:#15803d">+{ret:.1f}%</span></div>', unsafe_allow_html=True)
     with col_l:
-        if losses:
-            st.markdown(f"**Losses ({len(losses)}):**")
-            for p in losses[:5]:
-                ret = p.get("return_pct") or 0
+        if losses_list:
+            st.markdown(f"**Recent losses ({len(losses_list)})**")
+            for p in losses_list[:5]:
+                ret   = p.get("return_pct") or 0
                 title = p.get("article_title") or "—"
-                url = p.get("article_url") or ""
-                date_str = _fmt_ts(p.get("article_published_at"))
+                url   = p.get("article_url") or ""
+                direction = p.get("direction", "")
+                dir_tag = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else ""
+                line  = f"{dir_tag} {title[:55]}"
                 if url:
-                    st.markdown(f"- [{title[:50]}]({url}) {ret:.1f}% ({date_str})")
+                    st.markdown(f'<div style="font-size:12px;margin:3px 0"><a href="{url}" target="_blank">{line}</a> <span style="color:#b91c1c">{ret:.1f}%</span></div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f"- {title[:50]} {ret:.1f}% ({date_str})")
+                    st.markdown(f'<div style="font-size:12px;margin:3px 0;color:#374151">{line} <span style="color:#b91c1c">{ret:.1f}%</span></div>', unsafe_allow_html=True)
 
 
 def _fmt_ts(ts) -> str:
