@@ -151,22 +151,36 @@ Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-TASK: Make a single prediction for this stock.
-- Pick a realistic price target based on resistance levels and the magnitude of active signals
-- Pick a stop loss based on support levels and ATR
-- Estimate days_to_target honestly from ATR and momentum — if signals are weak or mixed, say so with lower confidence and more days
-- If there is no clear setup, say NEUTRAL with confidence < 40
+TASK: Make a single prediction for this stock. Every field must be derived from the data above — no defaults, no guessing.
+
+DIRECTION: Only BULLISH if price structure, momentum, and volume all lean the same way. Only BEARISH if they do. NEUTRAL if they conflict or the setup is unclear.
+
+TARGET PRICE: Set at the nearest meaningful resistance (BULLISH) or support (BEARISH) level visible from MA levels, Bollinger Bands, and ATR multiples. Do not invent a round number — anchor it to the data.
+
+STOP PRICE: Set just beyond the nearest support (BULLISH) or resistance (BEARISH). Use 1.5–2× ATR from entry as a guide. A tight stop on a volatile stock will be hit by noise — widen it accordingly.
+
+DAYS TO TARGET: Divide the distance from price to target by the ATR to get a realistic day estimate. Multiply by 1.5 if momentum is weak or trend is ranging (ADX < 20).
+
+CONFIDENCE — derive it from signal agreement, not a gut feel:
+- Count how many of these 5 signal groups clearly support your direction:
+  (1) Momentum (RSI + MACD direction), (2) Trend (MA alignment + ADX), (3) Volume (surge + OBV), (4) External (sentiment + analyst), (5) Structure (Bollinger, VWAP)
+- 5/5 groups aligned → 85–95
+- 4/5 aligned → 70–84
+- 3/5 aligned → 55–69
+- 2/5 or fewer aligned → below 55, strongly consider NEUTRAL
+- If you cannot point to at least 3 groups supporting the direction, do NOT output confidence above 60.
+- Never output a round number like 62 or 58 as a default — the number must reflect the actual count of aligned signals.
 
 Respond in this exact JSON:
 {{
   "direction": "BULLISH" | "BEARISH" | "NEUTRAL",
   "position": "LONG" | "SHORT" | "HOLD",
-  "confidence": <0-100>,
-  "target_price": <float — actual price target, not %>,
-  "stop_price": <float — actual stop loss price>,
-  "days_to_target": <integer — realistic trading days to reach target>,
-  "timing_rationale": "<1 sentence: what drives the timing estimate>",
-  "reasoning": "<2-3 sentences: what signals make this a good or bad setup>",
+  "confidence": <integer derived from signal group count above>,
+  "target_price": <float — anchored to resistance/support level>,
+  "stop_price": <float — anchored to support/resistance and ATR>,
+  "days_to_target": <integer — price distance / ATR × momentum multiplier>,
+  "timing_rationale": "<1 sentence: which specific signals drive the timing and how many ATR to target>",
+  "reasoning": "<2-3 sentences: name the specific signals that agree and any that conflict>",
   "key_signals": ["signal1", "signal2", "signal3"],
   "buy_window": "<time range in PT when to enter, e.g. 7:15 AM – 8:30 AM PT>"
 }}
@@ -236,22 +250,36 @@ Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-TASK: Make a single long-term prediction (60–180 trading days).
-- Target should reflect a fundamental re-rating, not a technical bounce
-- Stop loss should be wide enough to survive normal volatility (not ATR-based — use % of price)
-- Minimum target move: 15%. If you can't justify 15%, say NEUTRAL
-- If there is no fundamental catalyst, say NEUTRAL with confidence < 40
+TASK: Make a single long-term prediction (60–180 trading days). Every field must be derived from the data above — no defaults, no guessing.
+
+DIRECTION: Only BULLISH if there is a concrete fundamental catalyst (earnings acceleration, analyst re-rating, insider accumulation, expanding margins). Only BEARISH if fundamentals are clearly deteriorating. NEUTRAL if there is no identifiable catalyst.
+
+TARGET PRICE: Must reflect a specific re-rating thesis — e.g. expansion to a higher P/E, mean reversion to analyst target, or a catalyst-driven repricing. State the basis. Minimum 15% move required — if you cannot justify 15%, output NEUTRAL.
+
+STOP PRICE: Wide enough to survive normal long-term volatility. Anchor to a meaningful structural level (e.g. MA200, prior consolidation base). Typically 10–15% below entry for BULLISH, above for BEARISH.
+
+DAYS TO TARGET: Base on the catalyst timeline — e.g. next earnings cycle = ~60d, full re-rating = 120–180d. Be specific about what event drives the timing.
+
+CONFIDENCE — derive it from the strength of fundamental evidence, not a gut feel:
+- Count how many of these 4 factors clearly support your direction:
+  (1) Earnings quality (beats + growth), (2) Analyst conviction (consensus + upside %), (3) Insider activity, (4) Fundamental metrics (margins, FCF, PEG)
+- 4/4 factors present → 80–92
+- 3/4 factors present → 65–79
+- 2/4 factors present → 50–64
+- 1/4 or fewer → below 50, strongly consider NEUTRAL
+- If you cannot name at least 2 concrete fundamental factors, do NOT output confidence above 55.
+- Never output a round default number — it must reflect the actual count and quality of evidence.
 
 Respond in this exact JSON:
 {{
   "direction": "BULLISH" | "BEARISH" | "NEUTRAL",
   "position": "LONG" | "SHORT" | "HOLD",
-  "confidence": <0-100>,
-  "target_price": <float — actual price target>,
-  "stop_price": <float — wide stop, typically 10-15% from entry>,
-  "days_to_target": <integer — 60 to 180 trading days>,
-  "timing_rationale": "<1 sentence: what fundamental catalyst drives the timing>",
-  "reasoning": "<3-4 sentences: what fundamental signals justify this long-term view>",
+  "confidence": <integer derived from fundamental factor count above>,
+  "target_price": <float — anchored to a specific re-rating basis>,
+  "stop_price": <float — structural level, 10-15% from entry>,
+  "days_to_target": <integer — 60 to 180, based on specific catalyst timeline>,
+  "timing_rationale": "<1 sentence: name the specific catalyst and when it is expected>",
+  "reasoning": "<3-4 sentences: name each fundamental factor present and what is missing>",
   "key_signals": ["signal1", "signal2", "signal3"],
   "buy_window": "Any time — long-term position, entry timing less critical"
 }}
