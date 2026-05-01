@@ -57,6 +57,17 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     # Penalize flat/declining MACD even if line is above signal
     if macd_line > macd_signal and macd_hist <= 0:
         momentum_raw = max(0, momentum_raw - 15)
+    
+    # RSI exhaustion gate: penalize overbought/oversold without fresh confirmation
+    has_macd_confirm = ind.get("macd_crossover") or ind.get("macd_crossover_recent")
+    has_golden_cross = ind.get("golden_cross")
+    rsi_value = ind.get("rsi", 50)
+    
+    if rsi_value > 70 and not (has_macd_confirm and has_golden_cross):
+        momentum_raw = min(momentum_raw, 12)
+    elif rsi_value < 30 and not (has_macd_confirm and has_golden_cross):
+        momentum_raw = min(momentum_raw, 12)
+    
     # Cap at 25, then scale by timeframe weight (weight redistributes points, not shrinks them)
     scores["momentum"] = round(min(momentum_raw / 25 * 25 * weights["momentum"], 25), 1)
 
