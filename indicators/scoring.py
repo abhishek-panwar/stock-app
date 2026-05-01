@@ -249,6 +249,22 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         if price and price > 0:
             analyst_upside_pct = round((analyst_target["mean_target"] - price) / price * 100, 1)
 
+    # ── Conviction Filter: Require score ≥55 AND 2-of-3 strong confirmations ──
+    conviction_pass = True
+    if total < 55:
+        conviction_pass = False
+    else:
+        # Count confirmations: trend ≥15, momentum ≥18, volume ≥15
+        confirmations = 0
+        if scores.get("trend", 0) >= 15:
+            confirmations += 1
+        if scores.get("momentum", 0) >= 18:
+            confirmations += 1
+        if scores.get("volume", 0) >= 15:
+            confirmations += 1
+        if confirmations < 2:
+            conviction_pass = False
+
     return {
         "total": total,
         "base": round(base),
@@ -259,6 +275,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         "analyst_upside_pct": analyst_upside_pct,
         "earnings_calendar": earnings_calendar,
         "insider_buying": insider_buying,
+        "conviction_pass": conviction_pass,
     }
 
 
