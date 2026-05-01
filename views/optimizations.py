@@ -48,12 +48,21 @@ def render():
             finally:
                 builtins.print = _orig
             if result and result.get("skipped"):
-                status.update(label="⏭ Nothing new to analyze", state="complete", expanded=False)
+                status.update(label="⏭ Nothing new to analyze", state="complete", expanded=True)
+                st.info("No new closed predictions since last analysis.")
             elif result:
-                status.update(label=f"✅ Done — {result.get('suggestions_saved', 0)} new suggestions", state="complete", expanded=False)
+                saved = result.get("suggestions_saved", 0)
+                analyzed = result.get("closed_analyzed", 0)
+                wins = result.get("wins_analyzed", analyzed)
+                losses = result.get("losses_analyzed", 0)
+                status.update(label=f"✅ Done — {saved} new suggestions from {analyzed} predictions ({wins}W / {losses}L)", state="complete", expanded=True)
+                if saved > 0:
+                    st.success(f"{saved} new suggestions saved — scroll down to review them.")
+                    st.rerun()
+                else:
+                    st.info("Analysis ran but all suggestions were duplicates of existing ones.")
             else:
-                status.update(label="⚠ Not enough closed predictions yet", state="complete", expanded=False)
-            st.rerun()
+                status.update(label="⚠ Not enough closed predictions yet (need 3+)", state="complete", expanded=True)
         except Exception as e:
             status.update(label="❌ Analysis failed", state="error", expanded=True)
             st.error(f"Analysis failed: {e}")
