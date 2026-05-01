@@ -25,7 +25,8 @@ def _get_price(ticker: str) -> float:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return float(yf.Ticker(ticker).fast_info.get("last_price") or 0)
+            fi = yf.Ticker(ticker).fast_info
+            return float(fi.get("lastPrice") or fi.get("previousClose") or 0)
     except Exception:
         return 0
 
