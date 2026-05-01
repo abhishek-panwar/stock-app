@@ -108,26 +108,35 @@ h3 { font-size: 1.05rem !important; font-weight: 600 !important; color: #1e293b 
     box-shadow: 0 3px 8px rgba(0,0,0,0.12);
 }
 
-/* ── API-call button (red) — wrap button in div.btn-api ── */
-div.btn-api > div > button {
+/* ── API-call button (red) ──
+   Usage: wrap st.button() call with:
+     st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+     st.button(...)
+   Streamlit puts each element in its own stVerticalBlock child,
+   so :has() on the parent block containing both works.            */
+[data-testid="stVerticalBlock"]:has(div.btn-api) button,
+[data-testid="stColumn"]:has(div.btn-api) button {
     background-color: #fee2e2 !important;
     color: #b91c1c !important;
     border: 1px solid #fca5a5 !important;
     font-weight: 600 !important;
 }
-div.btn-api > div > button:hover {
+[data-testid="stVerticalBlock"]:has(div.btn-api) button:hover,
+[data-testid="stColumn"]:has(div.btn-api) button:hover {
     background-color: #fecaca !important;
     border-color: #f87171 !important;
 }
 
-/* ── No-API button (grey) — wrap button in div.btn-safe ── */
-div.btn-safe > div > button {
+/* ── No-API button (grey) ── */
+[data-testid="stVerticalBlock"]:has(div.btn-safe) button,
+[data-testid="stColumn"]:has(div.btn-safe) button {
     background-color: #f1f5f9 !important;
     color: #475569 !important;
     border: 1px solid #cbd5e1 !important;
     font-weight: 500 !important;
 }
-div.btn-safe > div > button:hover {
+[data-testid="stVerticalBlock"]:has(div.btn-safe) button:hover,
+[data-testid="stColumn"]:has(div.btn-safe) button:hover {
     background-color: #e2e8f0 !important;
     border-color: #94a3b8 !important;
 }

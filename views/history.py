@@ -163,7 +163,6 @@ def render():
         "🔄 Recalculate All Metrics",
         help="Recomputes return_pct and price_at_close using target/stop levels instead of market price",
     )
-    st.markdown('</div>', unsafe_allow_html=True)
     if recalc_clicked:
         _recalculate_metrics()
 

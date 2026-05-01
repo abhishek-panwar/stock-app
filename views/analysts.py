@@ -22,12 +22,10 @@ def render():
         st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
         rebuild_clicked = st.button("🔄 Rebuild from Cache", key="rebuild_cache_btn",
                                     help="Uses only cached news — zero API calls")
-        st.markdown('</div>', unsafe_allow_html=True)
     with bc2:
         st.markdown('<div class="btn-api">', unsafe_allow_html=True)
         live_clicked = st.button("🌐 Fetch Live Scores", key="rebuild_live_btn",
                                  help=f"Makes {unique_tickers} Finnhub API calls — one per unique ticker")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     if live_clicked:
         st.warning(
