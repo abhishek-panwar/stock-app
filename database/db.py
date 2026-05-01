@@ -194,7 +194,10 @@ def insert_prediction(data: dict) -> dict:
         raise
 
 def get_open_predictions() -> list:
-    return get_client().table("predictions").select("*").eq("outcome", "PENDING").execute().data
+    return (get_client().table("predictions").select("*")
+            .eq("outcome", "PENDING")
+            .is_("deleted_at", "null")
+            .execute().data)
 
 def get_predictions(filters: dict = None, limit: int = 500) -> list:
     q = (get_client().table("predictions").select("*")
