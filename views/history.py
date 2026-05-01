@@ -27,7 +27,7 @@ def _expiry(p: dict):
 
 
 def render():
-    st.title("📜 History & Accuracy")
+    st.title("📜 Closed Predictions")
 
     try:
         from database.db import get_predictions

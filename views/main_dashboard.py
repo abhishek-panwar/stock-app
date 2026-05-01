@@ -62,7 +62,7 @@ def _expiry(p: dict):
 
 
 def render():
-    st.title("📊 Today's Best Setups")
+    st.title("📊 Open Predictions")
     now_pt = datetime.now(PT)
     st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
 
@@ -331,6 +331,142 @@ def render():
 
     if not predictions:
         _show_empty_state()
+
+    # ── Manual Prediction ─────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 🎯 Manual Prediction")
+    st.caption("Generate a prediction for any stock — no score or price filters applied.")
+
+    POPULAR = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","GLD","BTC-USD","ETH-USD",
+               "SPY","QQQ","PLTR","AMD","NFLX","CRM","ORCL","UBER","SHOP","COIN"]
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        manual_ticker = st.selectbox(
+            "Ticker", options=[""] + POPULAR, index=0,
+            key="manual_ticker_select",
+            help="Select from list or type any ticker symbol"
+        )
+        custom_ticker = st.text_input(
+            "Or enter any ticker", placeholder="e.g. GLD, BRK-B, SOL-USD",
+            key="manual_ticker_input"
+        ).strip().upper()
+        ticker = custom_ticker or manual_ticker
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_manual = st.button("🔍 Generate", type="primary", key="manual_predict_btn", disabled=not ticker)
+
+    if run_manual and ticker:
+        _run_manual_prediction(ticker)
+
+
+def _run_manual_prediction(ticker: str):
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import warnings
+
+    status = st.status(f"Analyzing {ticker}...", expanded=True)
+    try:
+        from services.yfinance_service import get_price_history, get_ticker_info
+        from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_analyst_price_target
+        from services.edgar_service import get_insider_buying
+        from indicators.technicals import compute_all
+        from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
+        from services.ai_service import analyze_stock
+        from services.screener_service import get_asset_class
+        from database.db import insert_prediction
+        from datetime import datetime, timedelta
+        import pytz
+        PT = pytz.timezone("America/Los_Angeles")
+        start_time = datetime.now(PT)
+
+        status.write(f"Fetching price history for {ticker}...")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            df = get_price_history(ticker, period="6mo")
+        if df.empty:
+            status.update(label=f"❌ No price data found for {ticker}", state="error")
+            return
+
+        ind = compute_all(df)
+        if not ind:
+            status.update(label=f"❌ Could not compute indicators for {ticker}", state="error")
+            return
+
+        status.write("Fetching sentiment, analyst data, insider buying...")
+        sentiment      = get_news_sentiment(ticker, hours=48)
+        social         = get_social_sentiment(ticker)
+        sentiment["mentions"] = social.get("mentions", 0)
+        analyst        = get_analyst_recommendation(ticker)
+        earnings       = get_earnings_history(ticker)
+        analyst_target = get_analyst_price_target(ticker)
+        insider_buying = get_insider_buying(ticker)
+        info           = get_ticker_info(ticker)
+
+        score_data = compute_signal_score(
+            ind, sentiment, analyst, earnings,
+            analyst_target=analyst_target, insider_buying=insider_buying,
+        )
+
+        status.write(f"Score: {score_data['total']}/100 — sending to Claude...")
+        ai = analyze_stock(ticker, ind, sentiment, analyst, score_data,
+                           analyst_upside_pct=score_data.get("analyst_upside_pct"),
+                           insider_buying=insider_buying)
+
+        direction  = ai.get("direction", "NEUTRAL")
+        confidence = ai.get("confidence", 50)
+        price      = ind.get("price", 0)
+        atr        = ind.get("atr", price * 0.02) or (price * 0.02)
+
+        target_price = ai.get("target_price") or round(price + atr * 1.5, 2)
+        stop_price   = ai.get("stop_price") or round(price * 0.98, 2)
+        decimals     = 6 if price < 1 else 4 if price < 10 else 2
+        target_price = round(float(target_price), decimals)
+        stop_price   = round(float(stop_price), decimals)
+        target_low   = round(target_price * 0.97, decimals)
+        target_high  = round(target_price * 1.03, decimals)
+
+        days_to_target = ai.get("days_to_target") or max(2, round(abs(target_price - price) / atr))
+        expires_on     = (start_time + timedelta(days=round(days_to_target * 1.2))).isoformat()
+        timeframe      = "short" if days_to_target <= 10 else "medium" if days_to_target <= 35 else "long"
+        buy_low, buy_high = compute_buy_range(price, atr, direction)
+        profit_pct     = abs(target_low - price) / price * 100 if price > 0 else 0
+
+        pred = {
+            "ticker":              ticker,
+            "asset_class":         get_asset_class(ticker),
+            "company_name":        info.get("name", ticker),
+            "predicted_on":        start_time.isoformat(),
+            "expires_on":          expires_on,
+            "days_to_target":      days_to_target,
+            "timing_rationale":    ai.get("timing_rationale", ""),
+            "timeframe":           timeframe,
+            "direction":           direction,
+            "position":            ai.get("position", "HOLD"),
+            "confidence":          confidence,
+            "score":               score_data["total"],
+            "price_at_prediction": price,
+            "buy_range_low":       buy_low,
+            "buy_range_high":      buy_high,
+            "target_low":          target_low,
+            "target_high":         target_high,
+            "stop_loss":           stop_price,
+            "reasoning":           ai.get("reasoning", ""),
+            "source":              "manual",
+            "formula_version":     FORMULA_VERSION,
+            "outcome":             "PENDING",
+        }
+
+        insert_prediction(pred)
+        status.update(
+            label=f"✅ {ticker} — {direction} · {confidence}% conf · {profit_pct:.1f}% potential · ~{days_to_target}d",
+            state="complete", expanded=True
+        )
+        status.write(f"**Reasoning:** {ai.get('reasoning', '')}")
+        st.rerun()
+
+    except Exception as e:
+        status.update(label=f"❌ Failed: {e}", state="error", expanded=True)
 
 
 def _chart_panel():

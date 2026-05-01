@@ -142,8 +142,8 @@ with st.sidebar:
     st.markdown("<hr style='border:none;border-top:1px solid #1e293b;margin:8px 0 10px'>", unsafe_allow_html=True)
 
     pages = [
-        ("Today's Best Setups",   "🏠"),
-        ("History & Accuracy",    "📜"),
+        ("Open Predictions",       "🏠"),
+        ("Closed Predictions",     "📜"),
         ("Optimizations",         "🧠"),
         ("Deep Dive",             "🔬"),
         ("Analysts",              "👤"),
@@ -172,9 +172,9 @@ with st.sidebar:
 page = st.session_state.page
 
 # ── Route ─────────────────────────────────────────────────────────────────────
-if page == "Today's Best Setups":
+if page == "Open Predictions":
     from views import main_dashboard;  main_dashboard.render()
-elif page == "History & Accuracy":
+elif page == "Closed Predictions":
     from views import history;         history.render()
 elif page == "Deleted Predictions":
     from views import deleted_predictions; deleted_predictions.render()
