@@ -322,29 +322,28 @@ LOSSES ({len(loss_lines)}):
 WINS ({len(win_lines)}):
 {chr(10).join(win_lines) if win_lines else "None yet"}
 {already_known}
-Answer these specific questions:
-1. Which score ranges, timeframes, or directions had the worst loss rate? (e.g. "all BEARISH SHORT predictions lost")
-2. What confidence threshold would have filtered out most losses without losing most wins?
-3. What signals were present in wins but absent in losses? What should be weighted higher?
-4. Are there specific tickers or asset types we should avoid based on this data?
-5. What is one concrete change to the scoring formula above that would have prevented the most losses?
+Analyze the full picture and produce ONE combined improvement plan that:
+1. Identifies the root causes of losses without conflicting with what made wins work
+2. Proposes a single coherent set of formula changes — no overlapping or redundant rules
+3. Each change must reference a specific score group, threshold, or weight from the formula above
+4. The changes together should make sense as a complete update, not independent patches
 
 Respond in this exact JSON:
 {{
-  "failure_pattern": "<2-3 sentences: main reasons predictions are failing>",
-  "success_pattern": "<2-3 sentences: what the winning predictions had in common>",
+  "failure_pattern": "<2-3 sentences: root causes of losses>",
+  "success_pattern": "<2-3 sentences: what winning predictions had in common>",
   "timing_accuracy_note": "<1-2 sentences: timing accuracy on winning trades>",
   "suggestions": [
     {{
-      "plain_english": "<what to change, written simply>",
-      "technical_detail": "<specific: which score group, threshold, or weight to change and to what value>",
+      "plain_english": "<what to change and why, in plain English>",
+      "technical_detail": "<exact change: e.g. 'raise SCORE_THRESHOLD from 45 to 52' or 'reduce trend weight from 1.0 to 0.7 when ADX < 20'>",
       "evidence_tickers": ["TICK1", "TICK2"],
       "projected_improvement_pct": <estimated win rate improvement, e.g. 8.0>
     }}
   ]
 }}
 
-Only output the JSON. Maximum 6 suggestions. Be specific — reference actual score values, indicator names, and tickers from the data above."""
+Only output the JSON. Produce 3-5 suggestions that form a coherent non-overlapping improvement plan."""
 
     try:
         response = get_client().messages.create(
