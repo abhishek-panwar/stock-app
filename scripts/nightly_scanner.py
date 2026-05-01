@@ -173,6 +173,8 @@ def run(debug: bool = False):
             scored.append({
                 "ticker": ticker,
                 "company_name": info.get("name", ticker),
+                "market_cap": info.get("market_cap"),
+                "avg_volume": info.get("avg_volume"),
                 "source": source,
                 "score": total,
                 "score_data": score_data,
@@ -403,6 +405,8 @@ def run(debug: bool = False):
                 "outcome":              "PENDING",
                 "earnings_label":       earnings_label or None,
                 "insider_signal":       insider_signal or None,
+                "market_cap":           item.get("market_cap") or None,
+                "avg_volume":           item.get("avg_volume") or None,
             }
 
             action = replace_prediction_if_stronger(ticker, profit_pct, pred)

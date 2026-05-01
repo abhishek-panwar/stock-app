@@ -378,6 +378,14 @@ def render():
                         st.write(f"Price at signal: ${entry:.2f}")
                         st.write(f"Buy range: ${bl:.2f} – ${bh:.2f}")
                         st.write(f"Confidence: {confidence}%  ·  Score: {score}/100")
+                        mcap = p.get("market_cap")
+                        avgvol = p.get("avg_volume")
+                        if mcap:
+                            mcap_str = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
+                            st.write(f"Market cap: {mcap_str}")
+                        if avgvol:
+                            vol_str = f"{avgvol/1e6:.1f}M" if avgvol >= 1e6 else f"{avgvol/1e3:.0f}K"
+                            st.write(f"Avg volume: {vol_str}")
                     with c2:
                         st.markdown("**Exit**")
                         close_price = p.get("price_at_close")

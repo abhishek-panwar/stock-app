@@ -27,6 +27,8 @@ _COLUMN_MIGRATIONS = [
     ("predictions", "asset_class",      "text"),
     ("predictions", "earnings_label",   "text"),
     ("predictions", "insider_signal",   "text"),
+    ("predictions", "market_cap",       "bigint"),
+    ("predictions", "avg_volume",       "bigint"),
     ("predictions", "deleted_at",       "timestamptz"),
     ("predictions", "verified_on",      "timestamptz"),
     ("predictions", "price_at_close",   "numeric"),

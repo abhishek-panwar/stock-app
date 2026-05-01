@@ -63,6 +63,7 @@ def get_ticker_info(ticker: str) -> dict:
             "sector": info.get("sector", "Unknown"),
             "industry": info.get("industry", "Unknown"),
             "market_cap": info.get("marketCap"),
+            "avg_volume": info.get("averageVolume") or info.get("averageDailyVolume10Day"),
             "52w_high": info.get("fiftyTwoWeekHigh"),
             "52w_low": info.get("fiftyTwoWeekLow"),
         }

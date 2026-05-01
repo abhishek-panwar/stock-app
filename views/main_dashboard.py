@@ -530,6 +530,8 @@ def _run_manual_prediction(ticker: str):
             "source":              "manual",
             "formula_version":     FORMULA_VERSION,
             "outcome":             "PENDING",
+            "market_cap":          info.get("market_cap") or None,
+            "avg_volume":          info.get("avg_volume") or None,
         }
 
         insert_prediction(pred)
@@ -688,6 +690,14 @@ def _prediction_card(p: dict, _unused: set = None):
             st.markdown(f"Price at signal: `${entry:.2f}`")
             st.markdown(f"Buy range: `${bl:.2f} – ${bh:.2f}`")
             st.markdown(f"Stop loss: `${stop:.2f}`")
+            mcap = p.get("market_cap")
+            avgvol = p.get("avg_volume")
+            if mcap:
+                mcap_str = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
+                st.markdown(f"Market cap: `{mcap_str}`")
+            if avgvol:
+                vol_str = f"{avgvol/1e6:.1f}M" if avgvol >= 1e6 else f"{avgvol/1e3:.0f}K"
+                st.markdown(f"Avg volume: `{vol_str}`")
         with c2:
             st.markdown("**Target**")
             st.markdown(f"Range: `${tl:.2f} – ${th:.2f}`")
