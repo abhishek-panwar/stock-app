@@ -29,32 +29,34 @@ def render():
     # ── Run analysis button ───────────────────────────────────────────────────
     run_col, _ = st.columns([2, 8])
     with run_col:
-        if st.button("▶ Run Analysis Now", type="primary", key="run_analysis_btn",
+        run_clicked = st.button("▶ Run Analysis Now", type="primary", key="run_analysis_btn",
                      disabled=not _has_new_data,
-                     help=None if _has_new_data else "No new closed predictions since last analysis"):
-            status = st.status("Running failure analysis...", expanded=True)
+                     help=None if _has_new_data else "No new closed predictions since last analysis")
+
+    if run_clicked:
+        status = st.status("Running failure analysis...", expanded=True)
+        try:
+            import sys, os, builtins
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            import scripts.failure_analyzer as fa
+            import importlib
+            importlib.reload(fa)
+            _orig = builtins.print
+            builtins.print = lambda *a, **k: (status.write(" ".join(str(x) for x in a)), _orig(*a, **k))
             try:
-                import sys, os, builtins
-                sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                import scripts.failure_analyzer as fa
-                import importlib
-                importlib.reload(fa)
-                _orig = builtins.print
-                builtins.print = lambda *a, **k: (status.write(" ".join(str(x) for x in a)), _orig(*a, **k))
-                try:
-                    result = fa.run()
-                finally:
-                    builtins.print = _orig
-                if result and result.get("skipped"):
-                    status.update(label="⏭ Nothing new to analyze", state="complete", expanded=False)
-                elif result:
-                    status.update(label=f"✅ Done — {result.get('suggestions_saved', 0)} new suggestions", state="complete", expanded=False)
-                else:
-                    status.update(label="⚠ Not enough closed predictions yet", state="complete", expanded=False)
-                st.rerun()
-            except Exception as e:
-                status.update(label="❌ Analysis failed", state="error", expanded=True)
-                st.error(f"Analysis failed: {e}")
+                result = fa.run()
+            finally:
+                builtins.print = _orig
+            if result and result.get("skipped"):
+                status.update(label="⏭ Nothing new to analyze", state="complete", expanded=False)
+            elif result:
+                status.update(label=f"✅ Done — {result.get('suggestions_saved', 0)} new suggestions", state="complete", expanded=False)
+            else:
+                status.update(label="⚠ Not enough closed predictions yet", state="complete", expanded=False)
+            st.rerun()
+        except Exception as e:
+            status.update(label="❌ Analysis failed", state="error", expanded=True)
+            st.error(f"Analysis failed: {e}")
 
     # ── Load all optimizations ────────────────────────────────────────────────
     try:
