@@ -16,17 +16,18 @@ def load_nasdaq100() -> list[str]:
     return load_watchlist()["nasdaq100"]
 
 
-def _is_tradable(ticker: str) -> bool:
-    """Returns False if yfinance can't find any price data (delisted/invalid)."""
+MIN_STOCK_PRICE = 10.0  # filter penny stocks and low-quality micro-caps
+
+def _get_price(ticker: str) -> float:
+    """Returns last price from yfinance fast_info, or 0 if unavailable."""
     try:
         import yfinance as yf
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            hist = yf.Ticker(ticker).fast_info
-            return (hist.get("last_price") or 0) > 0
+            return float(yf.Ticker(ticker).fast_info.get("last_price") or 0)
     except Exception:
-        return False
+        return 0
 
 
 def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
@@ -51,13 +52,19 @@ def build_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
 
     universe = []
     seen = set()
-    for t in hot:
-        universe.append({"ticker": t, "source": "both" if t in overlap else "hot_stock"})
-        seen.add(t)
-    for t in nasdaq_with_earnings:
+    filtered = 0
+    for t in list(hot) + [t for t in nasdaq_with_earnings if t not in hot]:
+        source = "both" if t in overlap else ("nasdaq_earnings" if t in nasdaq_with_earnings else "hot_stock")
+        price = _get_price(t)
+        if price < MIN_STOCK_PRICE:
+            filtered += 1
+            continue
         if t not in seen:
-            universe.append({"ticker": t, "source": "nasdaq_earnings"})
+            universe.append({"ticker": t, "source": source})
             seen.add(t)
+
+    if filtered:
+        print(f"  Filtered {filtered} tickers below ${MIN_STOCK_PRICE:.0f}")
 
     return universe, len(nasdaq_with_earnings), len(hot), len(overlap)
 

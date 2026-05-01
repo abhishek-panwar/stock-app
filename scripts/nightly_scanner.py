@@ -25,7 +25,6 @@ from database.db import insert_prediction, insert_scan_log, insert_shadow_price,
 SCORE_THRESHOLD        = 45    # minimum score to be eligible
 MAX_STOCKS             = 50    # top N scored stocks sent to Claude
 MIN_PROFIT_PCT         = 4.0   # minimum absolute profit % to save a prediction
-MIN_PRICE              = 10.0  # filter out penny stocks and low-quality micro-caps
 EARNINGS_WINDOW_DAYS   = 14    # how far ahead to fetch the earnings calendar
 EARNINGS_CACHE_TTL_H   = 168   # cache TTL for earnings universe (7 days)
 CLAUDE_LOG_CACHE_TTL_H = 168   # cache TTL for raw Claude scan log (7 days)
@@ -121,9 +120,6 @@ def run(debug: bool = False):
 
             ind = compute_all(df)
             if not ind:
-                continue
-
-            if (ind.get("price") or 0) < MIN_PRICE:
                 continue
 
             sentiment = get_news_sentiment(ticker, hours=48)
