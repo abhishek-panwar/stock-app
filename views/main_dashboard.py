@@ -680,23 +680,18 @@ def _prediction_card(p: dict, _unused: set = None):
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
 
+        bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
+        tl = p.get('target_low', 0);   th = p.get('target_high', 0)
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("**Entry**")
             st.markdown(f"Price at signal: `${entry:.2f}`")
-            st.markdown(f"Buy range: `${p.get('buy_range_low',0):.2f} – ${p.get('buy_range_high',0):.2f}`")
+            st.markdown(f"Buy range: `${bl:.2f} – ${bh:.2f}`")
             st.markdown(f"Stop loss: `${stop:.2f}`")
         with c2:
             st.markdown("**Target**")
-            st.markdown(f"Range: `${p.get('target_low',0):.2f} – ${p.get('target_high',0):.2f}`")
+            st.markdown(f"Range: `${tl:.2f} – ${th:.2f}`")
             st.markdown(f"Profit potential: `{profit_str}`")
-            bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
-            tl = p.get('target_low', 0);   th = p.get('target_high', 0)
-            if direction == "BEARISH":
-                formula_str = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-            else:
-                formula_str = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-            st.markdown(f"Profit formula: `{formula_str}`")
             st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
             st.markdown(f"Score: `{score}/100`")
         with c3:
@@ -713,6 +708,13 @@ def _prediction_card(p: dict, _unused: set = None):
                 st.markdown("Expires: `run scanner to populate`")
             if p.get("timing_rationale"):
                 st.caption(f"💡 {p['timing_rationale']}")
+
+        if bl > 0 and bh > 0 and tl > 0:
+            if direction == "BEARISH":
+                formula_str = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+            else:
+                formula_str = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+            st.markdown(f"**Profit formula:** `{formula_str}`")
 
         if p.get("reasoning"):
             st.markdown(

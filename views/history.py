@@ -370,34 +370,22 @@ def render():
                         unsafe_allow_html=True,
                     )
 
+                    bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
+                    tl = p.get('target_low', 0);   th = p.get('target_high', 0)
                     c1, c2, c3 = st.columns(3)
                     with c1:
                         st.markdown("**Entry**")
                         st.write(f"Price at signal: ${entry:.2f}")
-                        st.write(f"Buy range: ${p.get('buy_range_low', 0):.2f} – ${p.get('buy_range_high', 0):.2f}")
+                        st.write(f"Buy range: ${bl:.2f} – ${bh:.2f}")
                         st.write(f"Confidence: {confidence}%  ·  Score: {score}/100")
                     with c2:
                         st.markdown("**Exit**")
                         close_price = p.get("price_at_close")
                         st.write(f"Close price: ${close_price:.2f}" if close_price else "Not closed yet")
-                        st.write(f"Target: ${p.get('target_low', 0):.2f} – ${p.get('target_high', 0):.2f}")
+                        st.write(f"Target: ${tl:.2f} – ${th:.2f}")
                         st.write(f"Stop loss: ${stop:.2f}")
                         if closed_reason:
                             st.write(f"Closed by: {closed_reason}")
-                        bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
-                        tl = p.get('target_low', 0);   th = p.get('target_high', 0)
-                        if bl > 0 and bh > 0 and tl > 0:
-                            if direction == "BEARISH":
-                                pot_formula = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-                            else:
-                                pot_formula = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-                            st.write(f"Profit formula: {pot_formula}")
-                        if close_price and entry > 0 and ret is not None:
-                            if direction == "BEARISH":
-                                act_formula = f"( {entry:.2f} - {close_price:.2f} ) / {entry:.2f} = {ret:+.2f}%"
-                            else:
-                                act_formula = f"( {close_price:.2f} - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
-                            st.write(f"Actual return: {act_formula}")
                     with c3:
                         st.markdown("**Timing**")
                         st.write(f"Timeframe: {timeframe}  ·  Position: {position}")
@@ -414,6 +402,19 @@ def render():
                                 pass
                         if p.get("timing_rationale"):
                             st.caption(f"💡 {p['timing_rationale']}")
+
+                    if bl > 0 and bh > 0 and tl > 0:
+                        if direction == "BEARISH":
+                            pot_formula = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+                        else:
+                            pot_formula = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+                        st.markdown(f"**Profit formula:** `{pot_formula}`")
+                    if close_price and entry > 0 and ret is not None:
+                        if direction == "BEARISH":
+                            act_formula = f"( {entry:.2f} - {close_price:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+                        else:
+                            act_formula = f"( {close_price:.2f} - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+                        st.markdown(f"**Actual return:** `{act_formula}`")
 
                     if p.get("reasoning"):
                         st.markdown(
