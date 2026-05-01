@@ -403,9 +403,13 @@ def _run_manual_prediction(ticker: str):
         insider_buying = get_insider_buying(ticker)
         info           = get_ticker_info(ticker)
 
-        from services.finnhub_service import get_earnings_calendar
-        ec             = get_earnings_calendar(ticker, days_ahead=14)
-        earnings_calendar = ec if ec.get("has_upcoming") else {"has_upcoming": False}
+        from database.db import get_earnings_calendar_from_db
+        ec_rows = {row["ticker"]: row for row in get_earnings_calendar_from_db()}
+        ec_data = ec_rows.get(ticker.upper())
+        earnings_calendar = (
+            {"has_upcoming": True, "days_to_earnings": ec_data["days_to_earnings"], "earnings_date": ec_data["earnings_date"]}
+            if ec_data else {"has_upcoming": False}
+        )
 
         score_data = compute_signal_score(
             ind, sentiment, analyst, earnings,
