@@ -37,15 +37,34 @@ def _age_info(predicted_on: str):
     return age, f'<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:500">{age}d old</span>'
 
 
+def _calc_entry(p: dict) -> float:
+    """Mid of buy range, falls back to price_at_prediction."""
+    bl = p.get("buy_range_low") or 0
+    bh = p.get("buy_range_high") or 0
+    return (bl + bh) / 2 if bl > 0 and bh > 0 else (p.get("price_at_prediction") or 0)
+
+
+def _calc_profit_pct(p: dict) -> float:
+    """Profit potential using mid buy range and mid target range."""
+    entry    = _calc_entry(p)
+    tgt_low  = p.get("target_low") or 0
+    tgt_high = p.get("target_high") or 0
+    tgt_mid  = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
+    if entry <= 0 or tgt_mid <= 0:
+        return 0.0
+    direction = p.get("direction", "NEUTRAL")
+    if direction == "BEARISH":
+        return (entry - tgt_mid) / entry * 100
+    return (tgt_mid - entry) / entry * 100
+
+
 def _sort_key(p: dict):
     try:
         pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT)
         age = (datetime.now(PT).date() - pred_dt.date()).days
     except Exception:
         age = 999
-    entry  = p.get("price_at_prediction") or 0
-    target = p.get("target_low") or 0
-    profit = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+    profit = _calc_profit_pct(p)
     return (age, -abs(profit), -p.get("score", 0))
 
 
@@ -61,13 +80,51 @@ def _expiry(p: dict):
         return "—", None
 
 
+def _recalculate_open_math():
+    status = st.status("Recalculating Math on predictions…", expanded=True)
+    try:
+        from database.db import get_predictions, update_prediction
+        all_preds = get_predictions({"outcome": "PENDING"}, limit=200)
+        status.write(f"Found {len(all_preds)} open predictions to recalculate…")
+        updated = skipped = 0
+        for p in all_preds:
+            entry = _calc_entry(p)
+            if entry <= 0:
+                skipped += 1
+                continue
+            tgt_low  = p.get("target_low") or 0
+            tgt_high = p.get("target_high") or 0
+            tgt_mid  = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
+            stop     = p.get("stop_loss") or 0
+            direction = p.get("direction", "NEUTRAL")
+            if tgt_mid <= 0:
+                skipped += 1
+                continue
+            profit_pct = (tgt_mid - entry) / entry * 100 if direction != "BEARISH" \
+                else (entry - tgt_mid) / entry * 100
+            try:
+                update_prediction(p["id"], {"price_at_prediction": round(entry, 6)})
+                updated += 1
+                status.write(f"  {p['ticker']} ({direction}): entry=${entry:.2f}  potential={profit_pct:+.1f}%")
+            except Exception as e:
+                status.write(f"  {p['ticker']}: error — {e}")
+                skipped += 1
+        status.update(
+            label=f"Done — {updated} updated, {skipped} skipped",
+            state="complete", expanded=False,
+        )
+        st.rerun()
+    except Exception as e:
+        status.update(label=f"Error: {e}", state="error", expanded=True)
+
+
 def render():
     st.title("📊 Open Predictions")
     now_pt = datetime.now(PT)
     st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
 
     # ── Scanner buttons ───────────────────────────────────────────────────────
-    btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([2, 2, 2, 2])
+    btn_c1, btn_c2, btn_c3, btn_c4, btn_c5 = st.columns([2, 2, 2, 2, 2])
     with btn_c1:
         run_clicked = st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top")
     with btn_c2:
@@ -75,6 +132,8 @@ def render():
     with btn_c3:
         log_clicked = st.button("📋 Last Scan Raw Log", type="secondary", key="view_raw_log_top")
     with btn_c4:
+        recalc_clicked = st.button("🔄 Re-calculate Math on predictions", type="secondary", key="recalc_math_top")
+    with btn_c5:
         clear_clicked = st.button("🗑 Clear All Open Predictions", type="secondary", key="clear_predictions_top")
 
     # Handle button actions outside column context so st.status() renders correctly
@@ -84,6 +143,8 @@ def render():
         _trigger_scanner(debug=True)
     elif log_clicked:
         _show_raw_log()
+    elif recalc_clicked:
+        _recalculate_open_math()
     elif clear_clicked:
         if st.session_state.get("confirm_clear"):
             _clear_open_predictions()
@@ -199,12 +260,10 @@ def render():
         for chunk in chunks:
             cols = st.columns(len(chunk))
             for col, p in zip(cols, chunk):
-                ticker    = p.get("ticker", "—")
-                direction = p.get("direction", "NEUTRAL")
-                entry     = p.get("price_at_prediction") or 0
-                target    = p.get("target_low") or 0
-                profit_pct = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
-                days      = p.get("days_to_target", "?")
+                ticker     = p.get("ticker", "—")
+                direction  = p.get("direction", "NEUTRAL")
+                profit_pct = _calc_profit_pct(p)
+                days       = p.get("days_to_target", "?")
                 company   = p.get("company_name") or _get_company_name(ticker)
                 _, age_badge = _age_info(p.get("predicted_on", ""))
                 tf_label  = {"short": "⚡ Short", "medium": "📈 Mid", "long": "🌱 Long"}.get(p.get("timeframe", ""), "")
@@ -257,9 +316,7 @@ def render():
 
     # ── Timeframe + date-grouped prediction sections ──────────────────────────
     def _abs_profit(p):
-        entry  = p.get("price_at_prediction") or 0
-        target = p.get("target_low") or 0
-        return -abs((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+        return -abs(_calc_profit_pct(p))
 
     today_pt = datetime.now(PT).date()
 
@@ -538,11 +595,13 @@ def _prediction_card(p: dict, _unused: set = None):
 
     company = p.get("company_name") or _get_company_name(ticker)
 
-    entry  = p.get("price_at_prediction") or 0
-    target = p.get("target_low") or 0
-    stop   = p.get("stop_loss") or 0
-    profit_pct = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
-    rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
+    entry      = _calc_entry(p)
+    tgt_low    = p.get("target_low") or 0
+    tgt_high   = p.get("target_high") or 0
+    tgt_mid    = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
+    stop       = p.get("stop_loss") or 0
+    profit_pct = _calc_profit_pct(p)
+    rr = abs(tgt_mid - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
     profit_str = f"+{profit_pct:.1f}%" if profit_pct > 0 else f"{profit_pct:.1f}%"
 
     expiry_str, days_left = _expiry(p)

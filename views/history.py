@@ -5,6 +5,25 @@ import pytz
 PT = pytz.timezone("America/Los_Angeles")
 
 
+def _calc_entry(p: dict) -> float:
+    bl = p.get("buy_range_low") or 0
+    bh = p.get("buy_range_high") or 0
+    return (bl + bh) / 2 if bl > 0 and bh > 0 else (p.get("price_at_prediction") or 0)
+
+
+def _calc_profit_pct(p: dict) -> float:
+    entry    = _calc_entry(p)
+    tgt_low  = p.get("target_low") or 0
+    tgt_high = p.get("target_high") or 0
+    tgt_mid  = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
+    if entry <= 0 or tgt_mid <= 0:
+        return 0.0
+    direction = p.get("direction", "NEUTRAL")
+    if direction == "BEARISH":
+        return (entry - tgt_mid) / entry * 100
+    return (tgt_mid - entry) / entry * 100
+
+
 @st.cache_data(ttl=3600)
 def _get_company_name(ticker: str) -> str:
     try:
@@ -215,9 +234,7 @@ def render():
             age = (datetime.now(PT).date() - pred_dt.date()).days
         except Exception:
             age = 999
-        entry  = p.get("price_at_prediction") or 0
-        target = p.get("target_low") or 0
-        profit = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+        profit = _calc_profit_pct(p)
         return (age, -abs(profit), -p.get("score", 0))
     filtered = sorted(filtered, key=_sort_key)
 
@@ -287,12 +304,14 @@ def render():
                 ret        = p.get("return_pct")
                 ret_str    = f"{ret:+.2f}%" if ret is not None else "—"
 
-                entry      = p.get("price_at_prediction") or 0
-                target     = p.get("target_low") or 0
+                entry      = _calc_entry(p)
+                tgt_low    = p.get("target_low") or 0
+                tgt_high   = p.get("target_high") or 0
+                tgt_mid    = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
                 stop       = p.get("stop_loss") or 0
-                profit_pct = ((target - entry) / entry * 100) if entry > 0 and target > 0 else 0
+                profit_pct = _calc_profit_pct(p)
                 profit_str = f"+{profit_pct:.1f}%" if profit_pct > 0 else f"{profit_pct:.1f}%"
-                rr = abs(target - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
+                rr = abs(tgt_mid - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
 
                 expiry_str, days_left = _expiry(p)
                 days_to_target = p.get("days_to_target")
