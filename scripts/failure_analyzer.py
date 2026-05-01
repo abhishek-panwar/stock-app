@@ -41,11 +41,12 @@ def run():
             print(f"  No new closed predictions since last analysis ({last_analyzed} then, {len(closed)} now). Skipping.")
             return {"suggestions_saved": 0, "closed_analyzed": len(closed), "skipped": True}
 
+    # Only pass PENDING suggestions to Claude — approved ones are already acted on
     existing_suggestions = [
         o.get("suggestion_plain", "") for o in existing
-        if o.get("status") in ("PENDING", "APPROVED")
+        if o.get("status") == "PENDING"
     ]
-    print(f"  {len(existing_suggestions)} existing suggestions passed to Claude to avoid duplicates")
+    print(f"  {len(existing_suggestions)} pending suggestions passed to Claude to avoid duplicates")
 
     result = analyze_prediction_outcomes(wins, losses, existing_suggestions=existing_suggestions)
     if not result:
@@ -58,8 +59,8 @@ def run():
     saved = 0
     for s in suggestions:
         plain = s.get("plain_english", "").strip().lower()
-        # Skip if very similar to an existing suggestion (simple substring check)
-        if any(plain[:60] in ex.lower() or ex.lower()[:60] in plain for ex in existing_suggestions if ex):
+        # Skip only near-exact duplicates (first 80 chars match)
+        if any(plain[:80] in ex.lower() and len(plain) > 20 for ex in existing_suggestions if ex):
             print(f"  Skipping duplicate: {plain[:80]}")
             continue
         try:

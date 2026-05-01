@@ -326,7 +326,7 @@ Respond in this exact JSON:
   ]
 }}
 
-Only output the JSON. Maximum 4 suggestions."""
+Only output the JSON. Maximum 6 suggestions."""
 
     try:
         response = get_client().messages.create(
