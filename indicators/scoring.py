@@ -105,12 +105,17 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     bb_position = ind.get("bb_position", 0.5)  # 0=lower band, 0.5=middle, 1=upper band
     bb_squeeze_valid = ind.get("bb_squeeze") and bb_position < 0.6
     
-    if bb_squeeze_valid:
-        bb_score = 9
+    # BB squeeze requires breakout confirmation (price outside BB) to score full points
+    bb_breakout_confirmed = ind.get("bb_breakout_up") or ind.get("bb_breakout_down")
+    
+    if bb_squeeze_valid and bb_breakout_confirmed:
+        bb_score = 9  # Full squeeze + breakout confirmation
     elif ind.get("bb_breakout_up"):
         bb_score = 7
     elif ind.get("bb_breakout_down"):
         bb_score = 2
+    elif bb_squeeze_valid:
+        bb_score = 2  # Squeeze alone without breakout = bonus tier only
     else:
         bb_score = 3
 
