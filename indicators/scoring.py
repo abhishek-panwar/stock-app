@@ -91,13 +91,19 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     adx_score = 0
     if adx > 30:
         adx_score = 8
-    elif adx > 20:
+    elif adx >= 25:
         adx_score = 4
     else:
         adx_score = 1
 
-    adx_multiplier = 1.0 if adx > 20 else 0.7
+    adx_multiplier = 1.0 if adx > 25 else 0.7
     trend_raw = (ma_score + adx_score) * adx_multiplier
+    
+    # Medium-term trades (>10d) with ADX <25 auto-cap at 50/100
+    predicted_timeframe = 10
+    if predicted_timeframe > 10 and adx < 25:
+        trend_raw = min(trend_raw, 8)
+    
     scores["trend"] = round(min(trend_raw / 20 * 20 * weights["trend"], 20), 1)
 
     # ── Group 3: Volatility (15 pts max) ──────────────────────────────────────
