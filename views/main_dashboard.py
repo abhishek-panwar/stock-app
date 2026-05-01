@@ -393,7 +393,7 @@ def _run_manual_prediction(ticker: str):
             status.update(label=f"❌ Could not compute indicators for {ticker}", state="error")
             return
 
-        status.write("Fetching sentiment, analyst data, insider buying...")
+        status.write("Fetching sentiment, analyst data, insider buying, earnings...")
         sentiment      = get_news_sentiment(ticker, hours=48)
         social         = get_social_sentiment(ticker)
         sentiment["mentions"] = social.get("mentions", 0)
@@ -403,13 +403,19 @@ def _run_manual_prediction(ticker: str):
         insider_buying = get_insider_buying(ticker)
         info           = get_ticker_info(ticker)
 
+        from services.finnhub_service import get_earnings_calendar
+        ec             = get_earnings_calendar(ticker, days_ahead=14)
+        earnings_calendar = ec if ec.get("has_upcoming") else {"has_upcoming": False}
+
         score_data = compute_signal_score(
             ind, sentiment, analyst, earnings,
             analyst_target=analyst_target, insider_buying=insider_buying,
+            earnings_calendar=earnings_calendar,
         )
 
         status.write(f"Score: {score_data['total']}/100 — sending to Claude...")
         ai = analyze_stock(ticker, ind, sentiment, analyst, score_data,
+                           earnings_calendar=earnings_calendar,
                            analyst_upside_pct=score_data.get("analyst_upside_pct"),
                            insider_buying=insider_buying)
 
