@@ -263,9 +263,17 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         if price and price > 0:
             analyst_upside_pct = round((analyst_target["mean_target"] - price) / price * 100, 1)
 
-    # ── Conviction Filter: Require score ≥55 AND 2-of-3 strong confirmations ──
+    # ── Conviction Filter: Reject low-ATR long timeframe predictions ──────────
+    atr = ind.get("atr", 0)
+    price = ind.get("price", 1)
+    atr_pct = (atr / price * 100) if price > 0 else 0
+    predicted_timeframe = 10  # Default assumption from scoring context
+    
+    # Reject if predicted_timeframe > 10d AND ATR < 2% of price (low volatility, timing risk)
     conviction_pass = True
-    if total < 55:
+    if predicted_timeframe > 10 and atr_pct < 2:
+        conviction_pass = False
+    elif total < 55:
         conviction_pass = False
     else:
         # Count confirmations: trend ≥15, momentum ≥18, volume ≥15
