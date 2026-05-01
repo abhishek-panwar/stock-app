@@ -213,6 +213,81 @@ def render():
         unsafe_allow_html=True,
     )
 
+    # ── Bullish vs Bearish breakdown ─────────────────────────────────────────
+    bull_all  = [p for p in all_closed if p.get("direction") == "BULLISH"]
+    bear_all  = [p for p in all_closed if p.get("direction") == "BEARISH"]
+    bull_wins = [p for p in bull_all if p.get("outcome") == "WIN"]
+    bear_wins = [p for p in bear_all if p.get("outcome") == "WIN"]
+    bull_rate = len(bull_wins) / len(bull_all) * 100 if bull_all else 0
+    bear_rate = len(bear_wins) / len(bear_all) * 100 if bear_all else 0
+    bull_net  = sum(p.get("return_pct") or 0 for p in bull_all)
+    bear_net  = sum(p.get("return_pct") or 0 for p in bear_all)
+    bull_avg_win  = sum(p.get("return_pct") or 0 for p in bull_wins)  / len(bull_wins)  if bull_wins  else 0
+    bear_avg_win  = sum(p.get("return_pct") or 0 for p in bear_wins)  / len(bear_wins)  if bear_wins  else 0
+    bull_losses   = [p for p in bull_all if p.get("outcome") == "LOSS"]
+    bear_losses   = [p for p in bear_all if p.get("outcome") == "LOSS"]
+    bull_avg_loss = sum(p.get("return_pct") or 0 for p in bull_losses) / len(bull_losses) if bull_losses else 0
+    bear_avg_loss = sum(p.get("return_pct") or 0 for p in bear_losses) / len(bear_losses) if bear_losses else 0
+
+    bull_rate_color = "#15803d" if bull_rate >= 60 else "#b45309" if bull_rate >= 40 else "#b91c1c"
+    bear_rate_color = "#15803d" if bear_rate >= 60 else "#b45309" if bear_rate >= 40 else "#b91c1c"
+    bull_net_color  = "#15803d" if bull_net >= 0 else "#b91c1c"
+    bear_net_color  = "#15803d" if bear_net >= 0 else "#b91c1c"
+
+    st.markdown(
+        f"""<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px;background:#f0fdf4;border:1px solid #bbf7d0;
+              border-radius:12px;padding:16px 20px">
+            <div style="font-size:12px;font-weight:700;color:#15803d;text-transform:uppercase;
+                letter-spacing:0.8px;margin-bottom:10px">▲ Bullish — {len(bull_all)} trades</div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end">
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Win Rate</div>
+                <div style="font-size:28px;font-weight:800;color:{bull_rate_color}">{bull_rate:.1f}%</div>
+                <div style="font-size:12px;color:#64748b">{len(bull_wins)}W / {len(bull_losses)}L</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Net Return</div>
+                <div style="font-size:22px;font-weight:700;color:{bull_net_color}">{bull_net:+.1f}%</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Avg Win</div>
+                <div style="font-size:18px;font-weight:600;color:#15803d">+{bull_avg_win:.1f}%</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Avg Loss</div>
+                <div style="font-size:18px;font-weight:600;color:#b91c1c">{bull_avg_loss:.1f}%</div>
+              </div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:260px;background:#fef2f2;border:1px solid #fecaca;
+              border-radius:12px;padding:16px 20px">
+            <div style="font-size:12px;font-weight:700;color:#b91c1c;text-transform:uppercase;
+                letter-spacing:0.8px;margin-bottom:10px">▼ Bearish — {len(bear_all)} trades</div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end">
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Win Rate</div>
+                <div style="font-size:28px;font-weight:800;color:{bear_rate_color}">{bear_rate:.1f}%</div>
+                <div style="font-size:12px;color:#64748b">{len(bear_wins)}W / {len(bear_losses)}L</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Net Return</div>
+                <div style="font-size:22px;font-weight:700;color:{bear_net_color}">{bear_net:+.1f}%</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Avg Win</div>
+                <div style="font-size:18px;font-weight:600;color:#15803d">+{bear_avg_win:.1f}%</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px">Avg Loss</div>
+                <div style="font-size:18px;font-weight:600;color:#b91c1c">{bear_avg_loss:.1f}%</div>
+              </div>
+            </div>
+          </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
     # ── Daily success rate — last 30 days ────────────────────────────────────
     _render_daily_chart(all_closed)
 
@@ -488,9 +563,12 @@ def _render_daily_chart(all_closed: list):
 
     today_pt = datetime.now(PT).date()
 
-    # Build per-day win/loss counts for last 30 days
     day_wins   = defaultdict(int)
     day_losses = defaultdict(int)
+    day_bull_wins   = defaultdict(int)
+    day_bull_losses = defaultdict(int)
+    day_bear_wins   = defaultdict(int)
+    day_bear_losses = defaultdict(int)
 
     for p in all_closed:
         raw = p.get("verified_on") or p.get("predicted_on") or ""
@@ -502,66 +580,87 @@ def _render_daily_chart(all_closed: list):
             continue
         if (today_pt - d).days > 30:
             continue
-        if p.get("outcome") == "WIN":
+        direction = p.get("direction", "")
+        win = p.get("outcome") == "WIN"
+        if win:
             day_wins[d] += 1
         else:
             day_losses[d] += 1
+        if direction == "BULLISH":
+            if win: day_bull_wins[d] += 1
+            else:   day_bull_losses[d] += 1
+        elif direction == "BEARISH":
+            if win: day_bear_wins[d] += 1
+            else:   day_bear_losses[d] += 1
 
     all_days = sorted(set(list(day_wins.keys()) + list(day_losses.keys())))
     if len(all_days) < 2:
         return
 
-    rates  = []
-    labels = []
-    colors = []
-    totals = []
+    rates = []; bull_rates = []; bear_rates = []
+    labels = []; colors = []; totals = []
+    bull_totals = []; bear_totals = []
+
     for d in all_days:
-        w = day_wins[d]
-        l = day_losses[d]
-        t = w + l
+        w = day_wins[d]; l = day_losses[d]; t = w + l
         rate = w / t * 100 if t > 0 else 0
-        rates.append(rate)
-        totals.append(t)
+        rates.append(rate); totals.append(t)
         labels.append(d.strftime("%b %d"))
         colors.append("#16a34a" if rate >= 60 else "#f59e0b" if rate >= 40 else "#dc2626")
 
-    # 7-day rolling average
-    rolling = []
-    for i in range(len(rates)):
-        window = rates[max(0, i - 6): i + 1]
-        rolling.append(sum(window) / len(window))
+        bw = day_bull_wins[d]; bl = day_bull_losses[d]; bt = bw + bl
+        bull_rates.append(bw / bt * 100 if bt > 0 else None)
+        bull_totals.append(bt)
+
+        rw = day_bear_wins[d]; rl = day_bear_losses[d]; rt = rw + rl
+        bear_rates.append(rw / rt * 100 if rt > 0 else None)
+        bear_totals.append(rt)
 
     fig = go.Figure()
 
     fig.add_trace(go.Bar(
         x=labels, y=rates,
         marker_color=colors,
-        name="Daily rate",
-        text=[f"{r:.2f}%  ({t})" for r, t in zip(rates, totals)],
+        name="Overall",
+        text=[f"{r:.0f}%({t})" for r, t in zip(rates, totals)],
         textposition="outside",
-        textfont=dict(size=11, color="#1e293b"),
-        hovertemplate="%{x}: %{y:.1f}% — %{customdata} trades<extra></extra>",
+        textfont=dict(size=10, color="#1e293b"),
+        hovertemplate="%{x} Overall: %{y:.1f}% — %{customdata} trades<extra></extra>",
         customdata=totals,
+        opacity=0.5,
     ))
 
     fig.add_trace(go.Scatter(
-        x=labels, y=rolling,
+        x=labels, y=bull_rates,
         mode="lines+markers",
-        line=dict(color="#6366f1", width=2, dash="dot"),
-        marker=dict(size=5),
-        name="7-day avg",
-        hovertemplate="%{x}: %{y:.1f}% avg<extra></extra>",
+        line=dict(color="#16a34a", width=2.5),
+        marker=dict(size=7, symbol="circle"),
+        name="▲ Bullish",
+        connectgaps=True,
+        hovertemplate="%{x} Bullish: %{y:.1f}% (%{customdata} trades)<extra></extra>",
+        customdata=bull_totals,
     ))
 
-    fig.add_hline(y=60, line_color="rgba(22,163,74,0.3)", line_dash="dot", line_width=1)
-    fig.add_hline(y=40, line_color="rgba(220,38,38,0.3)", line_dash="dot", line_width=1)
+    fig.add_trace(go.Scatter(
+        x=labels, y=bear_rates,
+        mode="lines+markers",
+        line=dict(color="#dc2626", width=2.5),
+        marker=dict(size=7, symbol="circle"),
+        name="▼ Bearish",
+        connectgaps=True,
+        hovertemplate="%{x} Bearish: %{y:.1f}% (%{customdata} trades)<extra></extra>",
+        customdata=bear_totals,
+    ))
+
+    fig.add_hline(y=60, line_color="rgba(22,163,74,0.25)", line_dash="dot", line_width=1)
+    fig.add_hline(y=40, line_color="rgba(220,38,38,0.25)", line_dash="dot", line_width=1)
 
     fig.update_layout(
-        height=240,
+        height=260,
         margin=dict(l=0, r=0, t=28, b=0),
         paper_bgcolor="white", plot_bgcolor="white",
-        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=11)),
-        yaxis=dict(range=[0, 115], showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+        legend=dict(orientation="h", y=1.14, x=0, font=dict(size=11)),
+        yaxis=dict(range=[0, 120], showgrid=True, gridcolor="rgba(0,0,0,0.05)",
                    ticksuffix="%", tickfont=dict(size=11)),
         xaxis=dict(showgrid=False, tickfont=dict(size=11)),
         bargap=0.35,
