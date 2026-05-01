@@ -53,6 +53,14 @@ def run():
         print("  Analysis returned empty result.")
         return
 
+    # Always print Claude's analysis even if no suggestions
+    if result.get("failure_pattern"):
+        print(f"  Failure pattern: {result['failure_pattern']}")
+    if result.get("success_pattern"):
+        print(f"  Success pattern: {result['success_pattern']}")
+    if result.get("timing_accuracy_note"):
+        print(f"  Timing: {result['timing_accuracy_note']}")
+
     suggestions = result.get("suggestions", [])
     print(f"  Got {len(suggestions)} new optimization suggestions")
 

@@ -296,42 +296,60 @@ def analyze_prediction_outcomes(wins: list, losses: list, existing_suggestions: 
         already_known = "\nALREADY ADDRESSED (do NOT suggest these again):\n" + \
             "\n".join(f"- {s}" for s in existing_suggestions if s) + "\n"
 
-    prompt = f"""You are analyzing a stock prediction system's track record to improve it.
+    scoring_context = """
+CURRENT SCORING FORMULA (0-100):
+- Momentum (25 pts): RSI <30=11pts, <40=7pts, 60-70=6pts, >70=1pt | MACD crossover=8pts, recent=7pts, bullish=5pts | ROC >=5%=5pts, >=2%=3pts
+- Trend (20 pts): price>MA20>MA50=11pts, price>MA20=9pts, price>MA50=6pts | ADX>30=8pts, >20=4pts | flat ADX multiplier=0.7x
+- Volatility (15 pts): BB squeeze+position<0.6=9pts, BB breakout up=7pts | ATR rising=4pts
+- Volume (20 pts): volume surge >=3x=10pts, >=2x=7pts, >=1.5x=4pts | OBV confirming=6pts, diverging bullish=5pts | VWAP above=3pts
+- Sentiment (10 pts): news score>0.6=6pts, >0.3=4pts | social mentions>50=4pts, >20=2pts
+- External (10 pts): analyst STRONG_BUY=6pts, BUY=4pts, HOLD=2pts | earnings consecutive beats min(n+1,4)pts
+- Bonuses: RSI divergence+3, Golden cross+3, BB squeeze+2, 52w high breakout+4, Dual-list+3
+- Earnings catalyst bonus: 3+ consecutive beats+10, 1-2 beats+5
+- Analyst upside >20%: +5
+- Insider buying STRONG ($500K+ or 3+ insiders): +15, MODERATE ($100K+): +8
+- Score threshold to enter Claude batch: 45/100
+- Min profit % to save prediction: 4%
+- Confidence threshold shown to user: any, high confidence = >=75%"""
 
-LOSSES ({len(loss_lines)} recent):
+    prompt = f"""You are analyzing a stock prediction system's track record to improve its {len(wins)/(len(wins)+len(losses))*100:.1f}% win rate (target: >65%).
+
+{scoring_context}
+
+LOSSES ({len(loss_lines)}):
 {chr(10).join(loss_lines) if loss_lines else "None yet"}
 
-WINS ({len(win_lines)} recent):
+WINS ({len(win_lines)}):
 {chr(10).join(win_lines) if win_lines else "None yet"}
 {already_known}
-Analyze ALL of the above:
-1. WHY did the losses happen? Look for common patterns (wrong direction, bad timing, weak signals, etc.)
-2. WHY did the wins succeed? What signals, score ranges, timeframes, or conditions they had in common that we should reinforce.
-3. Was timing accurate on wins? Were predicted days close to actual days?
-4. What specific changes to the screening/scoring logic would improve success rate?
-5. ONLY suggest improvements that are genuinely new — skip anything already in the "ALREADY ADDRESSED" list above.
+Answer these specific questions:
+1. Which score ranges, timeframes, or directions had the worst loss rate? (e.g. "all BEARISH SHORT predictions lost")
+2. What confidence threshold would have filtered out most losses without losing most wins?
+3. What signals were present in wins but absent in losses? What should be weighted higher?
+4. Are there specific tickers or asset types we should avoid based on this data?
+5. What is one concrete change to the scoring formula above that would have prevented the most losses?
 
 Respond in this exact JSON:
 {{
   "failure_pattern": "<2-3 sentences: main reasons predictions are failing>",
-  "success_pattern": "<2-3 sentences: what the winning predictions had in common — signals, score range, conditions>",
-  "timing_accuracy_note": "<1-2 sentences: how accurate is our timing on winning trades>",
+  "success_pattern": "<2-3 sentences: what the winning predictions had in common>",
+  "timing_accuracy_note": "<1-2 sentences: timing accuracy on winning trades>",
   "suggestions": [
     {{
-      "plain_english": "<what to change, written simply for a non-technical user>",
-      "technical_detail": "<specific: which indicator, threshold, weight, or filter to change>",
+      "plain_english": "<what to change, written simply>",
+      "technical_detail": "<specific: which score group, threshold, or weight to change and to what value>",
       "evidence_tickers": ["TICK1", "TICK2"],
-      "projected_improvement_pct": <estimated win rate improvement as a number, e.g. 8.0>
+      "projected_improvement_pct": <estimated win rate improvement, e.g. 8.0>
     }}
   ]
 }}
 
-Only output the JSON. Maximum 6 suggestions."""
+Only output the JSON. Maximum 6 suggestions. Be specific — reference actual score values, indicator names, and tickers from the data above."""
 
     try:
         response = get_client().messages.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=2048,
             messages=[{"role": "user", "content": prompt}]
         )
         import json
