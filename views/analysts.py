@@ -6,13 +6,41 @@ def render():
     st.title("👤 Publication Credibility Tracker")
     st.caption("Tracks which news sources publish accurate calls. Scores update automatically when predictions close.")
 
-    # ── Rebuild button ────────────────────────────────────────────────────────
-    rebuild_col, _ = st.columns([2, 8])
-    with rebuild_col:
-        rebuild_clicked = st.button("🔄 Rebuild Scores", type="secondary",
-                                    help="Re-scores all publications from closed predictions. Uses cached news — no extra API calls.")
+    # ── Count closed predictions for warning label ───────────────────────────
+    try:
+        from database.db import get_predictions
+        all_preds = get_predictions(limit=1000)
+        closed_count = sum(1 for p in all_preds if p.get("outcome") in ("WIN", "LOSS"))
+        unique_tickers = len({p["ticker"] for p in all_preds if p.get("outcome") in ("WIN", "LOSS")})
+    except Exception:
+        closed_count = 0
+        unique_tickers = 0
+
+    # ── Buttons ───────────────────────────────────────────────────────────────
+    bc1, bc2, _ = st.columns([2, 2, 6])
+    with bc1:
+        st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
+        rebuild_clicked = st.button("🔄 Rebuild from Cache", key="rebuild_cache_btn",
+                                    help="Uses only cached news — zero API calls")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with bc2:
+        st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+        live_clicked = st.button("🌐 Fetch Live Scores", key="rebuild_live_btn",
+                                 help=f"Makes {unique_tickers} Finnhub API calls — one per unique ticker")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if live_clicked:
+        st.warning(
+            f"⚠️ This will make **{unique_tickers} Finnhub API calls** "
+            f"(one per unique ticker across {closed_count} closed predictions). "
+            f"Safe within free tier limits (60/min).",
+            icon=None,
+        )
+
     if rebuild_clicked:
-        _rebuild_scores()
+        _rebuild_scores(live=False)
+    elif live_clicked:
+        _rebuild_scores(live=True)
 
     try:
         from database.db import get_analysts, get_client
@@ -26,7 +54,7 @@ def render():
         return
 
     if not analysts:
-        st.info("No publication data yet — click **Rebuild Scores** to populate from closed predictions.")
+        st.info("No publication data yet — click **Rebuild from Cache** or **Fetch Live Scores** to populate.")
         _show_explainer()
         return
 
@@ -72,11 +100,12 @@ def render():
         st.dataframe(pub_df, use_container_width=True, hide_index=True)
 
 
-def _rebuild_scores():
-    status = st.status("Rebuilding publication scores from closed predictions…", expanded=True)
+def _rebuild_scores(live: bool = False):
+    label = "Fetching live news and rebuilding scores…" if live else "Rebuilding scores from cache…"
+    status = st.status(label, expanded=True)
     try:
         from services.analyst_service import rebuild_all_scores
-        stats = rebuild_all_scores()
+        stats = rebuild_all_scores(live=live)
         if "error" in stats:
             status.update(label=f"❌ Error: {stats['error']}", state="error", expanded=True)
         else:
@@ -84,7 +113,9 @@ def _rebuild_scores():
             status.write(f"📰 {stats['articles_linked']} article–prediction links created")
             status.write(f"📊 {stats['publications_found']} publications scored")
             if stats.get("skipped_no_cache"):
-                status.write(f"⚠️ {stats['skipped_no_cache']} predictions had no cached news (will populate on next scan)")
+                status.write(f"⚠️ {stats['skipped_no_cache']} predictions had no cached news")
+            if stats.get("live_fetched"):
+                status.write(f"🌐 {stats['live_fetched']} live Finnhub calls made")
             status.update(
                 label=f"Done — {stats['publications_found']} publications scored from {stats['predictions_processed']} predictions",
                 state="complete", expanded=False,

@@ -158,11 +158,12 @@ def render():
         return
 
     # ── Recalculate button ────────────────────────────────────────────────────
+    st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
     recalc_clicked = st.button(
         "🔄 Recalculate All Metrics",
         help="Recomputes return_pct and price_at_close using target/stop levels instead of market price",
-        type="secondary",
     )
+    st.markdown('</div>', unsafe_allow_html=True)
     if recalc_clicked:
         _recalculate_metrics()
 

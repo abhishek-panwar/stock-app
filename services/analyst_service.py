@@ -115,26 +115,45 @@ def _recompute_analyst(analyst_id: str):
     }).eq("id", analyst_id).execute()
 
 
-def rebuild_all_scores() -> dict:
+def rebuild_all_scores(live: bool = False) -> dict:
     """
-    Full rebuild from scratch — reads all closed predictions, fetches their
-    cached news articles (no new API calls), and repopulates analyst tables.
+    Full rebuild from scratch — reads all closed predictions, optionally fetches
+    live news from Finnhub (live=True) or uses only api_cache (live=False).
     Returns stats dict.
     """
+    import time
     client = get_client()
-    stats = {"predictions_processed": 0, "articles_linked": 0, "publications_found": 0, "skipped_no_cache": 0}
+    stats = {
+        "predictions_processed": 0, "articles_linked": 0,
+        "publications_found": 0, "skipped_no_cache": 0, "live_fetched": 0,
+    }
 
     try:
-        from database.db import get_predictions, get_cache
+        from database.db import get_predictions, get_cache, set_cache
         all_preds = get_predictions(limit=1000)
         closed = [p for p in all_preds if p.get("outcome") in ("WIN", "LOSS")]
 
-        # Wipe existing analyst_predictions and reset analyst scores
+        # Wipe existing data for clean rebuild
         client.table("analyst_predictions").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
         client.table("analysts").update({
             "binary_score": 0, "weighted_score": 0.0,
             "total_predictions": 0, "wins": 0, "losses": 0,
         }).neq("id", "00000000-0000-0000-0000-000000000000").execute()
+
+        # Pre-fetch live news per unique ticker if live=True
+        live_cache: dict = {}
+        if live:
+            unique_tickers = list({p["ticker"] for p in closed})
+            from services.finnhub_service import get_news_sentiment
+            for ticker in unique_tickers:
+                try:
+                    result = get_news_sentiment(ticker, hours=72)
+                    live_cache[ticker] = result.get("articles", [])
+                    set_cache(f"news_sentiment_{ticker}", result, ttl_hours=168)
+                    stats["live_fetched"] += 1
+                    time.sleep(0.5)  # stay well within 60/min rate limit
+                except Exception:
+                    live_cache[ticker] = []
 
         for pred in closed:
             ticker = pred["ticker"]
@@ -144,23 +163,21 @@ def rebuild_all_scores() -> dict:
             predicted_on = pred.get("predicted_on", "")
             timeframe = pred.get("timeframe", "")
 
-            # Try to get cached articles for this ticker
-            from database.db import get_cache
-            articles = None
-            # Try sentiment cache key (set during scan)
-            cached = get_cache(f"news_sentiment_{ticker}")
-            if cached and isinstance(cached, dict):
-                articles = cached.get("articles", [])
+            # Resolve articles: live cache → api_cache → skip
+            if live and ticker in live_cache:
+                articles = live_cache[ticker]
+            else:
+                cached = get_cache(f"news_sentiment_{ticker}")
+                articles = cached.get("articles", []) if cached and isinstance(cached, dict) else []
 
             if not articles:
                 stats["skipped_no_cache"] += 1
-                # Still record prediction against "Unknown" so we have a count
-                articles = [{"source": "Unknown", "headline": "", "url": None, "datetime": None}]
+                stats["predictions_processed"] += 1
+                continue
 
-            # Save articles → analyst_predictions (as already-closed)
             for art in articles[:10]:
                 source = art.get("source", "").strip()
-                if not source or source == "Unknown":
+                if not source:
                     continue
                 try:
                     analyst = client.table("analysts").upsert(
@@ -187,16 +204,16 @@ def rebuild_all_scores() -> dict:
                         weighted_contrib = -abs(weighted_contrib)
 
                     client.table("analyst_predictions").insert({
-                        "analyst_id":           analyst_id,
-                        "prediction_id":        pred_id,
-                        "article_title":        (art.get("headline") or "")[:300],
-                        "article_url":          art.get("url") or None,
-                        "article_published_at": predicted_on,
-                        "lead_time_days":       lead_time,
-                        "outcome":              outcome,
-                        "return_pct":           return_pct,
+                        "analyst_id":            analyst_id,
+                        "prediction_id":         pred_id,
+                        "article_title":         (art.get("headline") or "")[:300],
+                        "article_url":           art.get("url") or None,
+                        "article_published_at":  predicted_on,
+                        "lead_time_days":        lead_time,
+                        "outcome":               outcome,
+                        "return_pct":            return_pct,
                         "weighted_contribution": weighted_contrib,
-                        "timeframe":            timeframe,
+                        "timeframe":             timeframe,
                     }).execute()
                     stats["articles_linked"] += 1
                 except Exception:
@@ -204,11 +221,10 @@ def rebuild_all_scores() -> dict:
 
             stats["predictions_processed"] += 1
 
-        # Recompute all analyst aggregate scores
+        # Recompute all aggregate scores
         all_analysts = client.table("analysts").select("id").execute().data
         for a in all_analysts:
             _recompute_analyst(a["id"])
-
         stats["publications_found"] = len(all_analysts)
 
     except Exception as e:

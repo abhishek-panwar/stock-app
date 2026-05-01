@@ -126,15 +126,25 @@ def render():
     # ── Scanner buttons ───────────────────────────────────────────────────────
     btn_c1, btn_c2, btn_c3, btn_c4, btn_c5 = st.columns([2, 2, 2, 2, 2])
     with btn_c1:
-        run_clicked = st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top")
+        st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+        run_clicked = st.button("🚀 Run Nightly Scanner", key="run_scanner_top")
+        st.markdown('</div>', unsafe_allow_html=True)
     with btn_c2:
-        debug_clicked = st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_top")
+        st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+        debug_clicked = st.button("🐛 Run Nightly Scanner Debug", key="run_scanner_debug_top")
+        st.markdown('</div>', unsafe_allow_html=True)
     with btn_c3:
-        log_clicked = st.button("📋 Last Scan Raw Log", type="secondary", key="view_raw_log_top")
+        st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
+        log_clicked = st.button("📋 Last Scan Raw Log", key="view_raw_log_top")
+        st.markdown('</div>', unsafe_allow_html=True)
     with btn_c4:
-        recalc_clicked = st.button("🔄 Re-calculate Math on predictions", type="secondary", key="recalc_math_top")
+        st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
+        recalc_clicked = st.button("🔄 Re-calculate Math on predictions", key="recalc_math_top")
+        st.markdown('</div>', unsafe_allow_html=True)
     with btn_c5:
-        clear_clicked = st.button("🗑 Clear All Open Predictions", type="secondary", key="clear_predictions_top")
+        st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
+        clear_clicked = st.button("🗑 Clear All Open Predictions", key="clear_predictions_top")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Handle button actions outside column context so st.status() renders correctly
     if run_clicked:
@@ -428,7 +438,9 @@ def render():
         ticker = custom_ticker or manual_ticker
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        run_manual = st.button("🔍 Generate", type="primary", key="manual_predict_btn", disabled=not ticker)
+        st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+        run_manual = st.button("🔍 Generate", key="manual_predict_btn", disabled=not ticker)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     if run_manual and ticker:
         _run_manual_prediction(ticker)
@@ -875,11 +887,15 @@ def _show_empty_state():
     st.info("No predictions yet. The nightly scanner runs at 8:00 PM PT.")
     c1, c2 = st.columns([2, 2])
     with c1:
-        if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_empty"):
+        st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+        if st.button("🚀 Run Nightly Scanner", key="run_scanner_empty"):
             _trigger_scanner()
+        st.markdown('</div>', unsafe_allow_html=True)
     with c2:
-        if st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_empty"):
+        st.markdown('<div class="btn-api">', unsafe_allow_html=True)
+        if st.button("🐛 Run Nightly Scanner Debug", key="run_scanner_debug_empty"):
             _trigger_scanner(debug=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _clear_open_predictions():
