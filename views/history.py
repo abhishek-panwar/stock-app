@@ -367,7 +367,7 @@ def _prediction_card(p: dict):
     if actual_days is None:
         tenure_str = f"~{days_to_target}d est." if days_to_target else "—"
     elif actual_days == 0:
-        tenure_str = "same day"
+        tenure_str = "held 0d"
     else:
         tenure_str = f"held {actual_days}d"
 
