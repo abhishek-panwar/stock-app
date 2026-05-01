@@ -314,10 +314,25 @@ def render():
                     )
         st.markdown("")
 
-    # ── Timeframe + date-grouped prediction sections ──────────────────────────
-    def _abs_profit(p):
-        return -abs(_calc_profit_pct(p))
+    # ── Sort control ──────────────────────────────────────────────────────────
+    SORT_OPTIONS = {
+        "Profit % (default)": lambda p: -abs(_calc_profit_pct(p)),
+        "Confidence":         lambda p: -(p.get("confidence") or 0),
+        "Score":              lambda p: -(p.get("score") or 0),
+        "Risk/Reward": lambda p: -(
+            abs(((p.get("target_low") or 0) + (p.get("target_high") or 0)) / 2 - _calc_entry(p)) /
+            abs(_calc_entry(p) - (p.get("stop_loss") or _calc_entry(p)) or 1)
+            if _calc_entry(p) > 0 and (p.get("stop_loss") or 0) > 0 else 0
+        ),
+        "Days to target":     lambda p: (p.get("days_to_target") or 999),
+        "Newest first":       lambda p: p.get("predicted_on", ""),
+    }
+    sort_col, _ = st.columns([2, 8])
+    with sort_col:
+        sort_by = st.selectbox("Sort by", list(SORT_OPTIONS.keys()), key="open_sort_by", label_visibility="collapsed")
+    sort_fn = SORT_OPTIONS[sort_by]
 
+    # ── Timeframe + date-grouped prediction sections ──────────────────────────
     today_pt = datetime.now(PT).date()
 
     def _pred_date(p):
@@ -380,7 +395,7 @@ def render():
             bucket_preds = date_groups[bucket_label]
             if not bucket_preds:
                 continue
-            bucket_preds = sorted(bucket_preds, key=_abs_profit)
+            bucket_preds = sorted(bucket_preds, key=sort_fn)
             with st.expander(
                 f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
                 expanded=(bucket_label in ("📅 Tomorrow", "✨ Today")),

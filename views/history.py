@@ -33,6 +33,15 @@ def _get_company_name(ticker: str) -> str:
         return ticker
 
 
+def _days_held(p: dict) -> int:
+    try:
+        v = datetime.fromisoformat(p.get("verified_on", "").replace("Z", "+00:00")).astimezone(PT).date()
+        q = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT).date()
+        return (v - q).days
+    except Exception:
+        return 999
+
+
 def _expiry(p: dict):
     raw = p.get("expires_on") or ""
     if not raw:
@@ -207,8 +216,8 @@ def render():
     # ── Daily success rate — last 30 days ────────────────────────────────────
     _render_daily_chart(all_closed)
 
-    # ── Filters ───────────────────────────────────────────────────────────────
-    col1, col2, col3, col4 = st.columns(4)
+    # ── Filters + Sort ────────────────────────────────────────────────────────
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         tf_filter = st.selectbox("Timeframe", ["All", "short", "medium", "long"])
     with col2:
@@ -218,6 +227,25 @@ def render():
         ticker_filter = st.selectbox("Ticker", ["All"] + tickers)
     with col4:
         conf_min = st.slider("Min Confidence", 0, 100, 0)
+    with col5:
+        SORT_OPTIONS = {
+            "Profit % (default)": lambda p: -abs(_calc_profit_pct(p)),
+            "Confidence":         lambda p: -(p.get("confidence") or 0),
+            "Score":              lambda p: -(p.get("score") or 0),
+            "Actual return":      lambda p: -(p.get("return_pct") or 0),
+            "Risk/Reward": lambda p: -(
+                abs(((p.get("target_low") or 0) + (p.get("target_high") or 0)) / 2 - _calc_entry(p)) /
+                abs(_calc_entry(p) - (p.get("stop_loss") or _calc_entry(p)) or 1)
+                if _calc_entry(p) > 0 and (p.get("stop_loss") or 0) > 0 else 0
+            ),
+            "Days held":          lambda p: _days_held(p),
+            "Newest first":       lambda p: -(
+                datetime.fromisoformat(p.get("predicted_on", "1970").replace("Z", "+00:00")).timestamp()
+                if p.get("predicted_on") else 0
+            ),
+        }
+        sort_by = st.selectbox("Sort by", list(SORT_OPTIONS.keys()), key="closed_sort_by")
+    sort_fn = SORT_OPTIONS[sort_by]
 
     filtered = all_closed
     if tf_filter != "All":
@@ -227,16 +255,7 @@ def render():
     if ticker_filter != "All":
         filtered = [p for p in filtered if p.get("ticker") == ticker_filter]
     filtered = [p for p in filtered if (p.get("confidence") or 0) >= conf_min]
-
-    def _sort_key(p):
-        try:
-            pred_dt = datetime.fromisoformat(p.get("predicted_on", "").replace("Z", "+00:00")).astimezone(PT)
-            age = (datetime.now(PT).date() - pred_dt.date()).days
-        except Exception:
-            age = 999
-        profit = _calc_profit_pct(p)
-        return (age, -abs(profit), -p.get("score", 0))
-    filtered = sorted(filtered, key=_sort_key)
+    filtered = sorted(filtered, key=sort_fn)
 
     st.markdown("---")
 
