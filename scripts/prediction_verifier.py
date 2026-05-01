@@ -45,7 +45,9 @@ def run():
         if not current:
             continue
 
-        entry = pred.get("price_at_prediction") or 0
+        buy_low  = pred.get("buy_range_low") or 0
+        buy_high = pred.get("buy_range_high") or 0
+        entry = (buy_low + buy_high) / 2 if buy_low > 0 and buy_high > 0 else (pred.get("price_at_prediction") or 0)
         direction = pred.get("direction", "NEUTRAL")
         target_low = pred.get("target_low") or 0
         target_high = pred.get("target_high") or 0
@@ -87,30 +89,34 @@ def run():
             outcome = "WIN" if abs(current_return_pct) >= WIN_THRESHOLD_PCT else "LOSS"
             closed_reason = "EXPIRED"
 
-        # Compute return_pct at the level that was actually hit, not the current price.
-        # EXPIRED uses current price since no specific level was triggered.
+        # Compute close price and return_pct at the level actually hit.
+        # BULLISH TARGET_HIT: use target_high if current overshot it, else target_low.
+        # BEARISH TARGET_HIT: use target_low if current overshot it, else target_high.
+        # STOP_LOSS: always use stop_loss price.
+        # EXPIRED: use actual current market price.
         if outcome and entry > 0:
             if closed_reason == "TARGET_HIT":
-                close_price = target_low if direction == "BULLISH" else target_high
-                return_pct = round((close_price - entry) / entry * 100, 2) if direction == "BULLISH" \
-                    else round((entry - close_price) / entry * 100, 2)
+                if direction == "BULLISH":
+                    close_price = target_high if (target_high > 0 and current >= target_high) else target_low
+                    return_pct = round((close_price - entry) / entry * 100, 2)
+                else:  # BEARISH
+                    close_price = target_low if (target_low > 0 and current <= target_low) else target_high
+                    return_pct = round((entry - close_price) / entry * 100, 2)
             elif closed_reason == "STOP_LOSS":
+                close_price = stop_loss
                 return_pct = round((stop_loss - entry) / entry * 100, 2) if direction == "BULLISH" \
                     else round((entry - stop_loss) / entry * 100, 2)
-            else:
-                return_pct = current_return_pct if direction != "BEARISH" \
+            else:  # EXPIRED
+                close_price = current
+                return_pct = round((current - entry) / entry * 100, 2) if direction != "BEARISH" \
                     else round((entry - current) / entry * 100, 2)
         else:
+            close_price = current
             return_pct = 0
 
         if outcome:
             try:
-                if closed_reason == "TARGET_HIT":
-                    price_at_close = target_low if direction == "BULLISH" else target_high
-                elif closed_reason == "STOP_LOSS":
-                    price_at_close = stop_loss
-                else:
-                    price_at_close = current
+                price_at_close = close_price
 
                 update_prediction(pred["id"], {
                     "outcome": outcome,

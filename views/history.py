@@ -39,12 +39,15 @@ def _recalculate_metrics():
         skipped = 0
 
         for p in closed:
-            entry      = p.get("price_at_prediction") or 0
+            buy_low  = p.get("buy_range_low") or 0
+            buy_high = p.get("buy_range_high") or 0
+            entry     = (buy_low + buy_high) / 2 if buy_low > 0 and buy_high > 0 else (p.get("price_at_prediction") or 0)
             direction  = p.get("direction", "NEUTRAL")
             target_low = p.get("target_low") or 0
             target_high= p.get("target_high") or 0
             stop_loss  = p.get("stop_loss") or 0
             closed_reason = p.get("closed_reason", "")
+            recorded_close = p.get("price_at_close") or 0
 
             if entry <= 0 or not closed_reason:
                 skipped += 1
@@ -52,11 +55,13 @@ def _recalculate_metrics():
 
             if closed_reason == "TARGET_HIT":
                 if direction == "BULLISH" and target_low > 0:
-                    price_at_close = target_low
-                    return_pct = round((target_low - entry) / entry * 100, 2)
+                    # use target_high if close overshot it, else target_low
+                    price_at_close = target_high if (target_high > 0 and recorded_close >= target_high) else target_low
+                    return_pct = round((price_at_close - entry) / entry * 100, 2)
                 elif direction == "BEARISH" and target_high > 0:
-                    price_at_close = target_high
-                    return_pct = round((entry - target_high) / entry * 100, 2)
+                    # use target_low if close overshot it, else target_high
+                    price_at_close = target_low if (target_low > 0 and recorded_close <= target_low) else target_high
+                    return_pct = round((entry - price_at_close) / entry * 100, 2)
                 else:
                     skipped += 1
                     continue
@@ -75,16 +80,15 @@ def _recalculate_metrics():
                     continue
 
             else:
-                # EXPIRED — keep current price_at_close as-is, just recompute return_pct
-                close_price = p.get("price_at_close") or 0
-                if close_price <= 0:
+                # EXPIRED — keep recorded close price, recompute return with correct direction sign
+                if recorded_close <= 0:
                     skipped += 1
                     continue
-                price_at_close = close_price
+                price_at_close = recorded_close
                 if direction == "BEARISH":
-                    return_pct = round((entry - close_price) / entry * 100, 2)
+                    return_pct = round((entry - recorded_close) / entry * 100, 2)
                 else:
-                    return_pct = round((close_price - entry) / entry * 100, 2)
+                    return_pct = round((recorded_close - entry) / entry * 100, 2)
 
             try:
                 update_prediction(p["id"], {
