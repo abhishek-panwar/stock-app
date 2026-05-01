@@ -15,6 +15,7 @@ PT = pytz.timezone("America/Los_Angeles")
 from database.db import get_open_predictions, update_prediction, log_error
 from services.yfinance_service import get_multiple_prices
 from services.telegram_service import send_stop_loss_alert, send_target_hit_alert
+from services.analyst_service import update_scores_for_prediction
 
 TIMEFRAME_DAYS = {"short": 5, "medium": 28, "long": 180}
 WIN_THRESHOLD_PCT = 2.0
@@ -127,6 +128,12 @@ def run():
                 })
                 verified += 1
                 print(f"  {ticker} {timeframe}: {outcome} ({return_pct:+.2f}%) — {closed_reason}")
+
+                # Update publication credibility scores
+                try:
+                    update_scores_for_prediction(pred["id"], outcome, return_pct, timeframe)
+                except Exception as e:
+                    log_error("verifier", f"Analyst score update failed {ticker}: {e}", level="WARNING")
 
                 if closed_reason == "STOP_LOSS":
                     ok = send_stop_loss_alert(ticker, entry, price_at_close, abs(return_pct))

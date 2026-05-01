@@ -426,6 +426,15 @@ def run(debug: bool = False):
             scan_stats["predictions_created"] += 1
             print(f"  {ticker} ({item['company_name']}) → {direction} {timeframe}-term, {days_to_target}d, {confidence}% conf")
 
+            # Save news articles for publication credibility tracking
+            try:
+                from services.analyst_service import save_articles_for_prediction
+                articles = item.get("sentiment", {}).get("articles", [])
+                if articles and pred["id"]:
+                    save_articles_for_prediction(pred["id"], ticker, articles, pred["predicted_on"])
+            except Exception as e:
+                log_error("scanner", f"Analyst article save failed {ticker}: {e}", level="WARNING")
+
         except Exception as e:
             scan_stats["errors_encountered"] += 1
             log_error("scanner", f"Prediction error {ticker}: {e}", detail=str(e), ticker=ticker)

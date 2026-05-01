@@ -3,19 +3,30 @@ from datetime import datetime
 
 
 def render():
-    st.title("👤 Analyst Credibility Tracker")
-    st.caption("Tracks reliability of analysts and writers whose articles influence predictions.")
+    st.title("👤 Publication Credibility Tracker")
+    st.caption("Tracks which news sources publish accurate calls. Scores update automatically when predictions close.")
+
+    # ── Rebuild button ────────────────────────────────────────────────────────
+    rebuild_col, _ = st.columns([2, 8])
+    with rebuild_col:
+        rebuild_clicked = st.button("🔄 Rebuild Scores", type="secondary",
+                                    help="Re-scores all publications from closed predictions. Uses cached news — no extra API calls.")
+    if rebuild_clicked:
+        _rebuild_scores()
 
     try:
-        from database.db import get_analysts, get_analyst_predictions, get_client
+        from database.db import get_analysts, get_client
         analysts = get_analysts(order_by="weighted_score")
-        pub_scores = get_client().table("publication_scores").select("*").order("weighted_score", desc=True).execute().data
+        try:
+            pub_scores = get_client().table("publication_scores").select("*").order("weighted_score", desc=True).execute().data
+        except Exception:
+            pub_scores = []
     except Exception as e:
         st.error(f"Database error: {e}")
         return
 
     if not analysts:
-        st.info("No analyst data yet. Credibility scores build automatically as predictions close over time.")
+        st.info("No publication data yet — click **Rebuild Scores** to populate from closed predictions.")
         _show_explainer()
         return
 
@@ -59,6 +70,28 @@ def render():
         pub_df.columns = ["Publication", "Binary", "Weighted", "Predictions", "Win Rate"]
         pub_df["Win Rate"] = pub_df["Win Rate"].apply(lambda x: f"{(x or 0)*100:.1f}%")
         st.dataframe(pub_df, use_container_width=True, hide_index=True)
+
+
+def _rebuild_scores():
+    status = st.status("Rebuilding publication scores from closed predictions…", expanded=True)
+    try:
+        from services.analyst_service import rebuild_all_scores
+        stats = rebuild_all_scores()
+        if "error" in stats:
+            status.update(label=f"❌ Error: {stats['error']}", state="error", expanded=True)
+        else:
+            status.write(f"✅ Processed {stats['predictions_processed']} closed predictions")
+            status.write(f"📰 {stats['articles_linked']} article–prediction links created")
+            status.write(f"📊 {stats['publications_found']} publications scored")
+            if stats.get("skipped_no_cache"):
+                status.write(f"⚠️ {stats['skipped_no_cache']} predictions had no cached news (will populate on next scan)")
+            status.update(
+                label=f"Done — {stats['publications_found']} publications scored from {stats['predictions_processed']} predictions",
+                state="complete", expanded=False,
+            )
+            st.rerun()
+    except Exception as e:
+        status.update(label=f"❌ Failed: {e}", state="error", expanded=True)
 
 
 def _analyst_card(analyst: dict):
