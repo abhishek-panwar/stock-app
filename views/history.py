@@ -345,7 +345,12 @@ def _prediction_card(p: dict):
             actual_days = (v_dt - p_dt).days
         except Exception:
             pass
-    tenure_str = f"held {actual_days}d" if actual_days is not None else (f"~{days_to_target}d est." if days_to_target else "—")
+    if actual_days is None:
+        tenure_str = f"~{days_to_target}d est." if days_to_target else "—"
+    elif actual_days == 0:
+        tenure_str = "same day"
+    else:
+        tenure_str = f"held {actual_days}d"
 
     company      = p.get("company_name") or _get_company_name(ticker)
     outcome_icon = "🟢" if outcome == "WIN" else "🔴"
