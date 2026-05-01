@@ -156,6 +156,15 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     vwap_score = 3 if ind.get("price_above_vwap") else 1
 
     volume_raw = vsurge_score + obv_score + vwap_score
+    
+    # Penalize bearish OBV divergence on bullish trades
+    direction_preview = determine_direction(ind, 0)[0]
+    if direction_preview == "BULLISH" and obv == "DIVERGING_BEARISH":
+        volume_raw = max(0, volume_raw - 8)
+    # Reward bearish OBV confirmation on bearish trades
+    elif direction_preview == "BEARISH" and obv == "CONFIRMING":
+        volume_raw = min(volume_raw + 2, 20)  # +2 additional to the base 6
+    
     scores["volume"] = round(min(volume_raw / 20 * 20 * weights["volume"], 20), 1)
 
     # ── Group 5: Sentiment (10 pts max) ───────────────────────────────────────
