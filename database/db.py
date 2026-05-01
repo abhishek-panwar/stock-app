@@ -203,6 +203,13 @@ def get_predictions(filters: dict = None, limit: int = 500) -> list:
             q = q.eq(k, v)
     return q.execute().data
 
+def bulk_delete_open_predictions() -> int:
+    from datetime import datetime
+    result = get_client().table("predictions").update(
+        {"deleted_at": datetime.utcnow().isoformat()}
+    ).eq("outcome", "PENDING").is_("deleted_at", "null").execute()
+    return len(result.data)
+
 def soft_delete_prediction(prediction_id: str) -> None:
     from datetime import datetime
     get_client().table("predictions").update(

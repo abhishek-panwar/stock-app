@@ -67,7 +67,7 @@ def render():
     st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
 
     # ── Scanner buttons ───────────────────────────────────────────────────────
-    btn_c1, btn_c2, btn_c3, _ = st.columns([2, 2, 2, 4])
+    btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([2, 2, 2, 2])
     with btn_c1:
         if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top"):
             _trigger_scanner()
@@ -77,6 +77,18 @@ def render():
     with btn_c3:
         if st.button("📋 Last Scan Raw Log", type="secondary", key="view_raw_log_top"):
             _show_raw_log()
+    with btn_c4:
+        if st.button("🗑 Clear All Open Predictions", type="secondary", key="clear_predictions_top"):
+            if st.session_state.get("confirm_clear"):
+                from database.db import bulk_delete_open_predictions
+                count = bulk_delete_open_predictions()
+                st.success(f"Cleared {count} open predictions.")
+                st.session_state["confirm_clear"] = False
+                st.rerun()
+            else:
+                st.session_state["confirm_clear"] = True
+                st.warning("Click again to confirm — this will remove all open predictions.")
+                st.rerun()
 
     try:
         from database.db import get_predictions, get_scan_logs
