@@ -67,29 +67,38 @@ def run():
     saved = 0
     for s in suggestions:
         plain = s.get("plain_english", "").strip().lower()
-        # Skip only near-exact duplicates (first 80 chars match)
         if any(plain[:80] in ex.lower() and len(plain) > 20 for ex in existing_suggestions if ex):
             print(f"  Skipping duplicate: {plain[:80]}")
             continue
+        row = {
+            "created_at":            datetime.utcnow().isoformat(),
+            "analysis_date":         datetime.now(PT).strftime("%Y-%m-%d"),
+            "status":                "PENDING",
+            "failure_pattern":       result.get("failure_pattern", ""),
+            "success_pattern":       result.get("success_pattern", ""),
+            "timing_accuracy_note":  result.get("timing_accuracy_note", ""),
+            "suggestion_plain":      s.get("plain_english", ""),
+            "suggestion_technical":  s.get("technical_detail", ""),
+            "evidence_tickers":      ",".join(s.get("evidence_tickers", [])),
+            "projected_improvement": s.get("projected_improvement_pct", 0),
+            "total_analyzed":        len(closed),
+            "wins_analyzed":         len(wins),
+            "losses_analyzed":       len(losses),
+        }
         try:
-            insert_optimization({
-                "created_at":            datetime.utcnow().isoformat(),
-                "analysis_date":         datetime.now(PT).strftime("%Y-%m-%d"),
-                "status":                "PENDING",
-                "failure_pattern":       result.get("failure_pattern", ""),
-                "success_pattern":       result.get("success_pattern", ""),
-                "timing_accuracy_note":  result.get("timing_accuracy_note", ""),
-                "suggestion_plain":      s.get("plain_english", ""),
-                "suggestion_technical":  s.get("technical_detail", ""),
-                "evidence_tickers":      ",".join(s.get("evidence_tickers", [])),
-                "projected_improvement": s.get("projected_improvement_pct", 0),
-                "total_analyzed":        len(closed),
-                "wins_analyzed":         len(wins),
-                "losses_analyzed":       len(losses),
-            })
+            insert_optimization(row)
             saved += 1
+            print(f"  Saved: {plain[:80]}")
         except Exception as e:
-            log_error("failure_analyzer", f"Failed to save suggestion: {e}", level="WARNING")
+            # success_pattern column may not exist yet — retry without it
+            try:
+                row.pop("success_pattern", None)
+                insert_optimization(row)
+                saved += 1
+                print(f"  Saved (without success_pattern): {plain[:80]}")
+            except Exception as e2:
+                print(f"  Insert failed: {e2}")
+                log_error("failure_analyzer", f"Failed to save suggestion: {e2}", level="WARNING")
 
     print(f"  Saved {saved} new suggestions to optimization_queue.")
     return {"suggestions_saved": saved, "closed_analyzed": len(closed)}
