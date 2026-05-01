@@ -93,19 +93,18 @@ def render():
     st.markdown("### Manual Actions")
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("📨 Test Telegram"):
-            try:
-                from services.telegram_service import send_test_message
-                ok = send_test_message()
-                st.success("Message sent!") if ok else st.error("Failed — check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
-            except Exception as e:
-                st.error(f"Error: {e}")
+        tg_clicked = st.button("📨 Test Telegram")
     with col2:
-        if st.button("🚀 Run Scanner Now", type="primary"):
-            _run_scanner()
+        scan_clicked = st.button("🚀 Run Scanner Now", type="primary")
     with col3:
-        if st.button("✅ Run Verifier Now"):
-            _run_verifier()
+        verify_clicked = st.button("✅ Run Verifier Now")
+
+    if tg_clicked:
+        _test_telegram()
+    elif scan_clicked:
+        _run_scanner()
+    elif verify_clicked:
+        _run_verifier()
 
 
     st.markdown("---")
@@ -147,6 +146,23 @@ def render():
 
     st.markdown("---")
     _render_error_logs()
+
+
+def _test_telegram():
+    status = st.status("Sending Telegram test message…", expanded=True)
+    try:
+        from services.telegram_service import send_test_message
+        status.write("Calling send_test_message()…")
+        ok = send_test_message()
+        if ok:
+            status.update(label="✅ Telegram message sent!", state="complete", expanded=False)
+            st.success("Message sent!")
+        else:
+            status.update(label="❌ Telegram failed", state="error", expanded=True)
+            st.error("Failed — check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in your environment.")
+    except Exception as e:
+        status.update(label="❌ Telegram error", state="error", expanded=True)
+        st.error(f"Error: {e}")
 
 
 def _run_scanner():

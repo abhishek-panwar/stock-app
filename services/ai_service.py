@@ -52,10 +52,55 @@ def _insider_context(insider_buying: dict) -> str:
     return f"- 👤 INSIDER BUYING (MODERATE): {total_str} purchased by {n} insider(s) in last 14 days\n"
 
 
+def _social_velocity_context(social_velocity: dict) -> str:
+    if not social_velocity:
+        return ""
+    lines = []
+    st_vel = social_velocity.get("stocktwits_velocity_pct", 0)
+    rd_vel = social_velocity.get("reddit_velocity_pct", 0)
+    bull_ratio = social_velocity.get("stocktwits_bull_ratio", 0.5)
+    st_vol = social_velocity.get("stocktwits_volume", 0)
+
+    if st_vel >= 50 or rd_vel >= 50:
+        if st_vel >= 50:
+            lines.append(f"StockTwits mentions up {st_vel:+.0f}% vs prior 12h ({st_vol} messages)")
+        if rd_vel >= 50:
+            lines.append(f"Reddit mentions up {rd_vel:+.0f}% vs prior 12h")
+        if st_vel >= 200 or rd_vel >= 200:
+            lines.append(f"Sentiment: {bull_ratio*100:.0f}% bullish on StockTwits")
+            return "- 🔥 SOCIAL VELOCITY SPIKE:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+        return "- 📈 Social activity rising:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+    return ""
+
+
+def _fundamentals_context(fundamentals: dict) -> str:
+    if not fundamentals:
+        return ""
+    lines = []
+    if fundamentals.get("revenue_growth_pct") is not None:
+        lines.append(f"Revenue growth (YoY): {fundamentals['revenue_growth_pct']:+.0f}%")
+    if fundamentals.get("earnings_growth_pct") is not None:
+        lines.append(f"Earnings growth (YoY): {fundamentals['earnings_growth_pct']:+.0f}%")
+    if fundamentals.get("operating_margin_pct") is not None:
+        lines.append(f"Operating margin: {fundamentals['operating_margin_pct']:.0f}%")
+    if fundamentals.get("free_cashflow") is not None:
+        fcf = fundamentals["free_cashflow"]
+        fcf_str = f"${fcf/1e9:.1f}B" if abs(fcf) >= 1e9 else f"${fcf/1e6:.0f}M"
+        lines.append(f"Free cash flow: {fcf_str} ({'positive' if fcf > 0 else 'negative'})")
+    if fundamentals.get("peg_ratio") is not None:
+        lines.append(f"PEG ratio: {fundamentals['peg_ratio']:.2f} ({'undervalued' if fundamentals['peg_ratio'] < 1 else 'fair/expensive'})")
+    if fundamentals.get("trailing_pe") is not None:
+        lines.append(f"Trailing P/E: {fundamentals['trailing_pe']:.1f}")
+    if not lines:
+        return ""
+    return "- 📊 FUNDAMENTALS:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+
+
 def analyze_stock(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
                   score_data: dict, accuracy_context: str = "", ticker_history: str = "",
                   earnings_calendar: dict = None, analyst_upside_pct: float = None,
-                  insider_buying: dict = None) -> dict:
+                  insider_buying: dict = None, fundamentals: dict = None,
+                  social_velocity: dict = None) -> dict:
     """
     Single Claude call per stock — no timeframe hint.
     Claude reads the data and decides its own target price, stop, and days.
@@ -98,7 +143,7 @@ EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 - Earnings beats (last 4Q): {analyst.get('beats', 0)}
-{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}
+{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}{_social_velocity_context(social_velocity)}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
@@ -155,6 +200,91 @@ Only output the JSON."""
             "reasoning": f"Analysis unavailable: {str(e)}",
             "key_signals": [],
             "buy_window": "N/A",
+            "model": MODEL,
+        }
+
+
+def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
+                       score_data: dict, accuracy_context: str = "", ticker_history: str = "",
+                       earnings_calendar: dict = None, analyst_upside_pct: float = None,
+                       insider_buying: dict = None, fundamentals: dict = None) -> dict:
+    """
+    Long-term Claude prediction — Friday scan only.
+    Focuses on fundamental re-rating and institutional accumulation over 60-180 days.
+    Deliberately ignores short-term noise signals.
+    """
+    price  = indicators.get("price", 0)
+    ma50   = indicators.get("ma50") or price
+    ma200  = indicators.get("ma200") or price
+
+    prompt = f"""You are a long-term stock analyst. Analyze {ticker} for a 60–180 day position.
+IGNORE short-term noise (RSI, MACD, volume spikes). Focus on fundamental re-rating catalysts and institutional conviction.
+
+PRICE & TREND:
+- Current price: ${price:.2f}
+- MA50: ${ma50:.2f}  MA200: ${ma200:.2f}
+- Price vs MA50: {'ABOVE' if price > ma50 else 'BELOW'}  |  vs MA200: {'ABOVE' if price > ma200 else 'BELOW'}
+- ADX (trend strength): {indicators.get('adx', 20):.1f}
+
+FUNDAMENTALS & CATALYST:
+- Analyst consensus: {analyst.get('consensus', 'HOLD')}
+- Earnings beats (last 4Q): {analyst.get('beats', 0)}
+{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
+LONG-TERM SIGNAL SCORE: {score_data.get('total', 0)}/100
+Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
+
+{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
+
+TASK: Make a single long-term prediction (60–180 trading days).
+- Target should reflect a fundamental re-rating, not a technical bounce
+- Stop loss should be wide enough to survive normal volatility (not ATR-based — use % of price)
+- Minimum target move: 15%. If you can't justify 15%, say NEUTRAL
+- If there is no fundamental catalyst, say NEUTRAL with confidence < 40
+
+Respond in this exact JSON:
+{{
+  "direction": "BULLISH" | "BEARISH" | "NEUTRAL",
+  "position": "LONG" | "SHORT" | "HOLD",
+  "confidence": <0-100>,
+  "target_price": <float — actual price target>,
+  "stop_price": <float — wide stop, typically 10-15% from entry>,
+  "days_to_target": <integer — 60 to 180 trading days>,
+  "timing_rationale": "<1 sentence: what fundamental catalyst drives the timing>",
+  "reasoning": "<3-4 sentences: what fundamental signals justify this long-term view>",
+  "key_signals": ["signal1", "signal2", "signal3"],
+  "buy_window": "Any time — long-term position, entry timing less critical"
+}}
+
+Only output the JSON."""
+
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        result["model"] = MODEL
+        return result
+    except Exception as e:
+        return {
+            "direction": "NEUTRAL",
+            "position": "HOLD",
+            "confidence": 0,
+            "target_price": None,
+            "stop_price": None,
+            "days_to_target": None,
+            "timing_rationale": "",
+            "reasoning": f"Analysis unavailable: {str(e)}",
+            "key_signals": [],
+            "buy_window": "Any time",
             "model": MODEL,
         }
 

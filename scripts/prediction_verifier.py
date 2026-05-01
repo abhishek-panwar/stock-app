@@ -65,7 +65,7 @@ def run():
 
         outcome = None
         closed_reason = None
-        return_pct = round(((current - entry) / entry) * 100, 2) if entry > 0 else 0
+        current_return_pct = round(((current - entry) / entry) * 100, 2) if entry > 0 else 0
 
         if direction == "BULLISH":
             if current >= target_low:
@@ -73,7 +73,7 @@ def run():
             elif current <= stop_loss and stop_loss > 0:
                 outcome, closed_reason = "LOSS", "STOP_LOSS"
             elif expired:
-                outcome = "WIN" if return_pct >= WIN_THRESHOLD_PCT else "LOSS"
+                outcome = "WIN" if current_return_pct >= WIN_THRESHOLD_PCT else "LOSS"
                 closed_reason = "EXPIRED"
         elif direction == "BEARISH":
             if current <= target_high and target_high > 0:
@@ -81,18 +81,41 @@ def run():
             elif current >= stop_loss and stop_loss > 0:
                 outcome, closed_reason = "LOSS", "STOP_LOSS"
             elif expired:
-                outcome = "WIN" if return_pct <= -WIN_THRESHOLD_PCT else "LOSS"
+                outcome = "WIN" if current_return_pct <= -WIN_THRESHOLD_PCT else "LOSS"
                 closed_reason = "EXPIRED"
         elif expired:
-            outcome = "WIN" if abs(return_pct) >= WIN_THRESHOLD_PCT else "LOSS"
+            outcome = "WIN" if abs(current_return_pct) >= WIN_THRESHOLD_PCT else "LOSS"
             closed_reason = "EXPIRED"
+
+        # Compute return_pct at the level that was actually hit, not the current price.
+        # EXPIRED uses current price since no specific level was triggered.
+        if outcome and entry > 0:
+            if closed_reason == "TARGET_HIT":
+                close_price = target_low if direction == "BULLISH" else target_high
+                return_pct = round((close_price - entry) / entry * 100, 2) if direction == "BULLISH" \
+                    else round((entry - close_price) / entry * 100, 2)
+            elif closed_reason == "STOP_LOSS":
+                return_pct = round((stop_loss - entry) / entry * 100, 2) if direction == "BULLISH" \
+                    else round((entry - stop_loss) / entry * 100, 2)
+            else:
+                return_pct = current_return_pct if direction != "BEARISH" \
+                    else round((entry - current) / entry * 100, 2)
+        else:
+            return_pct = 0
 
         if outcome:
             try:
+                if closed_reason == "TARGET_HIT":
+                    price_at_close = target_low if direction == "BULLISH" else target_high
+                elif closed_reason == "STOP_LOSS":
+                    price_at_close = stop_loss
+                else:
+                    price_at_close = current
+
                 update_prediction(pred["id"], {
                     "outcome": outcome,
                     "closed_reason": closed_reason,
-                    "price_at_close": current,
+                    "price_at_close": price_at_close,
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
@@ -100,11 +123,11 @@ def run():
                 print(f"  {ticker} {timeframe}: {outcome} ({return_pct:+.2f}%) — {closed_reason}")
 
                 if closed_reason == "STOP_LOSS":
-                    ok = send_stop_loss_alert(ticker, entry, current, abs(return_pct))
+                    ok = send_stop_loss_alert(ticker, entry, price_at_close, abs(return_pct))
                     if not ok:
                         log_error("telegram", f"Stop loss alert failed for {ticker}", ticker=ticker, level="WARNING")
                 elif closed_reason == "TARGET_HIT":
-                    ok = send_target_hit_alert(ticker, entry, current, return_pct)
+                    ok = send_target_hit_alert(ticker, entry, price_at_close, return_pct)
                     if not ok:
                         log_error("telegram", f"Target hit alert failed for {ticker}", ticker=ticker, level="WARNING")
             except Exception as e:

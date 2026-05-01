@@ -31,13 +31,12 @@ image = (
 secrets = [modal.Secret.from_name("stock-app-secrets")]
 
 
-# ── Nightly Scanner ────────────────────────────────────────────────────────────
-# Tonight: fires at 3:10 AM UTC. Change to "0 3 * * *" for 8 PM PT tomorrow.
+# ── Nightly Scanner — Sun–Fri (Sun night for Monday open, Fri for long-term) ──
 @app.function(
     image=image,
     secrets=secrets,
     timeout=1200,
-    schedule=modal.Cron("0 3 * * *"),
+    schedule=modal.Cron("0 3 * * 0-5"),  # 7:00 PM PT Sun–Fri
 )
 def nightly_scanner():
     import sys
@@ -74,19 +73,7 @@ def feedback_engine():
     s.run()
 
 
-# ── Health Monitor ─────────────────────────────────────────────────────────────
-@app.function(
-    image=image,
-    secrets=secrets,
-    timeout=300,
-    schedule=modal.Cron("0 13 * * 1"),  # 6:00 AM PT Mondays only
-)
-def health_monitor():
-    import sys
-    sys.path.insert(0, "/root/app")
-    import scripts.health_monitor as s
-    s.run()
-
+# Health Monitor moved to GitHub Actions (health_check.yml) to free up Modal slot.
 
 # Opportunity Analyzer moved to GitHub Actions (Modal free tier limit is 5 crons)
 
@@ -101,6 +88,21 @@ def failure_analyzer():
     import sys
     sys.path.insert(0, "/root/app")
     import scripts.failure_analyzer as s
+    s.run()
+
+
+# ── Fundamentals Fetcher — Fri/Sat/Sun 8 AM PT ────────────────────────────────
+# AV budget: Fri=24 calls, Sat=25, Sun=25 (script handles this automatically)
+@app.function(
+    image=image,
+    secrets=secrets,
+    timeout=600,
+    schedule=modal.Cron("0 15 * * 5,6,0"),  # 8:00 AM PT Fri, Sat, Sun
+)
+def fundamentals_fetcher():
+    import sys
+    sys.path.insert(0, "/root/app")
+    import scripts.fundamentals_fetcher as s
     s.run()
 
 

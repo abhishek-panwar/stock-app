@@ -69,26 +69,28 @@ def render():
     # ── Scanner buttons ───────────────────────────────────────────────────────
     btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([2, 2, 2, 2])
     with btn_c1:
-        if st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top"):
-            _trigger_scanner()
+        run_clicked = st.button("🚀 Run Nightly Scanner", type="primary", key="run_scanner_top")
     with btn_c2:
-        if st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_top"):
-            _trigger_scanner(debug=True)
+        debug_clicked = st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_top")
     with btn_c3:
-        if st.button("📋 Last Scan Raw Log", type="secondary", key="view_raw_log_top"):
-            _show_raw_log()
+        log_clicked = st.button("📋 Last Scan Raw Log", type="secondary", key="view_raw_log_top")
     with btn_c4:
-        if st.button("🗑 Clear All Open Predictions", type="secondary", key="clear_predictions_top"):
-            if st.session_state.get("confirm_clear"):
-                from database.db import bulk_delete_open_predictions
-                count = bulk_delete_open_predictions()
-                st.success(f"Cleared {count} open predictions.")
-                st.session_state["confirm_clear"] = False
-                st.rerun()
-            else:
-                st.session_state["confirm_clear"] = True
-                st.warning("Click again to confirm — this will remove all open predictions.")
-                st.rerun()
+        clear_clicked = st.button("🗑 Clear All Open Predictions", type="secondary", key="clear_predictions_top")
+
+    # Handle button actions outside column context so st.status() renders correctly
+    if run_clicked:
+        _trigger_scanner()
+    elif debug_clicked:
+        _trigger_scanner(debug=True)
+    elif log_clicked:
+        _show_raw_log()
+    elif clear_clicked:
+        if st.session_state.get("confirm_clear"):
+            _clear_open_predictions()
+        else:
+            st.session_state["confirm_clear"] = True
+            st.warning("Click again to confirm — this will remove all open predictions.")
+            st.rerun()
 
     try:
         from database.db import get_predictions, get_scan_logs
@@ -367,7 +369,8 @@ def _run_manual_prediction(ticker: str):
 
     status = st.status(f"Analyzing {ticker}...", expanded=True)
     try:
-        from services.yfinance_service import get_price_history, get_ticker_info
+        from services.yfinance_service import get_price_history, get_ticker_info, get_fundamentals
+        from services.social_service import get_social_velocity
         from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_analyst_price_target
         from services.edgar_service import get_insider_buying
         from indicators.technicals import compute_all
@@ -393,7 +396,7 @@ def _run_manual_prediction(ticker: str):
             status.update(label=f"❌ Could not compute indicators for {ticker}", state="error")
             return
 
-        status.write("Fetching sentiment, analyst data, insider buying, earnings...")
+        status.write("Fetching sentiment, analyst data, insider buying, earnings, fundamentals, social velocity...")
         sentiment      = get_news_sentiment(ticker, hours=48)
         social         = get_social_sentiment(ticker)
         sentiment["mentions"] = social.get("mentions", 0)
@@ -401,6 +404,8 @@ def _run_manual_prediction(ticker: str):
         earnings       = get_earnings_history(ticker)
         analyst_target = get_analyst_price_target(ticker)
         insider_buying = get_insider_buying(ticker)
+        fundamentals   = get_fundamentals(ticker)
+        social_vel     = get_social_velocity(ticker)
         info           = get_ticker_info(ticker)
 
         from database.db import get_earnings_calendar_from_db
@@ -414,14 +419,17 @@ def _run_manual_prediction(ticker: str):
         score_data = compute_signal_score(
             ind, sentiment, analyst, earnings,
             analyst_target=analyst_target, insider_buying=insider_buying,
-            earnings_calendar=earnings_calendar,
+            earnings_calendar=earnings_calendar, fundamentals=fundamentals,
+            social_velocity=social_vel,
         )
 
         status.write(f"Score: {score_data['total']}/100 — sending to Claude...")
         ai = analyze_stock(ticker, ind, sentiment, analyst, score_data,
                            earnings_calendar=earnings_calendar,
                            analyst_upside_pct=score_data.get("analyst_upside_pct"),
-                           insider_buying=insider_buying)
+                           insider_buying=insider_buying,
+                           fundamentals=fundamentals,
+                           social_velocity=social_vel)
 
         direction  = ai.get("direction", "NEUTRAL")
         confidence = ai.get("confidence", 50)
@@ -779,6 +787,27 @@ def _show_empty_state():
     with c2:
         if st.button("🐛 Run Nightly Scanner Debug", type="secondary", key="run_scanner_debug_empty"):
             _trigger_scanner(debug=True)
+
+
+def _clear_open_predictions():
+    status = st.status("Clearing open predictions…", expanded=True)
+    try:
+        from database.db import bulk_delete_open_predictions
+        import builtins
+        _orig = builtins.print
+        builtins.print = lambda *a, **k: (status.write(" ".join(str(x) for x in a)), _orig(*a, **k))
+        try:
+            count = bulk_delete_open_predictions()
+        finally:
+            builtins.print = _orig
+        print(f"Soft-deleted {count} open predictions.")
+        status.update(label=f"✅ Cleared {count} predictions!", state="complete", expanded=False)
+        st.success(f"Removed {count} open predictions.")
+        st.session_state["confirm_clear"] = False
+        st.rerun()
+    except Exception as e:
+        status.update(label="❌ Failed", state="error", expanded=True)
+        st.error(f"Error: {e}")
 
 
 def _trigger_scanner(debug: bool = False):

@@ -79,6 +79,48 @@ def is_market_open() -> bool:
     return market_open <= now_pt <= market_close
 
 
+def get_fundamentals(ticker: str) -> dict:
+    """
+    Returns cached fundamentals (fetched Saturday by fundamentals_fetcher).
+    Falls back to a live yfinance fetch if cache is empty (e.g. new ticker).
+    """
+    from database.db import get_cache, set_cache
+    cached = get_cache(f"fundamentals_{ticker}")
+    if cached:
+        return cached
+
+    # Live fallback — only hits yfinance, no AV call
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+        price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+        rev_growth = info.get("revenueGrowth")
+        earn_growth = info.get("earningsGrowth")
+        mean_target = info.get("targetMeanPrice")
+        result = {
+            "ticker": ticker,
+            "price": price,
+            "revenue_growth_pct": round(rev_growth * 100, 1) if rev_growth is not None else None,
+            "earnings_growth_pct": round(earn_growth * 100, 1) if earn_growth is not None else None,
+            "gross_margin_pct": round(info.get("grossMargins", 0) * 100, 1) if info.get("grossMargins") else None,
+            "operating_margin_pct": round(info.get("operatingMargins", 0) * 100, 1) if info.get("operatingMargins") else None,
+            "profit_margin_pct": round(info.get("profitMargins", 0) * 100, 1) if info.get("profitMargins") else None,
+            "free_cashflow": info.get("freeCashflow"),
+            "trailing_pe": round(info.get("trailingPE"), 1) if info.get("trailingPE") else None,
+            "forward_pe": round(info.get("forwardPE"), 1) if info.get("forwardPE") else None,
+            "peg_ratio": round(info.get("pegRatio"), 2) if info.get("pegRatio") else None,
+            "price_to_book": round(info.get("priceToBook"), 2) if info.get("priceToBook") else None,
+            "analyst_mean_target": mean_target,
+            "analyst_upside_pct": round((mean_target - price) / price * 100, 1) if mean_target and price else None,
+            "analyst_count": info.get("numberOfAnalystOpinions"),
+            "source": "yfinance_live",
+        }
+        set_cache(f"fundamentals_{ticker}", result, ttl_hours=48)
+        return result
+    except Exception:
+        return {}
+
+
 def get_price_momentum(ticker: str, days: int = 3) -> float | None:
     """Returns % price change over last N days."""
     df = get_price_history(ticker, period="1mo")

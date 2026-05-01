@@ -26,6 +26,88 @@ def _expiry(p: dict):
         return "—", None
 
 
+def _recalculate_metrics():
+    status = st.status("Recalculating metrics with new logic…", expanded=True)
+    try:
+        from database.db import get_predictions, update_prediction
+        all_preds = get_predictions(limit=1000)
+        closed = [p for p in all_preds if p.get("outcome") in ("WIN", "LOSS")]
+
+        status.write(f"Found {len(closed)} closed predictions to recalculate…")
+
+        updated = 0
+        skipped = 0
+
+        for p in closed:
+            entry      = p.get("price_at_prediction") or 0
+            direction  = p.get("direction", "NEUTRAL")
+            target_low = p.get("target_low") or 0
+            target_high= p.get("target_high") or 0
+            stop_loss  = p.get("stop_loss") or 0
+            closed_reason = p.get("closed_reason", "")
+
+            if entry <= 0 or not closed_reason:
+                skipped += 1
+                continue
+
+            if closed_reason == "TARGET_HIT":
+                if direction == "BULLISH" and target_low > 0:
+                    price_at_close = target_low
+                    return_pct = round((target_low - entry) / entry * 100, 2)
+                elif direction == "BEARISH" and target_high > 0:
+                    price_at_close = target_high
+                    return_pct = round((entry - target_high) / entry * 100, 2)
+                else:
+                    skipped += 1
+                    continue
+
+            elif closed_reason == "STOP_LOSS":
+                if stop_loss <= 0:
+                    skipped += 1
+                    continue
+                price_at_close = stop_loss
+                if direction == "BULLISH":
+                    return_pct = round((stop_loss - entry) / entry * 100, 2)
+                elif direction == "BEARISH":
+                    return_pct = round((entry - stop_loss) / entry * 100, 2)
+                else:
+                    skipped += 1
+                    continue
+
+            else:
+                # EXPIRED — keep current price_at_close as-is, just recompute return_pct
+                close_price = p.get("price_at_close") or 0
+                if close_price <= 0:
+                    skipped += 1
+                    continue
+                price_at_close = close_price
+                if direction == "BEARISH":
+                    return_pct = round((entry - close_price) / entry * 100, 2)
+                else:
+                    return_pct = round((close_price - entry) / entry * 100, 2)
+
+            try:
+                update_prediction(p["id"], {
+                    "price_at_close": price_at_close,
+                    "return_pct":     return_pct,
+                })
+                updated += 1
+                status.write(f"  {p['ticker']} ({direction}, {closed_reason}): {return_pct:+.2f}%")
+            except Exception as e:
+                status.write(f"  {p['ticker']}: error — {e}")
+                skipped += 1
+
+        status.update(
+            label=f"Done — {updated} updated, {skipped} skipped",
+            state="complete",
+            expanded=False,
+        )
+        st.rerun()
+
+    except Exception as e:
+        status.update(label=f"Error: {e}", state="error", expanded=True)
+
+
 def render():
     st.title("📜 Closed Predictions")
 
@@ -42,6 +124,15 @@ def render():
     if not all_closed:
         st.info("No closed predictions yet. Predictions are closed automatically when target or stop loss is hit, or manually from the main dashboard.")
         return
+
+    # ── Recalculate button ────────────────────────────────────────────────────
+    recalc_clicked = st.button(
+        "🔄 Recalculate All Metrics",
+        help="Recomputes return_pct and price_at_close using target/stop levels instead of market price",
+        type="secondary",
+    )
+    if recalc_clicked:
+        _recalculate_metrics()
 
     # ── Global success rate banner ────────────────────────────────────────────
     all_wins   = [p for p in all_closed if p.get("outcome") == "WIN"]

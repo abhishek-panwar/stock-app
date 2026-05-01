@@ -4,7 +4,8 @@ FORMULA_VERSION = "v1.0"
 def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: dict,
                          timeframe: str = "short", source: str = "nasdaq100",
                          earnings_calendar: dict = None, analyst_target: dict = None,
-                         insider_buying: dict = None) -> dict:
+                         insider_buying: dict = None, fundamentals: dict = None,
+                         social_velocity: dict = None) -> dict:
     """
     Returns a score dict with breakdown and total (0–100).
     timeframe param kept for backwards compatibility but weights are uniform.
@@ -173,7 +174,7 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     
     scores["volume"] = round(min(volume_raw / 20 * 20 * weights["volume"], 20), 1)
 
-    # ── Group 5: Sentiment (10 pts max) ───────────────────────────────────────
+    # ── Group 5: Sentiment (20 pts max) ───────────────────────────────────────
     news_s = sentiment.get("score", 0)
     news_score = 0
     if news_s > 0.6:
@@ -185,16 +186,53 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
     else:
         news_score = 0
 
-    social_score = 0
+    # Finnhub static mentions (reduced weight — velocity signals carry more)
+    mentions_score = 0
     mentions = sentiment.get("mentions", 0)
     if mentions > 50:
-        social_score = 4
+        mentions_score = 2
     elif mentions > 20:
-        social_score = 2
+        mentions_score = 1
     else:
-        social_score = 1
+        mentions_score = 0
 
-    scores["sentiment"] = round(min((news_score + social_score) / 10 * 10 * weights["sentiment"], 10), 1)
+    # StockTwits velocity (0–6 pts)
+    st_score = 0
+    if social_velocity:
+        st_vel = social_velocity.get("stocktwits_velocity_pct", 0)
+        if st_vel >= 500:
+            st_score = 6
+        elif st_vel >= 200:
+            st_score = 5
+        elif st_vel >= 50:
+            st_score = 2
+        else:
+            st_score = 0
+
+    # Reddit velocity (0–4 pts)
+    rd_score = 0
+    if social_velocity:
+        rd_vel = social_velocity.get("reddit_velocity_pct", 0)
+        if rd_vel >= 500:
+            rd_score = 4
+        elif rd_vel >= 200:
+            rd_score = 3
+        elif rd_vel >= 50:
+            rd_score = 2
+        else:
+            rd_score = 0
+
+    # StockTwits bull/bear ratio (0–2 pts) — only meaningful on a velocity spike
+    bull_score = 0
+    if social_velocity and (st_score >= 2 or rd_score >= 2):
+        bull_ratio = social_velocity.get("stocktwits_bull_ratio", 0.5)
+        if bull_ratio >= 0.75:
+            bull_score = 2
+        elif bull_ratio >= 0.6:
+            bull_score = 1
+
+    sentiment_raw = news_score + mentions_score + st_score + rd_score + bull_score
+    scores["sentiment"] = round(min(sentiment_raw, 20), 1)
 
     # ── Group 6: External (10 pts max) ────────────────────────────────────────
     consensus = analyst.get("consensus", "HOLD")
@@ -259,6 +297,42 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
             bonus += 8
             bonus_reasons.append(f"Insider buying MODERATE — ${total_usd/1e3:.0f}K by {n} insider(s) (+8)")
 
+    # ── Phase 3: Fundamental Scoring Bonus ────────────────────────────────────
+    if fundamentals:
+        rev_growth = fundamentals.get("revenue_growth_pct")
+        earn_growth = fundamentals.get("earnings_growth_pct")
+        op_margin = fundamentals.get("operating_margin_pct")
+        fcf = fundamentals.get("free_cashflow")
+        peg = fundamentals.get("peg_ratio")
+
+        # Strong revenue growth acceleration
+        if rev_growth is not None and rev_growth >= 20:
+            bonus += 6
+            bonus_reasons.append(f"Revenue growth {rev_growth:.0f}% YoY (+6)")
+        elif rev_growth is not None and rev_growth >= 10:
+            bonus += 3
+            bonus_reasons.append(f"Revenue growth {rev_growth:.0f}% YoY (+3)")
+
+        # Earnings growth
+        if earn_growth is not None and earn_growth >= 20:
+            bonus += 4
+            bonus_reasons.append(f"Earnings growth {earn_growth:.0f}% YoY (+4)")
+
+        # Healthy and expanding operating margins
+        if op_margin is not None and op_margin >= 20:
+            bonus += 3
+            bonus_reasons.append(f"Strong operating margin {op_margin:.0f}% (+3)")
+
+        # Positive free cash flow
+        if fcf is not None and fcf > 0:
+            bonus += 2
+            bonus_reasons.append(f"Positive FCF ${fcf/1e9:.1f}B (+2)")
+
+        # PEG < 1 = undervalued growth
+        if peg is not None and 0 < peg < 1:
+            bonus += 4
+            bonus_reasons.append(f"PEG ratio {peg:.2f} — undervalued growth (+4)")
+
     base = sum(scores.values())
     total = min(round(base + bonus), 100)
 
@@ -306,6 +380,160 @@ def compute_signal_score(ind: dict, sentiment: dict, analyst: dict, earnings: di
         "conviction_pass": conviction_pass,
     }
 
+
+
+def compute_long_score(ind: dict, sentiment: dict, analyst: dict, earnings: dict,
+                       source: str = "nasdaq100", earnings_calendar: dict = None,
+                       analyst_target: dict = None, insider_buying: dict = None,
+                       fundamentals: dict = None) -> dict:
+    """
+    Long-term scoring (Friday scan) — 60-180 day moves.
+    De-weights short-term technicals, heavily weights fundamentals + insider + analyst conviction.
+    Social velocity deliberately excluded — it's a short-term signal.
+
+    Groups (100 pts total):
+      Fundamentals  30 pts  ← revenue growth, margins, FCF, PEG
+      Insider       25 pts  ← strongest long-term signal
+      Analyst       20 pts  ← upside %, consecutive upgrades
+      Earnings      15 pts  ← consecutive beats, beat magnitude
+      Trend          10 pts  ← MA200 position, golden cross (only meaningful trend signals)
+    """
+    scores = {}
+    bonus = 0
+    bonus_reasons = []
+
+    price = ind.get("price", 0)
+
+    # ── Group 1: Fundamentals (30 pts) ────────────────────────────────────────
+    fund_score = 0
+    if fundamentals:
+        rev_growth  = fundamentals.get("revenue_growth_pct")
+        earn_growth = fundamentals.get("earnings_growth_pct")
+        op_margin   = fundamentals.get("operating_margin_pct")
+        fcf         = fundamentals.get("free_cashflow")
+        peg         = fundamentals.get("peg_ratio")
+
+        if rev_growth is not None:
+            if rev_growth >= 25:   fund_score += 10
+            elif rev_growth >= 15: fund_score += 7
+            elif rev_growth >= 8:  fund_score += 4
+            elif rev_growth < 0:   fund_score -= 3
+
+        if earn_growth is not None:
+            if earn_growth >= 25:   fund_score += 8
+            elif earn_growth >= 10: fund_score += 5
+            elif earn_growth < 0:   fund_score -= 2
+
+        if op_margin is not None:
+            if op_margin >= 25:   fund_score += 6
+            elif op_margin >= 15: fund_score += 4
+            elif op_margin >= 5:  fund_score += 2
+
+        if fcf is not None and fcf > 0:
+            fund_score += 4
+
+        if peg is not None and 0 < peg < 1:
+            fund_score += 6
+            bonus_reasons.append(f"PEG {peg:.2f} — undervalued growth")
+        elif peg is not None and 1 <= peg < 2:
+            fund_score += 2
+
+    scores["fundamentals"] = round(min(max(fund_score, 0), 30), 1)
+
+    # ── Group 2: Insider Buying (25 pts) ──────────────────────────────────────
+    insider_score = 0
+    if insider_buying and insider_buying.get("has_insider_buying"):
+        strength  = insider_buying.get("signal_strength", "NONE")
+        total_usd = insider_buying.get("total_purchased_usd", 0)
+        n         = insider_buying.get("num_insiders", 1)
+        if strength == "STRONG":
+            insider_score = 25
+            total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1e6 else f"${total_usd/1e3:.0f}K"
+            bonus_reasons.append(f"Insider buying STRONG — {total_str} by {n} insider(s)")
+        elif strength == "MODERATE":
+            insider_score = 15
+            total_str = f"${total_usd/1e3:.0f}K"
+            bonus_reasons.append(f"Insider buying MODERATE — {total_str} by {n} insider(s)")
+        else:
+            insider_score = 8
+    scores["insider"] = insider_score
+
+    # ── Group 3: Analyst Conviction (20 pts) ──────────────────────────────────
+    analyst_score = 0
+    consensus = analyst.get("consensus", "HOLD")
+    analyst_score += {"STRONG_BUY": 10, "BUY": 7, "HOLD": 3, "SELL": 0, "STRONG_SELL": 0}.get(consensus, 3)
+
+    if analyst_target and analyst_target.get("mean_target") and price > 0:
+        upside_pct = (analyst_target["mean_target"] - price) / price * 100
+        if upside_pct >= 30:
+            analyst_score += 10
+            bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% — strong conviction")
+        elif upside_pct >= 20:
+            analyst_score += 7
+            bonus_reasons.append(f"Analyst upside {upside_pct:.0f}%")
+        elif upside_pct >= 10:
+            analyst_score += 4
+
+    scores["analyst"] = round(min(analyst_score, 20), 1)
+
+    # ── Group 4: Earnings Quality (15 pts) ────────────────────────────────────
+    earnings_score = 0
+    consecutive = earnings.get("consecutive_beats", 0)
+    if consecutive >= 4:
+        earnings_score = 15
+        bonus_reasons.append(f"{consecutive} consecutive earnings beats — institutional re-rating likely")
+    elif consecutive >= 3:
+        earnings_score = 11
+        bonus_reasons.append(f"{consecutive} consecutive earnings beats")
+    elif consecutive >= 2:
+        earnings_score = 7
+    elif consecutive >= 1:
+        earnings_score = 4
+
+    # Upcoming earnings is a catalyst for long-term too (next quarter beat likely)
+    if earnings_calendar and earnings_calendar.get("has_upcoming") and consecutive >= 2:
+        earnings_score = min(earnings_score + 3, 15)
+
+    scores["earnings"] = earnings_score
+
+    # ── Group 5: Trend (10 pts) — only long-term trend signals ───────────────
+    trend_score = 0
+    ma50  = ind.get("ma50") or price
+    ma200 = ind.get("ma200") or price
+
+    if price > ma200:
+        trend_score += 5
+    if price > ma50 and ma50 > ma200:
+        trend_score += 3  # golden cross on longer MAs
+    if ind.get("adx", 0) > 25:
+        trend_score += 2
+
+    scores["trend"] = round(min(trend_score, 10), 1)
+
+    # ── Source bonus ──────────────────────────────────────────────────────────
+    if source == "both":
+        bonus += 2
+        bonus_reasons.append("Dual-list appearance (+2)")
+
+    base  = sum(scores.values())
+    total = min(round(base + bonus), 100)
+
+    analyst_upside_pct = None
+    if analyst_target and analyst_target.get("mean_target") and price > 0:
+        analyst_upside_pct = round((analyst_target["mean_target"] - price) / price * 100, 1)
+
+    return {
+        "total": total,
+        "base": round(base),
+        "bonus": bonus,
+        "bonus_reasons": bonus_reasons,
+        "breakdown": scores,
+        "formula_version": FORMULA_VERSION + "_long",
+        "analyst_upside_pct": analyst_upside_pct,
+        "earnings_calendar": earnings_calendar,
+        "insider_buying": insider_buying,
+        "conviction_pass": total >= 40,  # lower bar — fundamentals need time to play out
+    }
 
 
 def determine_direction(ind: dict, score: int) -> tuple[str, str]:

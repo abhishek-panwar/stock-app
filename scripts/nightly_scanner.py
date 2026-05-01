@@ -12,13 +12,14 @@ load_dotenv()
 
 PT = pytz.timezone("America/Los_Angeles")
 
-from services.yfinance_service import get_price_history, get_ticker_info
+from services.yfinance_service import get_price_history, get_ticker_info, get_fundamentals
+from services.social_service import get_social_velocity
 from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_upcoming_earnings_universe, get_analyst_price_target
 from services.edgar_service import get_insider_buying
 from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window, get_asset_class
 from indicators.technicals import compute_all
-from indicators.scoring import compute_signal_score, compute_buy_range, FORMULA_VERSION
-from services.ai_service import analyze_stock, estimate_cost
+from indicators.scoring import compute_signal_score, compute_long_score, compute_buy_range, FORMULA_VERSION
+from services.ai_service import analyze_stock, analyze_stock_long, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations, save_earnings_calendar
 
@@ -130,6 +131,8 @@ def run(debug: bool = False):
             earnings       = get_earnings_history(ticker)
             analyst_target = get_analyst_price_target(ticker)
             insider_buying = get_insider_buying(ticker, days_back=14)
+            fundamentals   = get_fundamentals(ticker)
+            social_vel     = get_social_velocity(ticker)
             info           = get_ticker_info(ticker)
 
             # Earnings calendar from bulk lookup — no per-stock API call
@@ -145,7 +148,8 @@ def run(debug: bool = False):
             score_data = compute_signal_score(
                 ind, sentiment, analyst, earnings, source=source,
                 earnings_calendar=earnings_calendar, analyst_target=analyst_target,
-                insider_buying=insider_buying,
+                insider_buying=insider_buying, fundamentals=fundamentals,
+                social_velocity=social_vel,
             )
             total = score_data["total"]
 
@@ -179,6 +183,8 @@ def run(debug: bool = False):
                 "earnings_calendar": earnings_calendar,
                 "analyst_upside_pct": score_data.get("analyst_upside_pct"),
                 "insider_buying": insider_buying,
+                "fundamentals": fundamentals,
+                "social_velocity": social_vel,
             })
 
         except Exception as e:
@@ -205,7 +211,35 @@ def run(debug: bool = False):
             seen_groups.append(in_group)
         deduped.append(s)
 
-    top_stocks = deduped[:MAX_STOCKS]
+    # ── Friday = long-term scan; Sun–Thu = short-term scan ───────────────────
+    is_friday = start_time.weekday() == 4  # 0=Mon … 4=Fri
+    scan_mode = "long" if (is_friday and not debug) else "short"
+    print(f"Scan mode: {scan_mode.upper()} ({'Friday long-term' if scan_mode == 'long' else 'short-term'})")
+
+    if scan_mode == "long":
+        # Re-score all collected items with long-term scorer
+        long_scored = []
+        for item in deduped:
+            try:
+                long_score_data = compute_long_score(
+                    item["indicators"], item["sentiment"], item["analyst"], item["earnings"],
+                    source=item["source"],
+                    earnings_calendar=item.get("earnings_calendar"),
+                    analyst_target=None,  # analyst_target not stored in scored — use upside from fundamentals
+                    insider_buying=item.get("insider_buying"),
+                    fundamentals=item.get("fundamentals"),
+                )
+                if long_score_data["total"] >= 30:  # lower threshold for long-term
+                    long_scored.append({**item, "score": long_score_data["total"], "score_data": long_score_data})
+            except Exception as e:
+                log_error("scanner", f"Long score error {item['ticker']}: {e}", level="WARNING")
+
+        long_scored.sort(key=lambda x: x["score"], reverse=True)
+        top_stocks = long_scored[:MAX_STOCKS]
+        print(f"Long-term scorer: {len(long_scored)} candidates → top {len(top_stocks)} to Claude")
+    else:
+        top_stocks = deduped[:MAX_STOCKS]
+
     scan_stats["stocks_analyzed"] = len(top_stocks)
     print(f"Universe: {universe_total} stocks scanned · {nasdaq_count} Nasdaq earnings + {hot_count} hot → {overlap_count} overlap")
     print(f"Total Claude batch: {len(top_stocks)} stocks")
@@ -229,14 +263,27 @@ def run(debug: bool = False):
 
         try:
             ticker_history = _get_ticker_history(ticker)
-            ai = analyze_stock(
-                ticker, ind, sentiment, analyst, score_data,
-                accuracy_context=accuracy_context,
-                ticker_history=ticker_history,
-                earnings_calendar=item.get("earnings_calendar"),
-                analyst_upside_pct=item.get("analyst_upside_pct"),
-                insider_buying=item.get("insider_buying"),
-            )
+            if scan_mode == "long":
+                ai = analyze_stock_long(
+                    ticker, ind, sentiment, analyst, score_data,
+                    accuracy_context=accuracy_context,
+                    ticker_history=ticker_history,
+                    earnings_calendar=item.get("earnings_calendar"),
+                    analyst_upside_pct=item.get("analyst_upside_pct"),
+                    insider_buying=item.get("insider_buying"),
+                    fundamentals=item.get("fundamentals"),
+                )
+            else:
+                ai = analyze_stock(
+                    ticker, ind, sentiment, analyst, score_data,
+                    accuracy_context=accuracy_context,
+                    ticker_history=ticker_history,
+                    earnings_calendar=item.get("earnings_calendar"),
+                    analyst_upside_pct=item.get("analyst_upside_pct"),
+                    insider_buying=item.get("insider_buying"),
+                    fundamentals=item.get("fundamentals"),
+                    social_velocity=item.get("social_velocity"),
+                )
             scan_stats["claude_calls_made"] += 1
 
             direction  = ai.get("direction", "NEUTRAL")
