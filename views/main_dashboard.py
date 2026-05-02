@@ -12,7 +12,7 @@ DIR_COLORS = {
 }
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def _fetch_open_predictions() -> list:
     from database.db import get_predictions
     return get_predictions({"outcome": "PENDING"}, limit=200)

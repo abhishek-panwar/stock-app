@@ -5,7 +5,7 @@ import pytz
 PT = pytz.timezone("America/Los_Angeles")
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def _fetch_closed_predictions() -> list:
     from database.db import get_predictions
     return get_predictions(limit=1000)
