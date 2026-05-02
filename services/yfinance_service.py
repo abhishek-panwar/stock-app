@@ -54,10 +54,13 @@ def get_multiple_prices(tickers: list[str]) -> dict[str, float]:
     return results
 
 
-def get_ticker_info(ticker: str) -> dict:
+def get_ticker_info(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     try:
         t = yf.Ticker(ticker)
         info = t.info
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "yfinance_info", ticker, True)
         return {
             "name": info.get("longName", ticker),
             "sector": info.get("sector", "Unknown"),
@@ -67,7 +70,10 @@ def get_ticker_info(ticker: str) -> dict:
             "52w_high": info.get("fiftyTwoWeekHigh"),
             "52w_low": info.get("fiftyTwoWeekLow"),
         }
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "yfinance_info", ticker, False, str(e))
         return {"name": ticker, "sector": "Unknown", "industry": "Unknown"}
 
 
@@ -80,7 +86,7 @@ def is_market_open() -> bool:
     return market_open <= now_pt <= market_close
 
 
-def get_fundamentals(ticker: str) -> dict:
+def get_fundamentals(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     """
     Returns cached fundamentals (fetched Saturday by fundamentals_fetcher).
     Falls back to a live yfinance fetch if cache is empty (e.g. new ticker).
@@ -117,8 +123,14 @@ def get_fundamentals(ticker: str) -> dict:
             "source": "yfinance_live",
         }
         set_cache(f"fundamentals_{ticker}", result, ttl_hours=48)
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "yfinance_fundamentals", ticker, True)
         return result
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "yfinance_fundamentals", ticker, False, str(e))
         return {}
 
 

@@ -1,4 +1,5 @@
 import os
+import time
 import finnhub
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -9,6 +10,10 @@ EARNINGS_UNIVERSE_TTL_H = 168   # 7 days — refresh weekly
 ANALYST_TARGET_TTL_H    = 24    # per-ticker analyst price target cache
 EARNINGS_WINDOW_DAYS    = 14    # how far ahead to scan for earnings
 
+# Rate limiter: Finnhub free tier = 60 calls/min → 1 call/sec minimum
+_RATE_LIMIT_DELAY = 1.1  # seconds between calls
+_last_call_time: float = 0.0
+
 _client = None
 
 def get_client():
@@ -17,14 +22,25 @@ def get_client():
         _client = finnhub.Client(api_key=os.environ["FINNHUB_API_KEY"])
     return _client
 
+def _rate_limit():
+    global _last_call_time
+    elapsed = time.time() - _last_call_time
+    if elapsed < _RATE_LIMIT_DELAY:
+        time.sleep(_RATE_LIMIT_DELAY - elapsed)
+    _last_call_time = time.time()
 
-def get_news_sentiment(ticker: str, hours: int = 48) -> dict:
+
+def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api: bool = False) -> dict:
     """Returns aggregated news sentiment for the last N hours."""
     try:
+        _rate_limit()
         now = datetime.utcnow()
         from_dt = (now - timedelta(hours=hours)).strftime("%Y-%m-%d")
         to_dt = now.strftime("%Y-%m-%d")
         news = get_client().company_news(ticker, _from=from_dt, to=to_dt)
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_news", ticker, True)
         if not news:
             return {"score": 0.0, "volume": 0, "articles": []}
         scores = []
@@ -42,7 +58,10 @@ def get_news_sentiment(ticker: str, hours: int = 48) -> dict:
             })
         avg_score = sum(scores) / len(scores) if scores else 0.0
         return {"score": round(avg_score, 3), "volume": len(news), "articles": articles}
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_news", ticker, False, str(e))
         return {"score": 0.0, "volume": 0, "articles": []}
 
 
@@ -90,9 +109,13 @@ def get_historical_news(ticker: str, from_date: str, to_date: str) -> list[dict]
         return []
 
 
-def get_social_sentiment(ticker: str) -> dict:
+def get_social_sentiment(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     try:
+        _rate_limit()
         data = get_client().stock_social_sentiment(ticker)
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_social", ticker, True)
         if not data:
             return {"reddit_score": 0, "twitter_score": 0, "mentions": 0}
         reddit = data.get("reddit", [])
@@ -105,13 +128,20 @@ def get_social_sentiment(ticker: str) -> dict:
             "twitter_score": round(t_score, 3),
             "mentions": r_mentions,
         }
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_social", ticker, False, str(e))
         return {"reddit_score": 0, "twitter_score": 0, "mentions": 0}
 
 
-def get_analyst_recommendation(ticker: str) -> dict:
+def get_analyst_recommendation(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     try:
+        _rate_limit()
         recs = get_client().recommendation_trends(ticker)
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_analyst", ticker, True)
         if not recs:
             return {"consensus": "HOLD", "score": 0.5, "strong_buy": 0, "buy": 0, "hold": 0, "sell": 0, "strong_sell": 0}
         latest = recs[0]
@@ -136,13 +166,20 @@ def get_analyst_recommendation(ticker: str) -> dict:
             "consensus": consensus, "score": round(score, 3),
             "strong_buy": sb, "buy": b, "hold": h, "sell": s, "strong_sell": ss,
         }
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_analyst", ticker, False, str(e))
         return {"consensus": "HOLD", "score": 0.5, "strong_buy": 0, "buy": 0, "hold": 0, "sell": 0, "strong_sell": 0}
 
 
-def get_earnings_history(ticker: str) -> dict:
+def get_earnings_history(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     try:
+        _rate_limit()
         earnings = get_client().company_earnings(ticker, limit=4)
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_earnings", ticker, True)
         if not earnings:
             return {"beats": 0, "consecutive_beats": 0}
         beats = 0
@@ -155,7 +192,10 @@ def get_earnings_history(ticker: str) -> dict:
                 if consecutive == beats - 1:
                     consecutive = beats
         return {"beats": beats, "consecutive_beats": consecutive}
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_earnings", ticker, False, str(e))
         return {"beats": 0, "consecutive_beats": 0}
 
 
@@ -239,7 +279,7 @@ def get_earnings_calendar(ticker: str, days_ahead: int = 7) -> dict:
         return {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
 
 
-def get_analyst_price_target(ticker: str) -> dict:
+def get_analyst_price_target(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     """
     Returns analyst mean price target. Cached per ticker for 24h.
     Result: {"mean_target": float|None, "num_analysts": int}
@@ -251,7 +291,11 @@ def get_analyst_price_target(ticker: str) -> dict:
         if cached is not None:
             return cached
 
+        _rate_limit()
         data = get_client().price_target(ticker)
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_price_target", ticker, True)
         if not data:
             result = {"mean_target": None, "num_analysts": 0}
         else:
@@ -262,7 +306,10 @@ def get_analyst_price_target(ticker: str) -> dict:
             }
         set_cache(cache_key, result, ttl_hours=ANALYST_TARGET_TTL_H)
         return result
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "finnhub_price_target", ticker, False, str(e))
         return {"mean_target": None, "num_analysts": 0}
 
 

@@ -78,7 +78,7 @@ def _ticker_to_cik(ticker: str) -> str | None:
     return _cik_cache.get(clean) or _cik_cache.get(ticker.upper())
 
 
-def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS) -> dict:
+def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_date: str = "", log_api: bool = False) -> dict:
     """
     Checks SEC EDGAR Form 4 filings for insider purchases in the last days_back days.
 
@@ -111,7 +111,10 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS) -> d
         )
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except Exception as e:
+        if log_api and run_date:
+            from database.db import log_api_call
+            log_api_call(run_date, "sec_edgar", ticker, False, str(e))
         return empty
 
     recent = data.get("filings", {}).get("recent", {})
@@ -173,6 +176,9 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS) -> d
     else:
         strength = "NONE"
 
+    if log_api and run_date:
+        from database.db import log_api_call
+        log_api_call(run_date, "sec_edgar", ticker, True)
     return {
         "has_insider_buying": strength != "NONE",
         "total_purchased_usd": round(total_usd, 2),

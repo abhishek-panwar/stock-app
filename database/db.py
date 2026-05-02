@@ -61,6 +61,15 @@ _TABLE_MIGRATIONS = [
         earnings_date text,
         scanned_at text
     )""",
+    """CREATE TABLE IF NOT EXISTS api_call_log (
+        id bigint generated always as identity primary key,
+        run_date text not null,
+        api text not null,
+        ticker text not null,
+        success boolean not null,
+        error text,
+        logged_at timestamptz default now()
+    )""",
 ]
 
 def run_migrations() -> None:
@@ -304,6 +313,47 @@ def insert_analyst_prediction(data: dict) -> dict:
 
 def get_analyst_predictions(analyst_id: str) -> list:
     return get_client().table("analyst_predictions").select("*").eq("analyst_id", analyst_id).order("article_published_at", desc=True).execute().data
+
+
+# ── API Call Log ─────────────────────────────────────────────────────────────
+
+def log_api_call(run_date: str, api: str, ticker: str, success: bool, error: str = ""):
+    """Log a single API call result. Silently no-ops if DB unavailable."""
+    try:
+        get_client().table("api_call_log").insert({
+            "run_date": run_date,
+            "api": api,
+            "ticker": ticker,
+            "success": success,
+            "error": str(error)[:300] if error else None,
+        }).execute()
+    except Exception:
+        pass
+
+def clear_api_call_log(run_date: str):
+    """Delete all log rows for a given run_date (called at start of each run)."""
+    try:
+        get_client().table("api_call_log").delete().eq("run_date", run_date).execute()
+    except Exception:
+        pass
+
+def get_api_call_log(run_date: str) -> list:
+    try:
+        return get_client().table("api_call_log").select("*").eq("run_date", run_date).order("logged_at").execute().data
+    except Exception:
+        return []
+
+def get_api_call_log_dates() -> list:
+    """Returns distinct run_dates available, most recent first."""
+    try:
+        rows = get_client().table("api_call_log").select("run_date").order("run_date", desc=True).execute().data
+        seen = []
+        for r in rows:
+            if r["run_date"] not in seen:
+                seen.append(r["run_date"])
+        return seen
+    except Exception:
+        return []
 
 
 # ── Error Logs ────────────────────────────────────────────────────────────────

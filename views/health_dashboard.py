@@ -145,7 +145,78 @@ def render():
             st.warning(f"Could not load earnings calendar: {e}")
 
     st.markdown("---")
+    st.markdown("---")
+    _render_api_call_log()
+
+    st.markdown("---")
     _render_error_logs()
+
+
+def _render_api_call_log():
+    st.markdown("### 📡 API Call Log")
+
+    try:
+        from database.db import get_api_call_log_dates, get_api_call_log
+    except ImportError:
+        st.warning("api_call_log not available yet — will populate after next scanner run.")
+        return
+
+    dates = get_api_call_log_dates()
+    if not dates:
+        st.info("No API call log yet — will populate after the next scanner run.")
+        return
+
+    selected_date = st.selectbox("Run date", dates, key="api_log_date")
+    rows = get_api_call_log(selected_date)
+    if not rows:
+        st.info("No log entries for this date.")
+        return
+
+    from collections import defaultdict
+    by_api = defaultdict(list)
+    for r in rows:
+        by_api[r["api"]].append(r)
+
+    API_LABELS = {
+        "finnhub_news":         "Finnhub — News Sentiment",
+        "finnhub_social":       "Finnhub — Social Sentiment",
+        "finnhub_analyst":      "Finnhub — Analyst Recommendations",
+        "finnhub_earnings":     "Finnhub — Earnings History",
+        "finnhub_price_target": "Finnhub — Price Target",
+        "yfinance_info":        "yfinance — Ticker Info",
+        "yfinance_fundamentals":"yfinance — Fundamentals",
+        "sec_edgar":            "SEC EDGAR — Insider Buying",
+    }
+
+    for api_key in sorted(by_api.keys()):
+        api_rows = by_api[api_key]
+        total   = len(api_rows)
+        success = sum(1 for r in api_rows if r["success"])
+        failed  = total - success
+        label   = API_LABELS.get(api_key, api_key)
+        icon    = "✅" if failed == 0 else "⚠️" if failed < total * 0.2 else "❌"
+
+        with st.expander(
+            f"{icon} **{label}** — {success}/{total} succeeded · {failed} failed",
+            expanded=(failed > 0),
+        ):
+            h1, h2, h3 = st.columns(3)
+            h1.metric("Total", total)
+            h2.metric("Succeeded", success)
+            h3.metric("Failed", failed, delta=f"-{failed}" if failed else None,
+                      delta_color="inverse" if failed > 0 else "off")
+
+            failures = [r for r in api_rows if not r["success"]]
+            if failures:
+                st.markdown("**Failed tickers:**")
+                import pandas as pd
+                fail_df = pd.DataFrame([{
+                    "Ticker": r["ticker"],
+                    "Error":  r.get("error") or "—",
+                } for r in failures])
+                st.dataframe(fail_df, use_container_width=True, hide_index=True)
+            else:
+                st.success("All calls succeeded.")
 
 
 def _test_telegram():

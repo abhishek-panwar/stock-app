@@ -107,6 +107,14 @@ def run(debug: bool = False):
     scan_mode = "long" if (is_friday and not debug) else "short"
     print(f"Scan mode: {scan_mode.upper()} ({'Friday long-term' if scan_mode == 'long' else 'short-term'})")
 
+    run_date = start_time.strftime("%Y-%m-%d")
+    # Clear previous log for this date so each run is a fresh snapshot
+    try:
+        from database.db import clear_api_call_log
+        clear_api_call_log(run_date)
+    except Exception:
+        pass
+
     # ── Score every stock once (no timeframe) ─────────────────────────────────
     print(f"Scoring {universe_total} stocks...")
     scored = []
@@ -128,17 +136,17 @@ def run(debug: bool = False):
             if not ind:
                 continue
 
-            sentiment = get_news_sentiment(ticker, hours=48)
+            sentiment = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=True)
             scan_stats["finnhub_news_fetched"] += sentiment.get("volume", 0)
-            social = get_social_sentiment(ticker)
+            social = get_social_sentiment(ticker, run_date=run_date, log_api=True)
             sentiment["mentions"] = social.get("mentions", 0)
-            analyst        = get_analyst_recommendation(ticker)
-            earnings       = get_earnings_history(ticker)
-            analyst_target = get_analyst_price_target(ticker)
-            insider_buying = get_insider_buying(ticker, days_back=14)
-            fundamentals   = get_fundamentals(ticker)
+            analyst        = get_analyst_recommendation(ticker, run_date=run_date, log_api=True)
+            earnings       = get_earnings_history(ticker, run_date=run_date, log_api=True)
+            analyst_target = get_analyst_price_target(ticker, run_date=run_date, log_api=True)
+            insider_buying = get_insider_buying(ticker, days_back=14, run_date=run_date, log_api=True)
+            fundamentals   = get_fundamentals(ticker, run_date=run_date, log_api=True)
             social_vel     = get_social_velocity(ticker)
-            info           = get_ticker_info(ticker)
+            info           = get_ticker_info(ticker, run_date=run_date, log_api=True)
 
             # Earnings calendar from bulk lookup — no per-stock API call
             ec_data = earnings_universe.get(ticker.upper())
