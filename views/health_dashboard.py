@@ -373,7 +373,7 @@ def _run_verifier():
 
 
 def _render_error_logs():
-    st.markdown("### 🪵 Error Logs (last 30 days)")
+    st.markdown("### 🪵 Error Logs")
 
     try:
         from database.db import get_error_logs
@@ -381,38 +381,25 @@ def _render_error_logs():
         st.warning("get_error_logs not available — deploy latest db.py")
         return
 
-    # Filters
-    fc1, fc2, fc3 = st.columns(3)
+    # Filters — always fetch last 4 days max, older logs auto-excluded
+    fc1, fc2 = st.columns(2)
     with fc1:
         src_filter = st.selectbox("Source", ["All", "scanner", "verifier", "telegram", "app"], key="log_src")
     with fc2:
         lvl_filter = st.selectbox("Level", ["All", "ERROR", "WARNING", "INFO"], key="log_lvl")
-    with fc3:
-        days_filter = st.selectbox("Period", [7, 14, 30], index=2, format_func=lambda x: f"Last {x} days", key="log_days")
 
     try:
         logs = get_error_logs(
-            days=days_filter,
+            days=4,
             source=None if src_filter == "All" else src_filter,
             level=None if lvl_filter == "All" else lvl_filter,
         )
     except Exception as e:
-        st.warning(f"Could not load logs — run this SQL in Supabase first:\n\n"
-                   f"```sql\nCREATE TABLE IF NOT EXISTS error_logs (\n"
-                   f"  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n"
-                   f"  occurred_at timestamptz NOT NULL DEFAULT now(),\n"
-                   f"  source text NOT NULL,\n"
-                   f"  level text NOT NULL DEFAULT 'ERROR',\n"
-                   f"  ticker text,\n"
-                   f"  message text NOT NULL,\n"
-                   f"  detail text,\n"
-                   f"  created_at timestamptz DEFAULT now()\n"
-                   f");\n"
-                   f"CREATE INDEX IF NOT EXISTS error_logs_occurred_at ON error_logs (occurred_at DESC);\n```")
+        st.warning(f"Could not load logs: {e}")
         return
 
     if not logs:
-        st.success("No log entries found for the selected filters.")
+        st.success("No log entries in the last 4 days.")
         return
 
     # Summary counts
@@ -421,10 +408,10 @@ def _render_error_logs():
     infos    = sum(1 for l in logs if l.get("level") == "INFO")
     sc1, sc2, sc3, sc4 = st.columns(4)
     sc1.metric("Total entries", len(logs))
-    sc2.metric("Errors",   errors,   delta=None if errors == 0 else f"{errors} need attention",
+    sc2.metric("Errors", errors, delta=None if errors == 0 else f"{errors} need attention",
                delta_color="inverse" if errors > 0 else "off")
     sc3.metric("Warnings", warnings)
-    sc4.metric("Info",     infos)
+    sc4.metric("Info", infos)
 
     st.markdown("")
 
@@ -434,36 +421,79 @@ def _render_error_logs():
         "INFO":    ("background:#f0fdf4;color:#14532d", "ℹ️"),
     }
 
-    for i, log in enumerate(logs):
-        level   = log.get("level", "INFO")
-        source  = log.get("source", "—")
-        ticker  = log.get("ticker") or ""
-        message = log.get("message", "")
-        detail  = log.get("detail") or ""
+    # Group logs by date in PT
+    from collections import defaultdict
+    by_date = defaultdict(list)
+    for log in logs:
         try:
             dt = datetime.fromisoformat(log.get("occurred_at", "").replace("Z", "+00:00"))
-            ts = dt.astimezone(PT).strftime("%b %d  %I:%M %p PT")
+            date_pt = dt.astimezone(PT).date()
         except Exception:
-            ts = log.get("occurred_at", "—")[:16]
+            date_pt = None
+        by_date[date_pt].append(log)
 
-        style, icon = LEVEL_STYLE.get(level, LEVEL_STYLE["INFO"])
-        ticker_tag = f"<span style='background:#e0e7ff;color:#3730a3;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px'>{ticker}</span>" if ticker else ""
-        css_class = "hd-red" if level == "ERROR" else "hd-yellow" if level == "WARNING" else "hd-green"
-        log_key = f"hd_log_{i}_{log.get('occurred_at','')[:16]}"
+    today_pt = datetime.now(PT).date()
 
-        row_label = f"{icon} [{source}] {message[:80]}{'…' if len(message) > 80 else ''}  —  {ts}"
-        if _lazy_row(row_label, log_key, css_class):
-            with st.container(border=True):
-                st.markdown(
-                    f"<div style='{style};border-radius:8px;padding:10px 14px;font-size:13px'>"
-                    f"<strong>{icon} {level}</strong> · <code>{source}</code>{ticker_tag}<br>"
-                    f"<span style='color:#374151'>{message}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-                if detail:
-                    st.code(detail, language=None)
-                st.caption(f"Logged at: {ts}")
+    for date_key in sorted(by_date.keys(), reverse=True):
+        day_logs = by_date[date_key]
+
+        # Date section header — same style as open/closed predictions page
+        if date_key is None:
+            date_label = "Unknown date"
+        elif date_key == today_pt:
+            date_label = "Today"
+        elif (today_pt - date_key).days == 1:
+            date_label = "Yesterday"
+        else:
+            date_label = date_key.strftime("%A, %b %d")
+
+        day_errors   = sum(1 for l in day_logs if l.get("level") == "ERROR")
+        day_warnings = sum(1 for l in day_logs if l.get("level") == "WARNING")
+        summary_parts = []
+        if day_errors:   summary_parts.append(f"❌ {day_errors} error{'s' if day_errors > 1 else ''}")
+        if day_warnings: summary_parts.append(f"⚠️ {day_warnings} warning{'s' if day_warnings > 1 else ''}")
+        summary = "  ·  " + "  ·  ".join(summary_parts) if summary_parts else ""
+
+        st.markdown(
+            f"<div style='font-size:13px;font-weight:600;color:#64748b;"
+            f"padding:6px 0 4px 0;border-bottom:1px solid #e2e8f0;margin-bottom:6px'>"
+            f"{date_label}{summary}</div>",
+            unsafe_allow_html=True,
+        )
+
+        for i, log in enumerate(day_logs):
+            level   = log.get("level", "INFO")
+            source  = log.get("source", "—")
+            ticker  = log.get("ticker") or ""
+            message = log.get("message", "")
+            detail  = log.get("detail") or ""
+            try:
+                dt = datetime.fromisoformat(log.get("occurred_at", "").replace("Z", "+00:00"))
+                ts = dt.astimezone(PT).strftime("%I:%M %p PT")
+            except Exception:
+                ts = log.get("occurred_at", "—")[:16]
+
+            style, icon = LEVEL_STYLE.get(level, LEVEL_STYLE["INFO"])
+            ticker_tag = (f"<span style='background:#e0e7ff;color:#3730a3;border-radius:4px;"
+                          f"padding:1px 6px;font-size:11px;margin-left:4px'>{ticker}</span>") if ticker else ""
+            css_class = "hd-red" if level == "ERROR" else "hd-yellow" if level == "WARNING" else "hd-green"
+            log_key = f"hd_log_{date_key}_{i}_{log.get('occurred_at','')[:16]}"
+
+            row_label = f"{icon} {ts}  [{source}]  {message[:80]}{'…' if len(message) > 80 else ''}"
+            if _lazy_row(row_label, log_key, css_class):
+                with st.container(border=True):
+                    st.markdown(
+                        f"<div style='{style};border-radius:8px;padding:10px 14px;font-size:13px'>"
+                        f"<strong>{icon} {level}</strong> · <code>{source}</code>{ticker_tag}<br>"
+                        f"<span style='color:#374151'>{message}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if detail:
+                        st.code(detail, language=None)
+                    st.caption(f"Logged at: {ts}")
+
+        st.markdown("")
 
 
 def _check_all_components() -> list[dict]:
