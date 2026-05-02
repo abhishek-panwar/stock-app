@@ -374,6 +374,11 @@ def _inject_card_css():
     padding: 10px 14px !important;
     width: 100% !important;
 }
+[data-testid="stColumn"]:has(div.card-bullish) button p,
+[data-testid="stColumn"]:has(div.card-bearish) button p,
+[data-testid="stColumn"]:has(div.card-neutral) button p {
+    text-align: left !important;
+}
 /* Delete button */
 [data-testid="stColumn"]:has(div.card-del) button {
     background: #f8fafc !important;
