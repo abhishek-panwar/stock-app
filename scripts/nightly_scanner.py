@@ -21,13 +21,12 @@ from indicators.technicals import compute_all
 from indicators.scoring import compute_signal_score, compute_long_score, compute_buy_range, FORMULA_VERSION
 from services.ai_service import analyze_stock, analyze_stock_long, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations, save_earnings_calendar
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations
 
 SCORE_THRESHOLD        = 45    # minimum score to be eligible
 MAX_STOCKS             = 50    # top N scored stocks sent to Claude
 MIN_PROFIT_PCT         = 4.0   # minimum absolute profit % to save a prediction
 EARNINGS_WINDOW_DAYS   = 14    # how far ahead to fetch the earnings calendar
-EARNINGS_CACHE_TTL_H   = 168   # cache TTL for earnings universe (7 days)
 CLAUDE_LOG_CACHE_TTL_H = 168   # cache TTL for raw Claude scan log (7 days)
 ANALYST_TARGET_TTL_H   = 24    # cache TTL for per-ticker analyst price targets
 
@@ -85,22 +84,15 @@ def run(debug: bool = False):
 
     # ── Load bulk data once (cached) ──────────────────────────────────────────
     if debug:
-        # Debug runs always fetch fresh earnings data and overwrite the cache
+        # Debug runs always fetch fresh earnings data — clear DB rows so age check is bypassed
         try:
-            from database.db import delete_cache
-            delete_cache("earnings_universe_14d")
+            from database.db import get_client as _db_client
+            _db_client().table("earnings_calendar").delete().neq("id", 0).execute()
         except Exception:
             pass
-    print("Loading bulk earnings calendar (1 Finnhub call, cached 7 days)...")
+    print("Loading bulk earnings calendar (Finnhub call at most once per 7 days)...")
     earnings_universe = get_upcoming_earnings_universe(days_ahead=EARNINGS_WINDOW_DAYS)
     universe_tickers = {item["ticker"] for item in universe}
-
-    # Persist earnings calendar to DB for dashboard display
-    try:
-        save_earnings_calendar(earnings_universe, start_time.isoformat())
-        print(f"  Saved {len(earnings_universe)} earnings tickers to DB")
-    except Exception as e:
-        log_error("scanner", f"Failed to save earnings calendar: {e}", level="WARNING")
 
     # ── Determine scan mode early so scoring loop can skip short-term gate on Fridays ──
     is_friday = start_time.weekday() == 4  # 0=Mon … 4=Fri

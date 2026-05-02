@@ -208,16 +208,28 @@ def get_upcoming_earnings_universe(days_ahead: int = EARNINGS_WINDOW_DAYS) -> di
     """
     Single Finnhub call for ALL upcoming earnings in the next days_ahead days.
     Returns {ticker: {"days_to_earnings": int, "earnings_date": str}}
-    Cached in Supabase for 7 days — call once per week, not per nightly run.
+
+    Reads from and writes to the earnings_calendar table directly.
+    Refreshes from Finnhub only if data is older than 7 days.
     """
     try:
-        from database.db import get_cache, set_cache
-        cache_key = f"earnings_universe_{days_ahead}d"
-        cached = get_cache(cache_key)
-        if cached is not None:
-            print(f"  Earnings calendar: loaded from cache ({len(cached)} tickers)")
-            return cached
+        from database.db import get_earnings_calendar_from_db, save_earnings_calendar
+        from datetime import timezone
 
+        rows = get_earnings_calendar_from_db()
+        if rows:
+            scanned_at = rows[0].get("scanned_at", "")
+            try:
+                fetched_dt = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+                age_days = (datetime.now(timezone.utc) - fetched_dt).days
+                if age_days < EARNINGS_UNIVERSE_TTL_H // 24:
+                    result = {r["ticker"]: {"days_to_earnings": r["days_to_earnings"], "earnings_date": r["earnings_date"]} for r in rows}
+                    print(f"  Earnings calendar: loaded from DB ({len(result)} tickers, {age_days}d old)")
+                    return result
+            except Exception:
+                pass
+
+        # Stale or empty — fetch fresh from Finnhub
         today = datetime.utcnow().date()
         to_dt = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
         data = get_client().earnings_calendar(
@@ -234,14 +246,13 @@ def get_upcoming_earnings_universe(days_ahead: int = EARNINGS_WINDOW_DAYS) -> di
                 edate = datetime.strptime(edate_str, "%Y-%m-%d").date()
                 days = (edate - today).days
                 if 0 <= days <= days_ahead:
-                    # Keep soonest if duplicate
                     if symbol not in result or days < result[symbol]["days_to_earnings"]:
                         result[symbol] = {"days_to_earnings": days, "earnings_date": edate_str}
             except Exception:
                 continue
 
-        set_cache(cache_key, result, ttl_hours=EARNINGS_UNIVERSE_TTL_H)
-        print(f"  Earnings calendar: fetched {len(result)} tickers with upcoming earnings")
+        save_earnings_calendar(result, datetime.utcnow().isoformat())
+        print(f"  Earnings calendar: fetched {len(result)} tickers from Finnhub and saved to DB")
         return result
     except Exception as e:
         print(f"  Earnings calendar fetch failed: {e}")
