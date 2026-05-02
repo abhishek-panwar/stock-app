@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 st.set_page_config(
-    page_title="Open Predictions · Stock Analysis",
-    page_icon="📊",
+    page_title="Deep Dive · Stock Analysis",
+    page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -12,5 +12,5 @@ st.set_page_config(
 from views._shared import inject_css
 inject_css()
 
-from views import main_dashboard
-main_dashboard.render()
+from views import deep_dive
+deep_dive.render()

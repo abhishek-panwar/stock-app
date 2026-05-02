@@ -1,0 +1,148 @@
+import streamlit as st
+
+GLOBAL_CSS = """
+<style>
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: #0f172a !important;
+    border-right: 1px solid #1e293b;
+}
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] div,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] small {
+    color: #cbd5e1 !important;
+}
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 { color: #f8fafc !important; }
+
+[data-testid="stSidebar"] [data-testid="stButton"] > button {
+    width: 100%;
+    text-align: left;
+    background: transparent !important;
+    border: 1px solid #1e293b !important;
+    color: #e2e8f0 !important;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 9px 14px;
+    border-radius: 8px;
+    margin-bottom: 3px;
+    transition: all 0.15s ease;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button:hover {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"] {
+    background: #1d4ed8 !important;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+    font-weight: 600;
+}
+[data-testid="stSidebar"] [data-testid="stButton"] > button[kind="primary"]:hover {
+    background: #1e40af !important;
+}
+
+/* ── Expanders ── */
+[data-testid="stExpander"] {
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    margin-bottom: 6px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+[data-testid="stExpander"]:hover {
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+[data-testid="stExpander"] summary {
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: #1e293b !important;
+    padding: 10px 14px;
+}
+
+/* ── Metrics ── */
+[data-testid="stMetric"] {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 16px;
+}
+[data-testid="stMetricValue"] { font-size: 1.35rem !important; font-weight: 700 !important; }
+[data-testid="stMetricLabel"] { font-size: 12px !important; color: #64748b !important; }
+
+/* ── Typography ── */
+h1 { font-size: 1.55rem !important; font-weight: 700 !important; color: #0f172a !important; margin-bottom: 2px !important; }
+h2 { font-size: 1.25rem !important; font-weight: 700 !important; color: #1e293b !important; }
+h3 { font-size: 1.05rem !important; font-weight: 600 !important; color: #1e293b !important; }
+
+/* ── Main content buttons ── */
+[data-testid="stMain"] [data-testid="stButton"] > button {
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 13px;
+    transition: all 0.15s;
+}
+[data-testid="stMain"] [data-testid="stButton"] > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+}
+
+[data-testid="stVerticalBlock"]:has(div.btn-api) button,
+[data-testid="stColumn"]:has(div.btn-api) button {
+    background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+    border: 1px solid #fca5a5 !important;
+    font-weight: 600 !important;
+}
+[data-testid="stVerticalBlock"]:has(div.btn-api) button:hover,
+[data-testid="stColumn"]:has(div.btn-api) button:hover {
+    background-color: #fecaca !important;
+    border-color: #f87171 !important;
+}
+
+[data-testid="stVerticalBlock"]:has(div.btn-safe) button,
+[data-testid="stColumn"]:has(div.btn-safe) button {
+    background-color: #f1f5f9 !important;
+    color: #475569 !important;
+    border: 1px solid #cbd5e1 !important;
+    font-weight: 500 !important;
+}
+[data-testid="stVerticalBlock"]:has(div.btn-safe) button:hover,
+[data-testid="stColumn"]:has(div.btn-safe) button:hover {
+    background-color: #e2e8f0 !important;
+    border-color: #94a3b8 !important;
+}
+
+/* ── Alerts ── */
+[data-testid="stInfo"]    { border-radius: 8px; border-left: 4px solid #3b82f6; }
+[data-testid="stWarning"] { border-radius: 8px; border-left: 4px solid #f59e0b; }
+[data-testid="stSuccess"] { border-radius: 8px; border-left: 4px solid #22c55e; }
+
+/* ── Selectbox / slider labels ── */
+[data-testid="stSelectbox"] label,
+[data-testid="stSlider"] label { font-size: 12px !important; color: #64748b !important; }
+
+/* ── Caption text ── */
+[data-testid="stCaptionContainer"] p { color: #64748b !important; font-size: 12px !important; }
+
+/* ── Force left alignment ── */
+[data-testid="stMain"] p,
+[data-testid="stMain"] li,
+[data-testid="stMain"] span,
+[data-testid="stMain"] div,
+[data-testid="stMain"] label,
+[data-testid="stMain"] .stMarkdown,
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] p {
+    text-align: left !important;
+}
+</style>
+"""
+
+
+def inject_css():
+    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)

@@ -411,12 +411,15 @@ def render():
             if not bucket_preds:
                 continue
             bucket_preds = sorted(bucket_preds, key=sort_fn)
-            with st.expander(
-                f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
-                expanded=(bucket_label in ("📅 Tomorrow", "✨ Today")),
-            ):
-                for p in bucket_preds:
-                    _prediction_card(p)
+            st.markdown(
+                f'<div style="font-size:12px;font-weight:600;color:#94a3b8;'
+                f'letter-spacing:0.05em;text-transform:uppercase;margin:10px 0 4px">'
+                f'{bucket_label} — {len(bucket_preds)} prediction{"s" if len(bucket_preds) != 1 else ""}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            for p in bucket_preds:
+                _prediction_card(p)
 
     if not predictions:
         _show_empty_state()
@@ -607,160 +610,169 @@ def _prediction_card(p: dict, _unused: set = None):
     age_days, age_badge = _age_info(predicted_on)
 
     dir_icon = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
-    hc_tag   = "  🎯" if confidence >= 75 else ""
-    age_tag  = f"  ·  {age_days}d old"
     pos_tag  = f"  ·  {position}" if position not in ("HOLD", "") else ""
-    exp_tag  = f"  ·  {days_left}d left" if days_left and days_left > 0 else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
-
-    dir_label = ":green[▲ BULLISH]" if direction == "BULLISH" else ":red[▼ BEARISH]" if direction == "BEARISH" else "● NEUTRAL"
-
-    header = (
-        f"**{ticker}** — {company}  ·  "
-        f"{dir_label}  ·  "
-        f"{confidence}% conf  ·  {score}/100  ·  "
-        f"{profit_str}{pos_tag}  ·  {tenure_str}"
-        f"{exp_tag}{age_tag}{hc_tag}"
+    exp_tag  = (
+        f"  ·  {days_left}d left" if days_left and days_left > 0
+        else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
     )
 
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+    exp_key = f"exp_{pred_id}"
+    is_open = st.session_state.get(exp_key, False)
 
-    if age_days == 0:
-        card_style = "background:#f0fdf4;border-left:4px solid #16a34a;"
+    if direction == "BULLISH":
+        dir_color = "#15803d"
+        border    = "#16a34a"
+        bg        = "#f0fdf4"
     elif direction == "BEARISH":
-        card_style = "background:#fef2f2;border-left:4px solid #dc2626;"
-    elif direction == "BULLISH":
-        card_style = "background:#f0fdf4;border-left:4px solid #15803d;"
+        dir_color = "#b91c1c"
+        border    = "#dc2626"
+        bg        = "#fef2f2"
     else:
-        card_style = "background:#f8fafc;border-left:4px solid #94a3b8;"
+        dir_color = "#475569"
+        border    = "#94a3b8"
+        bg        = "#f8fafc"
+
+    prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
+    hc_badge   = " 🎯" if confidence >= 75 else ""
+
+    # ── Collapsed header row (always rendered — cheap) ─────────────────────────
+    hdr_col, btn_col, del_col = st.columns([10, 0.5, 0.5])
+    with hdr_col:
+        st.markdown(
+            f'<div style="background:{bg};border-left:4px solid {border};'
+            f'border-radius:0 6px 6px 0;padding:7px 12px;margin:2px 0;font-size:13px;cursor:default">'
+            f'<strong style="font-size:14px;color:#0f172a">{ticker}</strong>'
+            f'<span style="color:#64748b;font-size:12px"> — {company}</span>  ·  '
+            f'<span style="color:{dir_color};font-weight:700">{dir_icon} {direction}</span>  ·  '
+            f'<span style="color:#1d4ed8">{confidence}%</span> conf  ·  '
+            f'{score}/100  ·  '
+            f'<span style="color:{prof_color};font-weight:700">{profit_str}</span>'
+            f'{pos_tag}  ·  {tenure_str}{exp_tag}'
+            f'  ·  <span style="color:#94a3b8;font-size:11px">{age_days}d old</span>'
+            f'{hc_badge}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with btn_col:
+        if st.button("▼" if is_open else "▶", key=f"toggle_{pred_id}", help="Expand / collapse"):
+            st.session_state[exp_key] = not is_open
+    with del_col:
+        if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
+            try:
+                from database.db import soft_delete_prediction
+                soft_delete_prediction(pred_id)
+                if "_open_deleted" not in st.session_state:
+                    st.session_state["_open_deleted"] = set()
+                st.session_state["_open_deleted"].add(pred_id)
+                _fetch_open_predictions.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+
+    # ── Expanded content — only rendered when open ─────────────────────────────
+    if not is_open:
+        return
+
+    prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
 
     st.markdown(
-        f'<style>'
-        f'.pred-{pred_id} + div [data-testid="stExpander"] {{'
-        f'  {card_style}'
-        f'  border-radius: 8px !important;'
-        f'}}'
-        f'</style>'
-        f'<div class="pred-{pred_id}" style="display:none"></div>',
+        f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
+        {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
+        {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
+        {_pill("Profit", profit_str, prof_color)}
+        {_pill("Hold", tenure_str, "#0369a1")}
+        {_pill("Position", position, "#374151")}
+        <span style="margin-left:2px">{age_badge}{_asset_badge(p)}</span>
+        </div>""",
         unsafe_allow_html=True,
     )
 
-    with st.expander(header, expanded=False):
-        # ── Top action row: pills + badges + chart button + delete ────────────
-        dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
-        prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
+    bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
+    tl = p.get('target_low', 0);   th = p.get('target_high', 0)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("**Entry**")
+        st.markdown(f"Price at signal: `${entry:.2f}`")
+        st.markdown(f"Buy range: `${bl:.2f} – ${bh:.2f}`")
+        st.markdown(f"Stop loss: `${stop:.2f}`")
+        mcap = p.get("market_cap")
+        avgvol = p.get("avg_volume")
+        if mcap:
+            mcap_str = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
+            st.markdown(f"Market cap: `{mcap_str}`")
+        if avgvol:
+            vol_str = f"{avgvol/1e6:.1f}M" if avgvol >= 1e6 else f"{avgvol/1e3:.0f}K"
+            st.markdown(f"Avg volume: `{vol_str}`")
+    with c2:
+        st.markdown("**Target**")
+        st.markdown(f"Range: `${tl:.2f} – ${th:.2f}`")
+        st.markdown(f"Profit potential: `{profit_str}`")
+        st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
+        st.markdown(f"Score: `{score}/100`")
+    with c3:
+        st.markdown("**Timing**")
+        try:
+            pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT).strftime("%b %d  %I:%M %p PT")
+        except Exception:
+            pred_dt_str = "—"
+        st.markdown(f"Predicted: `{pred_dt_str}`")
+        st.markdown(f"Est. days to target: `{days_to_target or '—'}`")
+        if expiry_str != "—":
+            st.markdown(f"Expires: `{expiry_str}`{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
+        else:
+            st.markdown("Expires: `run scanner to populate`")
+        if p.get("timing_rationale"):
+            st.caption(f"💡 {p['timing_rationale']}")
 
-        pill_left_col, del_col = st.columns([9.6, 0.4])
-        with pill_left_col:
-            st.markdown(
-                f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
-                {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
-                {_pill("Confidence", f"{confidence}%", "#1d4ed8")}
-                {_pill("Profit", profit_str, prof_color)}
-                {_pill("Hold", tenure_str, "#0369a1")}
-                {_pill("Position", position, "#374151")}
-                <span style="margin-left:2px">{age_badge}{_asset_badge(p)}</span>
-                </div>""",
-                unsafe_allow_html=True,
-            )
-        with del_col:
-            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
-                try:
-                    from database.db import soft_delete_prediction
-                    soft_delete_prediction(pred_id)
-                    if "_open_deleted" not in st.session_state:
-                        st.session_state["_open_deleted"] = set()
-                    st.session_state["_open_deleted"].add(pred_id)
-                    _fetch_open_predictions.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete failed: {e}")
+    if bl > 0 and bh > 0 and tl > 0:
+        if direction == "BEARISH":
+            formula_str = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+        else:
+            formula_str = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
+        st.markdown(f"**Profit formula:** `{formula_str}`")
 
-        bl = p.get('buy_range_low', 0); bh = p.get('buy_range_high', 0)
-        tl = p.get('target_low', 0);   th = p.get('target_high', 0)
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("**Entry**")
-            st.markdown(f"Price at signal: `${entry:.2f}`")
-            st.markdown(f"Buy range: `${bl:.2f} – ${bh:.2f}`")
-            st.markdown(f"Stop loss: `${stop:.2f}`")
-            mcap = p.get("market_cap")
-            avgvol = p.get("avg_volume")
-            if mcap:
-                mcap_str = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
-                st.markdown(f"Market cap: `{mcap_str}`")
-            if avgvol:
-                vol_str = f"{avgvol/1e6:.1f}M" if avgvol >= 1e6 else f"{avgvol/1e3:.0f}K"
-                st.markdown(f"Avg volume: `{vol_str}`")
-        with c2:
-            st.markdown("**Target**")
-            st.markdown(f"Range: `${tl:.2f} – ${th:.2f}`")
-            st.markdown(f"Profit potential: `{profit_str}`")
-            st.markdown(f"Risk/Reward: `1 : {rr:.1f}`")
-            st.markdown(f"Score: `{score}/100`")
-        with c3:
-            st.markdown("**Timing**")
+    if p.get("reasoning"):
+        st.markdown(
+            f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;
+            padding:10px 14px;margin:12px 0 8px;font-size:13px;color:#1e293b;
+            line-height:1.6;text-align:left">{p['reasoning']}</div>""",
+            unsafe_allow_html=True,
+        )
+
+    _news_links(ticker)
+
+    if position == "SHORT":
+        st.warning("SHORT position — margin/options account required")
+
+    st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+    ms_col, mf_col, _ = st.columns([1.5, 1.5, 7])
+    with ms_col:
+        if st.button("✅ Mark Success", key=f"win_{pred_id}"):
             try:
-                pred_dt_str = datetime.fromisoformat(predicted_on.replace("Z", "+00:00")).astimezone(PT).strftime("%b %d  %I:%M %p PT")
-            except Exception:
-                pred_dt_str = "—"
-            st.markdown(f"Predicted: `{pred_dt_str}`")
-            st.markdown(f"Est. days to target: `{days_to_target or '—'}`")
-            if expiry_str != "—":
-                st.markdown(f"Expires: `{expiry_str}`{f'  ({days_left}d left)' if days_left and days_left > 0 else ''}")
-            else:
-                st.markdown("Expires: `run scanner to populate`")
-            if p.get("timing_rationale"):
-                st.caption(f"💡 {p['timing_rationale']}")
-
-        if bl > 0 and bh > 0 and tl > 0:
-            if direction == "BEARISH":
-                formula_str = f"( ({bl:.2f}+{bh:.2f})/2 - ({tl:.2f}+{th:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-            else:
-                formula_str = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
-            st.markdown(f"**Profit formula:** `{formula_str}`")
-
-        if p.get("reasoning"):
-            st.markdown(
-                f"""<div style="background:#f8fafc;border-left:3px solid #94a3b8;border-radius:0 6px 6px 0;
-                padding:10px 14px;margin:12px 0 8px;font-size:13px;color:#1e293b;
-                line-height:1.6;text-align:left">{p['reasoning']}</div>""",
-                unsafe_allow_html=True,
-            )
-
-        _news_links(ticker)
-
-        if position == "SHORT":
-            st.warning("SHORT position — margin/options account required")
-
-        st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
-        ms_col, mf_col, _ = st.columns([1.5, 1.5, 7])
-        with ms_col:
-            if st.button("✅ Mark Success", key=f"win_{pred_id}"):
-                try:
-                    from database.db import update_prediction
-                    import pytz as _pytz
-                    update_prediction(pred_id, {
-                        "outcome": "WIN",
-                        "closed_reason": "MANUAL",
-                        "verified_on": datetime.now(PT).isoformat(),
-                    })
-                    _fetch_open_predictions.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed: {e}")
-        with mf_col:
-            if st.button("❌ Mark Failure", key=f"loss_{pred_id}"):
-                try:
-                    from database.db import update_prediction
-                    update_prediction(pred_id, {
-                        "outcome": "LOSS",
-                        "closed_reason": "MANUAL",
-                        "verified_on": datetime.now(PT).isoformat(),
-                    })
-                    _fetch_open_predictions.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed: {e}")
+                from database.db import update_prediction
+                update_prediction(pred_id, {
+                    "outcome": "WIN",
+                    "closed_reason": "MANUAL",
+                    "verified_on": datetime.now(PT).isoformat(),
+                })
+                _fetch_open_predictions.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed: {e}")
+    with mf_col:
+        if st.button("❌ Mark Failure", key=f"loss_{pred_id}"):
+            try:
+                from database.db import update_prediction
+                update_prediction(pred_id, {
+                    "outcome": "LOSS",
+                    "closed_reason": "MANUAL",
+                    "verified_on": datetime.now(PT).isoformat(),
+                })
+                _fetch_open_predictions.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed: {e}")
 
 
 def _news_links(ticker: str):
