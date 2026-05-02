@@ -12,6 +12,7 @@ _HEADERS = {"User-Agent": _USER_AGENT}
 _SESSION = None
 
 CIK_MAP_TTL_H       = 720      # 30 days — SEC CIK map rarely changes
+INSIDER_BUYING_TTL_H    = 24
 INSIDER_LOOKBACK_DAYS   = 14
 INSIDER_MIN_BUY_USD     = 10_000   # ignore token/trivial purchases
 INSIDER_STRONG_USD      = 500_000  # threshold for STRONG signal
@@ -97,6 +98,12 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
         "signal_strength":     str,     # "STRONG" / "MODERATE" / "NONE"
       }
     """
+    from database.db import get_cache, set_cache
+    cache_key = f"insider_buying_{ticker}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
     empty = {
         "has_insider_buying": False,
         "total_purchased_usd": 0.0,
@@ -108,6 +115,7 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
 
     cik = _ticker_to_cik(ticker)
     if not cik:
+        set_cache(cache_key, empty, ttl_hours=INSIDER_BUYING_TTL_H)
         return empty
 
     try:
@@ -142,6 +150,7 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
             form4_filings.append({"date": dates[i], "accession": accessions[i]})
 
     if not form4_filings:
+        set_cache(cache_key, empty, ttl_hours=INSIDER_BUYING_TTL_H)
         return empty
 
     # Parse each Form 4 XML to extract transaction type and value
@@ -171,6 +180,7 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
             continue
 
     if total_usd == 0:
+        set_cache(cache_key, empty, ttl_hours=INSIDER_BUYING_TTL_H)
         return empty
 
     # Signal strength thresholds
@@ -184,7 +194,7 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
     if log_api and run_date:
         from database.db import log_api_call
         log_api_call(run_date, "sec_edgar", ticker, True)
-    return {
+    result = {
         "has_insider_buying": strength != "NONE",
         "total_purchased_usd": round(total_usd, 2),
         "num_insiders": len(insiders),
@@ -192,6 +202,8 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
         "latest_filing_date": latest_date,
         "signal_strength": strength,
     }
+    set_cache(cache_key, result, ttl_hours=INSIDER_BUYING_TTL_H)
+    return result
 
 
 def _parse_form4_purchase(xml_text: str) -> float:

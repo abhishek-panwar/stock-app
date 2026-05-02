@@ -77,6 +77,9 @@ def run(debug: bool = False):
         "errors_recovered": 0,
     }
 
+    is_friday = datetime.now(PT).weekday() == 4
+    scan_mode = "long" if (is_friday and not debug) else "short"
+
     # ── Step 1: Collect raw ticker lists (HTTP only) ──────────────────────────
     # Alpha Vantage called ONCE here, result shared with both builders (Issue #4 fix)
     print("Collecting raw ticker lists...")
@@ -88,11 +91,13 @@ def run(debug: bool = False):
         log_error("scanner", f"Failed to fetch bullish hot tickers: {e}", level="ERROR")
         raise
 
-    try:
-        bearish_raw = get_bearish_hot_tickers(av_gainers=av_gainers)
-    except Exception as e:
-        log_error("scanner", f"Failed to fetch bearish raw tickers: {e}", level="WARNING")
-        bearish_raw = []
+    bearish_raw = []
+    if scan_mode != "long":
+        try:
+            bearish_raw = get_bearish_hot_tickers(av_gainers=av_gainers)
+        except Exception as e:
+            log_error("scanner", f"Failed to fetch bearish raw tickers: {e}", level="WARNING")
+            bearish_raw = []
 
     # Persist hot tickers to DB for display on dashboard
     try:
@@ -113,8 +118,6 @@ def run(debug: bool = False):
     print("Loading bulk earnings calendar (Finnhub call at most once per 7 days)...")
     earnings_universe = get_upcoming_earnings_universe(days_ahead=EARNINGS_WINDOW_DAYS)
 
-    is_friday = start_time.weekday() == 4
-    scan_mode = "long" if (is_friday and not debug) else "short"
     print(f"  Scan mode: {scan_mode.upper()} ({'Friday long-term' if scan_mode == 'long' else 'short-term'})")
 
     # ── Step 3: Build superset — union of all candidates, deduplicated ────────
@@ -152,7 +155,7 @@ def run(debug: bool = False):
     )
     scan_stats["yfinance_rows_fetched"] = fetch_stats["rows_fetched"]
     scan_stats["finnhub_news_fetched"]  = fetch_stats["news_fetched"]
-    scan_stats["errors_encountered"]    = fetch_stats["errors"]
+    scan_stats["errors_encountered"]   += fetch_stats["errors"]
 
     # ── Step 5: Filter universes from pre-fetched data (no API calls) ─────────
     if scan_mode == "long":
@@ -310,7 +313,7 @@ def run(debug: bool = False):
             log_error("scanner", f"Bearish score error {ticker}: {e}", detail=str(e), ticker=ticker)
 
     # ── Deduplicate alias pairs ───────────────────────────────────────────────
-    ALIASES = [{"GOOGL", "GOOG"}, {"BRK-A", "BRK-B"}, {"META", "FB"}]
+    ALIASES = [{"GOOGL", "GOOG"}, {"BRK-A", "BRK-B"}]
 
     def _dedupe(scored_list: list) -> list:
         scored_list.sort(key=lambda x: x["score"], reverse=True)
@@ -364,6 +367,7 @@ def run(debug: bool = False):
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
+                    earnings=item["earnings"],
                     earnings_calendar=item.get("earnings_calendar"),
                     analyst_upside_pct=item.get("analyst_upside_pct"),
                     insider_buying=item.get("insider_buying"),
@@ -374,6 +378,7 @@ def run(debug: bool = False):
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
+                    earnings=item["earnings"],
                     earnings_calendar=item.get("earnings_calendar"),
                 )
             elif scan_mode == "long":
@@ -381,6 +386,7 @@ def run(debug: bool = False):
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
+                    earnings=item["earnings"],
                     earnings_calendar=item.get("earnings_calendar"),
                     analyst_upside_pct=item.get("analyst_upside_pct"),
                     insider_buying=item.get("insider_buying"),
@@ -391,6 +397,7 @@ def run(debug: bool = False):
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
+                    earnings=item["earnings"],
                     earnings_calendar=item.get("earnings_calendar"),
                     analyst_upside_pct=item.get("analyst_upside_pct"),
                     insider_buying=item.get("insider_buying"),
@@ -430,9 +437,10 @@ def run(debug: bool = False):
 
             if not target_price or target_price <= 0:
                 mult = {"BULLISH": 1.5, "BEARISH": -1.5}.get(direction, 1.0)
-                target_price = round(price + atr * mult * 1.5, 2)
+                atr_mult = 15 if scan_mode == "long" else 1.5
+                target_price = round(price + atr * mult * atr_mult, 2)
             if not stop_price or stop_price <= 0 or abs(stop_price - price) < atr * 0.3:
-                pct = 0.02
+                pct = 0.08 if scan_mode == "long" else 0.02
                 stop_price = round(price * (1 - pct) if direction == "BULLISH" else price * (1 + pct), 2)
 
             decimals     = 6 if price < 1 else 4 if price < 10 else 2
@@ -463,12 +471,12 @@ def run(debug: bool = False):
                 return
 
             buy_low, buy_high = compute_buy_range(price, atr, direction)
-            buy_window        = ai.get("buy_window") or compute_buy_window("short", score_data["total"])
+            buy_window        = ai.get("buy_window") or compute_buy_window(scan_mode, score_data["total"])
 
             days_to_target = ai.get("days_to_target")
             if not days_to_target or days_to_target <= 0:
                 dist = abs(target_price - price)
-                days_to_target = max(2, round(dist / atr))
+                days_to_target = max(60 if scan_mode == "long" else 2, round(dist / atr))
 
             timeframe  = _bucket(days_to_target)
             expires_on = (start_time + timedelta(days=round(days_to_target * 1.2))).isoformat()
