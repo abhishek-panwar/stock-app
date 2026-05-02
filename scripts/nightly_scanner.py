@@ -102,6 +102,11 @@ def run(debug: bool = False):
     except Exception as e:
         log_error("scanner", f"Failed to save earnings calendar: {e}", level="WARNING")
 
+    # ── Determine scan mode early so scoring loop can skip short-term gate on Fridays ──
+    is_friday = start_time.weekday() == 4  # 0=Mon … 4=Fri
+    scan_mode = "long" if (is_friday and not debug) else "short"
+    print(f"Scan mode: {scan_mode.upper()} ({'Friday long-term' if scan_mode == 'long' else 'short-term'})")
+
     # ── Score every stock once (no timeframe) ─────────────────────────────────
     print(f"Scoring {universe_total} stocks...")
     scored = []
@@ -153,7 +158,7 @@ def run(debug: bool = False):
             )
             total = score_data["total"]
 
-            if total < SCORE_THRESHOLD:
+            if scan_mode == "short" and total < SCORE_THRESHOLD:
                 if 40 <= total < SCORE_THRESHOLD:
                     shadow.append({
                         "ticker": ticker,
@@ -214,9 +219,6 @@ def run(debug: bool = False):
         deduped.append(s)
 
     # ── Friday = long-term scan; Sun–Thu = short-term scan ───────────────────
-    is_friday = start_time.weekday() == 4  # 0=Mon … 4=Fri
-    scan_mode = "long" if (is_friday and not debug) else "short"
-    print(f"Scan mode: {scan_mode.upper()} ({'Friday long-term' if scan_mode == 'long' else 'short-term'})")
 
     if scan_mode == "long":
         # Re-score all collected items with long-term scorer
