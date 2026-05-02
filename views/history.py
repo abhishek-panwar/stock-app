@@ -157,6 +157,30 @@ def render():
         st.info("No closed predictions yet. Predictions are closed automatically when target or stop loss is hit, or manually from the main dashboard.")
         return
 
+    # ── Bulk selection state ──────────────────────────────────────────────────
+    if "closed_selected" not in st.session_state:
+        st.session_state.closed_selected = set()
+
+    selected = st.session_state.closed_selected
+    if selected:
+        sel_col1, sel_col2, sel_col3 = st.columns([3, 2, 5])
+        with sel_col1:
+            st.warning(f"**{len(selected)} prediction{'s' if len(selected) > 1 else ''} selected**")
+        with sel_col2:
+            if st.button(f"🗑 Delete {len(selected)} selected", key="bulk_delete_closed"):
+                try:
+                    from database.db import soft_delete_prediction
+                    for pid in selected:
+                        soft_delete_prediction(pid)
+                    st.session_state.closed_selected = set()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Bulk delete failed: {e}")
+        with sel_col3:
+            if st.button("✕ Clear selection", key="clear_selection_closed"):
+                st.session_state.closed_selected = set()
+                st.rerun()
+
     # ── Recalculate button ────────────────────────────────────────────────────
     st.markdown('<div class="btn-safe">', unsafe_allow_html=True)
     recalc_clicked = st.button(
@@ -467,6 +491,17 @@ def _prediction_card(p: dict):
     )
 
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{p.get('predicted_on','')[:10]}"
+
+    # ── Checkbox for bulk selection ───────────────────────────────────────────
+    if "closed_selected" in st.session_state:
+        chk_col, card_col = st.columns([0.4, 11])
+        with chk_col:
+            checked = pred_id in st.session_state.closed_selected
+            if st.checkbox("", value=checked, key=f"hchk_{pred_id}", label_visibility="collapsed"):
+                st.session_state.closed_selected.add(pred_id)
+            else:
+                st.session_state.closed_selected.discard(pred_id)
+
     with st.expander(header, expanded=False):
         badge_html = _asset_badge(p)
         bcol, dcol = st.columns([9, 1])

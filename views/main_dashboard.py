@@ -167,6 +167,30 @@ def render():
         _show_empty_state()
         return
 
+    # ── Bulk selection state ──────────────────────────────────────────────────
+    if "open_selected" not in st.session_state:
+        st.session_state.open_selected = set()
+
+    selected = st.session_state.open_selected
+    if selected:
+        sel_col1, sel_col2, sel_col3 = st.columns([3, 2, 5])
+        with sel_col1:
+            st.warning(f"**{len(selected)} prediction{'s' if len(selected) > 1 else ''} selected**")
+        with sel_col2:
+            if st.button(f"🗑 Delete {len(selected)} selected", key="bulk_delete_open"):
+                try:
+                    from database.db import soft_delete_prediction
+                    for pid in selected:
+                        soft_delete_prediction(pid)
+                    st.session_state.open_selected = set()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Bulk delete failed: {e}")
+        with sel_col3:
+            if st.button("✕ Clear selection", key="clear_selection_open"):
+                st.session_state.open_selected = set()
+                st.rerun()
+
     if not predictions:
         _show_empty_state()
         return
@@ -659,6 +683,16 @@ def _prediction_card(p: dict, _unused: set = None):
         card_style = "background:#f0fdf4;border-left:4px solid #15803d;"
     else:
         card_style = "background:#f8fafc;border-left:4px solid #94a3b8;"
+
+    # ── Checkbox for bulk selection ───────────────────────────────────────────
+    if "open_selected" in st.session_state:
+        chk_col, card_col = st.columns([0.4, 11])
+        with chk_col:
+            checked = pred_id in st.session_state.open_selected
+            if st.checkbox("", value=checked, key=f"chk_{pred_id}", label_visibility="collapsed"):
+                st.session_state.open_selected.add(pred_id)
+            else:
+                st.session_state.open_selected.discard(pred_id)
 
     st.markdown(
         f'<style>'
