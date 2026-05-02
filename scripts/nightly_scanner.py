@@ -115,12 +115,13 @@ def run(debug: bool = False):
     except Exception:
         pass
 
-    # ── Score every stock once (no timeframe) ─────────────────────────────────
-    print(f"Scoring {universe_total} stocks...")
+    # ── Score every stock concurrently ───────────────────────────────────────
+    print(f"Scoring {universe_total} stocks (10 workers)...")
     scored = []
     shadow = []
+    _scored_lock = __import__("threading").Lock()
 
-    for item in universe:
+    def _score_one(item):
         ticker = item["ticker"]
         source = item["source"]
         try:
@@ -129,15 +130,14 @@ def run(debug: bool = False):
                 warnings.simplefilter("ignore")
                 df = get_price_history(ticker, period="6mo")
             if df.empty:
-                continue
-            scan_stats["yfinance_rows_fetched"] += len(df)
+                return
+            rows = len(df)
 
             ind = compute_all(df)
             if not ind:
-                continue
+                return
 
             sentiment = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=True)
-            scan_stats["finnhub_news_fetched"] += sentiment.get("volume", 0)
             social = get_social_sentiment(ticker, run_date=run_date, log_api=True)
             sentiment["mentions"] = social.get("mentions", 0)
             analyst        = get_analyst_recommendation(ticker, run_date=run_date, log_api=True)
@@ -148,7 +148,6 @@ def run(debug: bool = False):
             social_vel     = get_social_velocity(ticker)
             info           = get_ticker_info(ticker, run_date=run_date, log_api=True)
 
-            # Earnings calendar from bulk lookup — no per-stock API call
             ec_data = earnings_universe.get(ticker.upper())
             earnings_calendar = (
                 {"has_upcoming": True,
@@ -157,7 +156,6 @@ def run(debug: bool = False):
                 if ec_data else {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
             )
 
-            # Single score — no timeframe bias
             score_data = compute_signal_score(
                 ind, sentiment, analyst, earnings, source=source,
                 earnings_calendar=earnings_calendar, analyst_target=analyst_target,
@@ -166,46 +164,57 @@ def run(debug: bool = False):
             )
             total = score_data["total"]
 
-            if scan_mode == "short" and total < SCORE_THRESHOLD:
-                if 40 <= total < SCORE_THRESHOLD:
-                    shadow.append({
-                        "ticker": ticker,
-                        "scan_timestamp": start_time.isoformat(),
-                        "score_at_rejection": total,
-                        "price": ind.get("price"),
-                        "volume": None,
-                        "rsi": ind.get("rsi"),
-                        "macd_signal": ind.get("macd_signal"),
-                        "bb_squeeze": ind.get("bb_squeeze"),
-                        "volume_surge_ratio": ind.get("volume_surge_ratio"),
-                        "obv_trend": ind.get("obv_trend"),
-                        "formula_version": FORMULA_VERSION,
-                    })
-                continue
+            with _scored_lock:
+                scan_stats["yfinance_rows_fetched"] += rows
+                scan_stats["finnhub_news_fetched"]  += sentiment.get("volume", 0)
 
-            scored.append({
-                "ticker": ticker,
-                "company_name": info.get("name", ticker),
-                "market_cap": info.get("market_cap"),
-                "avg_volume": info.get("avg_volume"),
-                "source": source,
-                "score": total,
-                "score_data": score_data,
-                "indicators": ind,
-                "sentiment": sentiment,
-                "analyst": analyst,
-                "earnings": earnings,
-                "earnings_calendar": earnings_calendar,
-                "analyst_upside_pct": score_data.get("analyst_upside_pct"),
-                "insider_buying": insider_buying,
-                "fundamentals": fundamentals,
-                "social_velocity": social_vel,
-            })
+                if scan_mode == "short" and total < SCORE_THRESHOLD:
+                    if 40 <= total < SCORE_THRESHOLD:
+                        shadow.append({
+                            "ticker": ticker,
+                            "scan_timestamp": start_time.isoformat(),
+                            "score_at_rejection": total,
+                            "price": ind.get("price"),
+                            "volume": None,
+                            "rsi": ind.get("rsi"),
+                            "macd_signal": ind.get("macd_signal"),
+                            "bb_squeeze": ind.get("bb_squeeze"),
+                            "volume_surge_ratio": ind.get("volume_surge_ratio"),
+                            "obv_trend": ind.get("obv_trend"),
+                            "formula_version": FORMULA_VERSION,
+                        })
+                    return
+
+                scored.append({
+                    "ticker": ticker,
+                    "company_name": info.get("name", ticker),
+                    "market_cap": info.get("market_cap"),
+                    "avg_volume": info.get("avg_volume"),
+                    "source": source,
+                    "score": total,
+                    "score_data": score_data,
+                    "indicators": ind,
+                    "sentiment": sentiment,
+                    "analyst": analyst,
+                    "earnings": earnings,
+                    "earnings_calendar": earnings_calendar,
+                    "analyst_upside_pct": score_data.get("analyst_upside_pct"),
+                    "insider_buying": insider_buying,
+                    "fundamentals": fundamentals,
+                    "social_velocity": social_vel,
+                })
 
         except Exception as e:
-            scan_stats["errors_encountered"] += 1
+            with _scored_lock:
+                scan_stats["errors_encountered"] += 1
             log_error("scanner", f"Scoring error: {ticker}: {e}", detail=str(e), ticker=ticker)
             print(f"  Error on {ticker}: {e}")
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_score_one, item): item["ticker"] for item in universe}
+        for future in as_completed(futures):
+            pass  # errors handled inside _score_one
 
     # Deduplicate alias pairs — keep highest scoring one
     ALIASES = [

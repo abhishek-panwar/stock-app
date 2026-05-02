@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 import finnhub
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -10,24 +11,28 @@ EARNINGS_UNIVERSE_TTL_H = 168   # 7 days — refresh weekly
 ANALYST_TARGET_TTL_H    = 24    # per-ticker analyst price target cache
 EARNINGS_WINDOW_DAYS    = 14    # how far ahead to scan for earnings
 
-# Rate limiter: Finnhub free tier = 60 calls/min → 1 call/sec minimum
+# Thread-safe rate limiter: Finnhub free tier = 60 calls/min → 1 call/sec minimum
 _RATE_LIMIT_DELAY = 1.1  # seconds between calls
 _last_call_time: float = 0.0
+_rate_lock = threading.Lock()
 
 _client = None
+_client_lock = threading.Lock()
 
 def get_client():
     global _client
-    if _client is None:
-        _client = finnhub.Client(api_key=os.environ["FINNHUB_API_KEY"])
-    return _client
+    with _client_lock:
+        if _client is None:
+            _client = finnhub.Client(api_key=os.environ["FINNHUB_API_KEY"])
+        return _client
 
 def _rate_limit():
     global _last_call_time
-    elapsed = time.time() - _last_call_time
-    if elapsed < _RATE_LIMIT_DELAY:
-        time.sleep(_RATE_LIMIT_DELAY - elapsed)
-    _last_call_time = time.time()
+    with _rate_lock:
+        elapsed = time.time() - _last_call_time
+        if elapsed < _RATE_LIMIT_DELAY:
+            time.sleep(_RATE_LIMIT_DELAY - elapsed)
+        _last_call_time = time.time()
 
 
 def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api: bool = False) -> dict:
