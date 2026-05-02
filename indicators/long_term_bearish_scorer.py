@@ -113,9 +113,11 @@ def compute_long_term_bearish_score(
             bonus_reasons.append(f"Analyst target {upside_pct:.0f}% below current (+9)")
         elif upside_pct <= 0:
             analyst_score += 5
-        # Positive analyst upside with bearish consensus = conflicted, lower conviction
+        # Positive analyst upside with bearish consensus = stale/conflicted recommendation
+        elif upside_pct > 30 and consensus in ("SELL", "STRONG_SELL"):
+            analyst_score = max(0, analyst_score - 8)  # very conflicted — large penalty
         elif upside_pct > 15 and consensus in ("SELL", "STRONG_SELL"):
-            analyst_score = max(0, analyst_score - 4)  # conviction penalty
+            analyst_score = max(0, analyst_score - 4)  # conflicted — moderate penalty
 
     scores["analyst_bearishness"] = round(min(analyst_score, 25), 1)
 
@@ -131,33 +133,34 @@ def compute_long_term_bearish_score(
         miss_score = 20
         bonus_reasons.append("0/4 earnings beats — consistent execution failure (+20)")
     elif total_beats == 1:
-        miss_score = 14
-        bonus_reasons.append(f"Only {total_beats}/4 earnings beats — mostly missing (+14)")
+        miss_score = 12
+        bonus_reasons.append(f"Only {total_beats}/4 earnings beats — mostly missing (+12)")
     elif total_beats == 2:
-        miss_score = 8
-        bonus_reasons.append(f"{total_beats}/4 earnings beats — mixed execution (+8)")
+        miss_score = 6
+        bonus_reasons.append(f"{total_beats}/4 earnings beats — mixed execution (+6)")
     elif total_beats == 3:
-        miss_score = 3  # one miss in 4Q — not great but not catastrophic
+        miss_score = 2  # one miss in 4Q — not catastrophic
 
-    # If consecutive_beats == 0 but total_beats > 0, the recent trend is misses
+    # Recent miss bonus — most recent quarter missed = deteriorating execution trend
     if consecutive_beats == 0 and total_beats > 0:
-        miss_score = min(miss_score + 5, 20)
-        bonus_reasons.append("Most recent quarter missed — deteriorating execution (+5)")
+        miss_score = min(miss_score + 4, 20)
+        bonus_reasons.append("Most recent quarter missed — deteriorating execution trend (+4)")
 
     scores["earnings_misses"] = round(min(miss_score, 20), 1)
 
-    # ── Group 4: Insider Selling (10 pts) ─────────────────────────────────────
-    # Note: EDGAR data only captures BUYING via get_insider_buying().
-    # No selling data → score 0. If buying is present, that's ANTI-bearish.
+    # ── Group 4: Insider Activity (conviction modifier) ───────────────────────
+    # EDGAR only provides buying data. No buying = neutral (0).
+    # Insider buying PRESENT = management has conviction against the short thesis → penalty.
     insider_score = 0
     if insider_buying and insider_buying.get("has_insider_buying"):
-        # Insiders are BUYING → this is bearish headwind, reduce conviction
-        insider_score = 0
-        bonus_reasons.append("Insider buying present — anti-bearish headwind (0, no score)")
-    else:
-        # No insider buying = neutral/mildly bearish (management not stepping in to support)
-        insider_score = 5
-        bonus_reasons.append("No insider buying — management not defending stock (+5)")
+        strength = insider_buying.get("signal_strength", "NONE")
+        if strength == "STRONG":
+            insider_score = -10
+            bonus_reasons.append("Insider buying STRONG — management conviction contradicts bearish thesis (-10)")
+        else:
+            insider_score = -5
+            bonus_reasons.append("Insider buying present — anti-bearish headwind (-5)")
+    # No buying data = neutral, no score in either direction
 
     scores["insider_selling"] = insider_score
 
@@ -189,13 +192,18 @@ def compute_long_term_bearish_score(
             penalty += 20
             penalty_reasons.append(f"Earnings in {days_to_earn}d — gap risk in either direction (-20)")
 
-    # Strong positive news = potential catalyst that could reverse the thesis
+    # News sentiment: negative confirms thesis, positive is a headwind
     news_s = sentiment.get("score", 0)
-    if news_s > 0.5:
+    if news_s < -0.3:
+        bonus += 5
+        bonus_reasons.append(f"Negative news sentiment {news_s:.2f} — confirms deterioration thesis (+5)")
+    elif news_s < 0:
+        bonus += 2
+    elif news_s > 0.5:
         penalty += 8
         penalty_reasons.append(f"Strong positive news sentiment {news_s:.2f} — thesis headwind (-8)")
 
-    total = max(0, min(round(base - penalty), 100))
+    total = max(0, min(round(base + bonus - penalty), 100))
     bonus_reasons += penalty_reasons
 
     # Conviction: need fundamental deterioration + at least analyst or structure confirming

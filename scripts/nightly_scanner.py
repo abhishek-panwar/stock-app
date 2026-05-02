@@ -42,7 +42,7 @@ BULLISH_SCORE_THRESHOLD      = 45
 BEARISH_SCORE_THRESHOLD      = 40
 # Long-term thresholds (Friday) — lower bar, fundamentals need time to play out
 LONG_BULLISH_SCORE_THRESHOLD = 35
-LONG_BEARISH_SCORE_THRESHOLD = 35
+LONG_BEARISH_SCORE_THRESHOLD = 30
 MAX_BULLISH_STOCKS           = 30   # top N bullish stocks sent to Claude
 MAX_BEARISH_STOCKS           = 20   # top N bearish stocks sent to Claude
 MIN_PROFIT_PCT               = 4.0  # minimum absolute profit % to save a prediction
