@@ -1,6 +1,6 @@
 """
 Price watcher — runs every 5 minutes during market hours (6:30 AM – 1:00 PM PT).
-Only checks open predictions. Fires stop loss / target hit alerts immediately.
+Checks open predictions for target hit, stop loss, and timeframe expiry.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,6 +11,9 @@ load_dotenv()
 
 import pytz
 PT = pytz.timezone("America/Los_Angeles")
+
+TIMEFRAME_DAYS  = {"short": 5, "medium": 28, "long": 180}
+WIN_THRESHOLD_PCT = 2.0
 
 from database.db import get_open_predictions, update_prediction
 from services.yfinance_service import get_multiple_prices
@@ -74,6 +77,28 @@ def run():
                                      predicted_on=pred.get("predicted_on", ""),
                                      stop_loss=pred.get("stop_loss", 0),
                                      direction=pred.get("direction", ""))
+            except Exception:
+                pass
+
+        else:
+            # Check timeframe expiry
+            try:
+                predicted_on = pred.get("predicted_on", "")
+                pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00"))
+                days_elapsed = (now.replace(tzinfo=None) - pred_dt.replace(tzinfo=None)).days
+                max_days = TIMEFRAME_DAYS.get(pred.get("timeframe", "short"), 5)
+                if days_elapsed >= max_days:
+                    outcome = "WIN" if (
+                        (direction != "BEARISH" and raw_pct >= WIN_THRESHOLD_PCT) or
+                        (direction == "BEARISH" and raw_pct <= -WIN_THRESHOLD_PCT)
+                    ) else "LOSS"
+                    update_prediction(pred["id"], {
+                        "outcome": outcome,
+                        "closed_reason": "EXPIRED",
+                        "price_at_close": current,
+                        "return_pct": return_pct,
+                        "verified_on": now.isoformat(),
+                    })
             except Exception:
                 pass
 
