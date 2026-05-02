@@ -2,7 +2,7 @@ name: Price Watcher
 
 on:
   schedule:
-    # Every 5 min Mon–Fri, 6:30 AM – 1:00 PM PT (13:30–20:00 UTC)
+    # Every 5 min Mon–Fri, 6:00 AM – 1:00 PM PT
     - cron: '*/5 14-19 * * 1-5'
     - cron: '*/5 13 * * 1-5'
     - cron: '*/5 20 * * 1-5'

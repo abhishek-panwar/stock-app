@@ -2,7 +2,7 @@ name: Opportunity Analyzer
 
 on:
   schedule:
-    - cron: '0 3 * * 0'  # Every Sunday 8:00 PM PT = 3:00 AM UTC Monday
+    - cron: '0 3 * * 0'  # 8:00 PM PT Sundays
   workflow_dispatch:
 
 jobs:

@@ -36,7 +36,7 @@ secrets = [modal.Secret.from_name("stock-app-secrets")]
     image=image,
     secrets=secrets,
     timeout=1200,
-    schedule=modal.Cron("20 5 * * 0-6"),  # 10:20 PM PDT daily (5:20 AM UTC next day)
+    schedule=modal.Cron("20 5 * * 0-6"),  # 10:20 PM PT daily
 )
 def nightly_scanner():
     import sys
@@ -50,7 +50,7 @@ def nightly_scanner():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("0 22 * * 1-5"),  # 2:00 PM PT (22:00 UTC)
+    schedule=modal.Cron("0 22 * * 1-5"),  # 3:00 PM PT Mon–Fri
 )
 def prediction_verifier():
     import sys
@@ -64,7 +64,7 @@ def prediction_verifier():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("30 22 * * 1-5"),  # 2:30 PM PT (22:30 UTC)
+    schedule=modal.Cron("30 22 * * 1-5"),  # 3:30 PM PT Mon–Fri
 )
 def feedback_engine():
     import sys
@@ -82,7 +82,7 @@ def feedback_engine():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("0 1 * * 1"),  # 5:00 PM PT Mondays only (every ~3 trading days)
+    schedule=modal.Cron("0 1 * * 1"),  # 6:00 PM PT Mondays only
 )
 def failure_analyzer():
     import sys
