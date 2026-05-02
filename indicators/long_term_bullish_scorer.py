@@ -93,7 +93,7 @@ def compute_long_term_bullish_score(
         elif peg is not None and 1 <= peg < 2:
             fund_score += 2
 
-    scores["fundamentals"] = round(min(max(fund_score, 0), 30), 1)
+    scores["fundamentals"] = round(min(max(fund_score, -10), 30), 1)
 
     # ── Group 2: Insider Buying (25 pts) ──────────────────────────────────────
     insider_score = 0
@@ -136,6 +136,7 @@ def compute_long_term_bullish_score(
     # ── Group 4: Earnings Quality (15 pts) ────────────────────────────────────
     earnings_score = 0
     consecutive = earnings.get("consecutive_beats", 0)
+    total_beats  = earnings.get("beats", 0)
     if consecutive >= 4:
         earnings_score = 15
         bonus_reasons.append(f"{consecutive} consecutive earnings beats — institutional re-rating likely (+15)")
@@ -147,11 +148,12 @@ def compute_long_term_bullish_score(
     elif consecutive >= 1:
         earnings_score = 4
 
-    # Upcoming earnings = near-term catalyst that can pull forward the re-rating
-    if earnings_calendar and earnings_calendar.get("has_upcoming") and consecutive >= 2:
-        earnings_score = min(earnings_score + 3, 15)
-        days_to_earn = earnings_calendar.get("days_to_earnings", 99)
-        bonus_reasons.append(f"Earnings catalyst in {days_to_earn}d with {consecutive} consecutive beats")
+    # Consistent beaters with a broken streak still show execution quality
+    if total_beats >= 4 and consecutive < 2:
+        earnings_score = max(earnings_score, 8)
+        bonus_reasons.append(f"4/4 earnings beats (streak broken) — consistent execution (+8 floor)")
+    elif total_beats >= 3 and consecutive == 0:
+        earnings_score = max(earnings_score, 5)
 
     scores["earnings"] = earnings_score
 

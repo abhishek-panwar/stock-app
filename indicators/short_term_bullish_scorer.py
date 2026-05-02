@@ -108,9 +108,7 @@ def compute_short_term_bullish_score(
     adx = ind.get("adx", 20)
     adx_score = 8 if adx > 30 else 5 if adx >= 25 else 2
 
-    golden_cross_bonus = 2 if ind.get("golden_cross") else 0
-
-    trend_raw = ma_score + adx_score + golden_cross_bonus
+    trend_raw = ma_score + adx_score
     scores["trend"] = round(min(trend_raw, 25), 1)
 
     # ── Group 3: Volume (20 pts) ───────────────────────────────────────────────
@@ -152,9 +150,7 @@ def compute_short_term_bullish_score(
         struct_score += 3   # squeeze building, not yet broken out
     if ind.get("atr_rising"):
         struct_score += 3
-    if ind.get("broke_52w_high"):
-        struct_score += 3
-    elif ind.get("near_52w_high"):
+    if ind.get("near_52w_high"):
         struct_score += 1
 
     scores["structure"] = round(min(struct_score, 10), 1)
@@ -203,9 +199,6 @@ def compute_short_term_bullish_score(
     bonus = 0
     bonus_reasons = []
 
-    if ind.get("rsi_divergence"):
-        bonus += 3
-        bonus_reasons.append("RSI bullish divergence (+3)")
     if ind.get("golden_cross"):
         bonus += 3
         bonus_reasons.append("Golden cross (+3)")
@@ -219,13 +212,17 @@ def compute_short_term_bullish_score(
     if earnings_calendar and earnings_calendar.get("has_upcoming"):
         consecutive = earnings.get("consecutive_beats", 0)
         days_to_earn = earnings_calendar.get("days_to_earnings", 99)
-        label = "tomorrow" if days_to_earn <= 1 else f"in {days_to_earn}d"
-        if consecutive >= 3:
-            bonus += 10
-            bonus_reasons.append(f"Earnings catalyst {label} + {consecutive} consecutive beats (+10)")
-        elif consecutive >= 1:
-            bonus += 5
-            bonus_reasons.append(f"Earnings {label} + {consecutive} beat(s) (+5)")
+        if days_to_earn <= 5:
+            bonus -= 5
+            bonus_reasons.append(f"Earnings in {days_to_earn}d — gap risk (-5)")
+        else:
+            label = "tomorrow" if days_to_earn <= 1 else f"in {days_to_earn}d"
+            if consecutive >= 3:
+                bonus += 10
+                bonus_reasons.append(f"Earnings catalyst {label} + {consecutive} consecutive beats (+10)")
+            elif consecutive >= 1:
+                bonus += 5
+                bonus_reasons.append(f"Earnings {label} + {consecutive} beat(s) (+5)")
 
     if analyst_target and analyst_target.get("mean_target") and price > 0:
         upside_pct = (analyst_target["mean_target"] - price) / price * 100

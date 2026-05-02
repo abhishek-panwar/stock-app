@@ -25,14 +25,16 @@ def compute_all(df: pd.DataFrame) -> dict:
     rsi_divergence = False
     rsi_bearish_divergence = False
     if len(close) >= 10:
-        price_trend_down = close.iloc[-5:].is_monotonic_decreasing
-        price_trend_up   = close.iloc[-5:].is_monotonic_increasing
-        rsi_trend_up     = rsi_series.iloc[-5:].is_monotonic_increasing
-        rsi_trend_down   = rsi_series.iloc[-5:].is_monotonic_decreasing
-        # Bullish: price falling, RSI rising (hidden demand)
-        rsi_divergence         = bool(price_trend_down and rsi_trend_up)
-        # Bearish: price rising, RSI falling (weakening momentum / distribution)
-        rsi_bearish_divergence = bool(price_trend_up and rsi_trend_down)
+        price_5 = close.iloc[-5:]
+        rsi_5   = rsi_series.iloc[-5:]
+        price_net_down = float(price_5.iloc[-1]) < float(price_5.iloc[0])
+        price_net_up   = float(price_5.iloc[-1]) > float(price_5.iloc[0])
+        rsi_net_up     = float(rsi_5.iloc[-1])   > float(rsi_5.iloc[0])
+        rsi_net_down   = float(rsi_5.iloc[-1])   < float(rsi_5.iloc[0])
+        # Bullish divergence: price net lower but RSI net higher (hidden demand)
+        rsi_divergence         = bool(price_net_down and rsi_net_up)
+        # Bearish divergence: price net higher but RSI net lower (momentum fading)
+        rsi_bearish_divergence = bool(price_net_up and rsi_net_down)
 
     # ── MACD ─────────────────────────────────────────────────────────────────
     macd_ind = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)

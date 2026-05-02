@@ -61,9 +61,7 @@ def compute_short_term_bearish_score(
     if ind.get("macd_crossover_bearish"):
         macd_score = 15   # line just crossed below signal = confirmed reversal
     elif macd_line > macd_signal and macd_hist < macd_hist_prev and macd_hist_prev > 0:
-        macd_score = 10   # still bullish but histogram shrinking = momentum fading
-    elif macd_line > macd_signal and macd_hist < 0:
-        macd_score = 12   # line above signal but histogram negative = topping
+        macd_score = 12   # histogram shrinking from positive = momentum fading, early warning
     elif macd_line < macd_signal:
         macd_score = 8    # already bearish
     else:
@@ -155,6 +153,12 @@ def compute_short_term_bearish_score(
         if days_to_earn <= 5:
             penalty += 25
             penalty_reasons.append(f"Earnings in {days_to_earn}d — gap risk (-25)")
+
+    # Already in downtrend — not a fresh reversal candidate
+    ma50 = ind.get("ma50") or price
+    if price < ma50:
+        penalty += 10
+        penalty_reasons.append("Price below MA50 — already in downtrend, not a reversal setup (-10)")
 
     # Strong upward OBV = still being accumulated, not a short
     if obv == "CONFIRMING":
