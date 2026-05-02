@@ -17,6 +17,21 @@ def _fetch_open_predictions() -> list:
     from database.db import get_predictions
     return get_predictions({"outcome": "PENDING"}, limit=200)
 
+@st.cache_data(ttl=3600)
+def _fetch_scan_logs() -> list:
+    from database.db import get_scan_logs
+    return get_scan_logs(limit=1)
+
+@st.cache_data(ttl=3600)
+def _fetch_hot_tickers() -> list:
+    from database.db import get_hot_tickers_from_db
+    return get_hot_tickers_from_db()
+
+@st.cache_data(ttl=3600)
+def _fetch_earnings_calendar() -> list:
+    from database.db import get_earnings_calendar_from_db
+    return get_earnings_calendar_from_db()
+
 
 
 def _age_info(predicted_on: str):
@@ -157,9 +172,8 @@ def render():
             st.rerun()
 
     try:
-        from database.db import get_predictions, get_scan_logs
         predictions = _fetch_open_predictions()
-        scan_logs   = get_scan_logs(limit=1)
+        scan_logs   = _fetch_scan_logs()
     except Exception as e:
         st.error(f"Database connection error: {e}")
         _show_empty_state()
@@ -186,8 +200,7 @@ def render():
 
     with st.expander("🔥 Today's Hot 50 (from market news)", expanded=False):
         try:
-            from database.db import get_hot_tickers_from_db
-            rows = get_hot_tickers_from_db()
+            rows = _fetch_hot_tickers()
             if rows:
                 scanned_at = rows[0].get("scanned_at", "")
                 try:
@@ -211,8 +224,7 @@ def render():
 
     with st.expander("📅 Earnings Next 2 Weeks", expanded=False):
         try:
-            from database.db import get_earnings_calendar_from_db
-            rows = get_earnings_calendar_from_db()
+            rows = _fetch_earnings_calendar()
             if rows:
                 scanned_at = rows[0].get("scanned_at", "")
                 try:
@@ -946,6 +958,9 @@ def _trigger_scanner(debug: bool = False):
         _save_debug_log(stats.get("claude_raw_log", []))
 
         _fetch_open_predictions.clear()
+        _fetch_scan_logs.clear()
+        _fetch_hot_tickers.clear()
+        _fetch_earnings_calendar.clear()
         st.session_state["_open_deleted"] = set()
         st.rerun()
     except Exception as e:
