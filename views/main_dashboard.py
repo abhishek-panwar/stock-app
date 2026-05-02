@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_lightweight_charts import renderLightweightCharts
 from datetime import datetime, timedelta
 import pytz
 
@@ -267,11 +266,6 @@ def render():
         key=_sort_key
     )
 
-    if "chart_ticker" not in st.session_state:
-        st.session_state.chart_ticker = None
-        st.session_state.chart_pred   = None
-
-    _chart_panel()
     st.markdown("---")
 
     # ── High conviction picks ─────────────────────────────────────────────────
@@ -584,44 +578,6 @@ def _run_manual_prediction(ticker: str):
         status.update(label=f"❌ Failed: {e}", state="error", expanded=True)
 
 
-def _chart_panel():
-    ticker = st.session_state.get("chart_ticker")
-    pred   = st.session_state.get("chart_pred")
-
-    if not ticker:
-        st.markdown(
-            """<div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;
-            padding:16px;text-align:left;color:#64748b;font-size:14px">
-            📈 Click <strong style="color:#1e293b">View Chart</strong> on any prediction below to load its interactive chart here
-            </div>""",
-            unsafe_allow_html=True,
-        )
-        return
-
-    col_title, col_close = st.columns([9, 1])
-    with col_title:
-        company = pred.get("company_name") or ticker if pred else ticker
-        st.markdown(f"### 📈 {ticker} — {company}")
-        st.caption("MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI(14)  |  Scroll to zoom · Drag to pan")
-    with col_close:
-        if st.button("✕ Close", key="close_chart"):
-            st.session_state.chart_ticker = None
-            st.session_state.chart_pred   = None
-            st.rerun()
-
-    with st.spinner(f"Loading {ticker}..."):
-        try:
-            from services.chart_service import build_stock_chart
-            from services.yfinance_service import get_price_history
-            df = get_price_history(ticker, period="3mo")
-            if df.empty:
-                st.warning(f"No price data for {ticker}.")
-                return
-            charts = build_stock_chart(df, prediction=pred, ticker=ticker, height=500)
-            if charts:
-                renderLightweightCharts(charts, key=f"main_chart_{ticker}")
-        except Exception as e:
-            st.error(f"Chart error: {e}")
 
 
 def _prediction_card(p: dict, _unused: set = None):
@@ -693,7 +649,7 @@ def _prediction_card(p: dict, _unused: set = None):
         dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
         prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
 
-        pill_left_col, btn_col, del_col = st.columns([8, 1.4, 0.6])
+        pill_left_col, del_col = st.columns([9.6, 0.4])
         with pill_left_col:
             st.markdown(
                 f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
@@ -706,11 +662,6 @@ def _prediction_card(p: dict, _unused: set = None):
                 </div>""",
                 unsafe_allow_html=True,
             )
-        with btn_col:
-            if st.button("📈 View Chart", key=f"chartbtn_{pred_id}"):
-                st.session_state.chart_ticker = ticker
-                st.session_state.chart_pred   = p
-                st.rerun()
         with del_col:
             if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
                 try:
