@@ -148,6 +148,9 @@ def rank_predictions(predictions: list[dict]) -> dict:
     """
     Groups predictions into timeframe buckets and returns top picks.
     predictions: list of dicts with timeframe, score, ticker, direction, confidence
+
+    Within each bucket: BULLISH predictions sort before BEARISH at the same score level,
+    so the Telegram summary leads with actionable long entries.
     """
     buckets = {"short": [], "medium": [], "long": []}
     for p in predictions:
@@ -155,8 +158,13 @@ def rank_predictions(predictions: list[dict]) -> dict:
         if tf in buckets:
             buckets[tf].append(p)
 
+    def _sort_key(p):
+        # Primary: score desc; secondary: BULLISH before BEARISH for equal scores
+        dir_order = 0 if p.get("direction") == "BULLISH" else 1
+        return (-p.get("score", 0), dir_order)
+
     for tf in buckets:
-        buckets[tf].sort(key=lambda x: x.get("score", 0), reverse=True)
+        buckets[tf].sort(key=_sort_key)
         buckets[tf] = buckets[tf][:10]
 
     # All-timeframes agree
@@ -178,9 +186,16 @@ def rank_predictions(predictions: list[dict]) -> dict:
             ) / 3
             agree_list.append({"ticker": ticker, "direction": directions[0], "avg_confidence": round(avg_conf)})
 
-    # Top pick = highest score across all timeframes
+    # Top pick = highest score across all timeframes (direction shown in pred dict)
     all_preds = [p for tf in buckets.values() for p in tf]
     top_pick = max(all_preds, key=lambda x: x.get("score", 0)) if all_preds else None
+
+    # Direction counts per bucket for summary display
+    direction_counts = {}
+    for tf in buckets:
+        bullish = sum(1 for p in buckets[tf] if p.get("direction") == "BULLISH")
+        bearish = sum(1 for p in buckets[tf] if p.get("direction") == "BEARISH")
+        direction_counts[tf] = {"bullish": bullish, "bearish": bearish}
 
     return {
         "short": buckets["short"],
@@ -188,6 +203,7 @@ def rank_predictions(predictions: list[dict]) -> dict:
         "long": buckets["long"],
         "all_timeframes_agree": agree_list,
         "top_pick": top_pick,
+        "direction_counts": direction_counts,
     }
 
 

@@ -175,12 +175,17 @@ def replace_prediction_if_stronger(ticker: str, new_profit_pct: float, new_pred:
     """
     Compares new_profit_pct against any existing PENDING prediction for ticker.
     - If no existing: returns "insert" (caller should insert).
+    - If directions differ (e.g. BULLISH vs BEARISH): returns "insert" (different trade thesis).
     - If existing profit + 2% < new_profit: soft-deletes old, returns "replaced".
     - Otherwise: returns "skipped".
     Threshold = 2 percentage points to avoid churn on minor differences.
     """
     existing = get_pending_prediction_for_ticker(ticker)
     if not existing:
+        return "insert"
+
+    # Different directions = different trade theses — don't compete, just insert
+    if existing.get("direction") != new_pred.get("direction"):
         return "insert"
 
     entry  = existing.get("price_at_prediction") or 0

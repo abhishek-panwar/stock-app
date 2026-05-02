@@ -23,7 +23,7 @@ from services.market_data_fetcher import fetch_all
 from indicators.scoring import compute_long_score, compute_buy_range
 from indicators.short_term_bullish_scorer import compute_short_term_bullish_score, FORMULA_VERSION as BULLISH_FORMULA_VERSION
 from indicators.short_term_bearish_scorer import compute_short_term_bearish_score, FORMULA_VERSION as BEARISH_FORMULA_VERSION
-from services.ai_service import analyze_stock, analyze_stock_bearish, analyze_stock_long, estimate_cost
+from services.ai_service import analyze_stock, analyze_stock_bearish, analyze_stock_bullish, analyze_stock_long, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, replace_prediction_if_stronger, run_migrations
 
@@ -100,11 +100,8 @@ def run(debug: bool = False):
     earnings_universe = get_upcoming_earnings_universe(days_ahead=EARNINGS_WINDOW_DAYS)
 
     # ── Step 3: Build superset — union of all candidates, deduplicated ────────
-    try:
-        from database.db import get_earnings_calendar_from_db
-        earnings_tickers = {row["ticker"] for row in get_earnings_calendar_from_db()}
-    except Exception:
-        earnings_tickers = set()
+    # earnings_universe already loaded above — derive tickers from it directly (no extra DB call)
+    earnings_tickers = set(earnings_universe.keys())
 
     nasdaq_earnings_candidates, nasdaq100 = get_bullish_candidates(earnings_tickers)
 
@@ -171,7 +168,9 @@ def run(debug: bool = False):
     for item in bullish_universe:
         ticker = item["ticker"]
         source = item["source"]
-        data = ticker_data[ticker]
+        data = ticker_data.get(ticker)
+        if not data:
+            continue
         ind  = data["ind"]
         try:
             if scan_mode == "long":
@@ -221,7 +220,9 @@ def run(debug: bool = False):
 
     for item in bearish_universe:
         ticker = item["ticker"]
-        data = ticker_data[ticker]
+        data = ticker_data.get(ticker)
+        if not data:
+            continue
         ind  = data["ind"]
         try:
             score_data = compute_short_term_bearish_score(
@@ -230,6 +231,15 @@ def run(debug: bool = False):
             )
             total = score_data["total"]
             if total < BEARISH_SCORE_THRESHOLD:
+                if BEARISH_SCORE_THRESHOLD - 5 <= total < BEARISH_SCORE_THRESHOLD:
+                    shadow.append({
+                        "ticker": ticker, "scan_timestamp": start_time.isoformat(),
+                        "score_at_rejection": total, "price": ind.get("price"),
+                        "volume": None, "rsi": ind.get("rsi"),
+                        "macd_signal": ind.get("macd_signal"), "bb_squeeze": ind.get("bb_squeeze"),
+                        "volume_surge_ratio": ind.get("volume_surge_ratio"),
+                        "obv_trend": ind.get("obv_trend"), "formula_version": BEARISH_FORMULA_VERSION,
+                    })
                 continue
 
             bearish_scored.append({
@@ -292,7 +302,8 @@ def run(debug: bool = False):
         score_data = item["score_data"]
 
         try:
-            ticker_history = _get_ticker_history(ticker)
+            expected_direction = "BEARISH" if pipeline == "bearish" else "BULLISH"
+            ticker_history = _get_ticker_history(ticker, expected_direction)
 
             if pipeline == "bearish":
                 ai = analyze_stock_bearish(
@@ -312,7 +323,7 @@ def run(debug: bool = False):
                     fundamentals=item.get("fundamentals"),
                 )
             else:
-                ai = analyze_stock(
+                ai = analyze_stock_bullish(
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
@@ -330,7 +341,7 @@ def run(debug: bool = False):
             price      = ind.get("price", 0)
             atr        = ind.get("atr", price * 0.02) or (price * 0.02)
 
-            # Discard NEUTRAL responses from bearish pipeline (and any wrong-direction responses)
+            # Discard wrong-direction responses — each pipeline is intentional
             if pipeline == "bearish" and direction != "BEARISH":
                 claude_raw_log.append({
                     "ticker": ticker, "pipeline": pipeline, "score": item["score"],
@@ -339,8 +350,13 @@ def run(debug: bool = False):
                 })
                 print(f"  {ticker} bearish skipped — Claude returned {direction}")
                 return
-            if pipeline == "bullish" and direction == "BEARISH":
-                print(f"  {ticker} bullish skipped — Claude returned BEARISH (wrong pipeline)")
+            if pipeline == "bullish" and direction != "BULLISH":
+                claude_raw_log.append({
+                    "ticker": ticker, "pipeline": pipeline, "score": item["score"],
+                    "price": price, "direction": direction, "passed_filter": False,
+                    "reasoning": ai.get("reasoning", ""), "key_signals": ai.get("key_signals", []),
+                })
+                print(f"  {ticker} bullish skipped — Claude returned {direction}")
                 return
 
             target_price = ai.get("target_price")
@@ -361,7 +377,10 @@ def run(debug: bool = False):
             target_low   = round(target_price * 0.97, decimals)
             target_high  = round(target_price * 1.03, decimals)
 
-            profit_pct    = abs(target_low - price) / price * 100 if price > 0 else 0
+            # For BULLISH: conservative bound is target_low (3% below target).
+            # For BEARISH: conservative bound is target_high (3% above target — closer to entry).
+            conservative_target = target_high if direction == "BEARISH" else target_low
+            profit_pct    = abs(conservative_target - price) / price * 100 if price > 0 else 0
             passed_filter = profit_pct >= MIN_PROFIT_PCT
 
             claude_raw_log.append({
@@ -501,6 +520,7 @@ def run(debug: bool = False):
             open_trades=len(open_trades), winning=winning, losing=losing, neutral=neutral,
             universe_total=universe_total, nasdaq_count=nasdaq_count,
             hot_count=hot_count, overlap=overlap_count,
+            direction_counts=ranked.get("direction_counts"),
         )
         if not ok:
             log_error("telegram", "send_nightly_summary returned False", level="WARNING")
@@ -592,16 +612,20 @@ def _build_accuracy_context() -> str:
         return ""
 
 
-def _get_ticker_history(ticker: str) -> str:
+def _get_ticker_history(ticker: str, direction: str = "") -> str:
     try:
         from database.db import get_predictions
         preds = get_predictions({"ticker": ticker}, limit=20)
         closed = [p for p in preds if p.get("outcome") in ("WIN", "LOSS")]
+        # Filter to matching direction so bearish Claude gets bearish track record only
+        if direction:
+            closed = [p for p in closed if p.get("direction") == direction]
         if len(closed) < 3:
             return ""
         wins = sum(1 for p in closed if p["outcome"] == "WIN")
         pct = wins / len(closed) * 100
-        return f"{ticker}: {wins}/{len(closed)} wins ({pct:.0f}%) — {'be cautious' if pct < 50 else 'reliable track record'}"
+        dir_label = f" {direction.lower()}" if direction else ""
+        return f"{ticker}{dir_label}: {wins}/{len(closed)} wins ({pct:.0f}%) — {'be cautious' if pct < 50 else 'reliable track record'}"
     except Exception:
         return ""
 

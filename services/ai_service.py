@@ -218,6 +218,126 @@ Only output the JSON."""
         }
 
 
+def analyze_stock_bullish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
+                          score_data: dict, accuracy_context: str = "",
+                          ticker_history: str = "",
+                          earnings_calendar: dict = None, analyst_upside_pct: float = None,
+                          insider_buying: dict = None, fundamentals: dict = None,
+                          social_velocity: dict = None) -> dict:
+    """
+    Short-term bullish Claude prediction — momentum continuation setups only.
+    Focused on: how far and how fast will this stock continue its move up?
+    DO NOT output BEARISH — if setup is unclear, output NEUTRAL.
+    """
+    price = indicators.get("price", 0)
+    atr   = indicators.get("atr", price * 0.02) or (price * 0.02)
+    ma20  = indicators.get("ma20") or price
+    ma50  = indicators.get("ma50") or price
+    ma200 = indicators.get("ma200") or price
+
+    prompt = f"""You are a short-term stock analyst specializing in bullish momentum setups.
+Analyze {ticker} for a near-term continuation move to the upside.
+
+PRICE & TREND:
+- Current price: ${price:.2f}
+- ATR(14): ${atr:.2f}/day  (~{atr/price*100:.1f}% daily range)
+- MA20: ${ma20:.2f}  MA50: ${ma50:.2f}  MA200: ${ma200:.2f}
+- Price vs MA20: {'ABOVE' if price > ma20 else 'BELOW'}  |  vs MA50: {'ABOVE' if price > ma50 else 'BELOW'}  |  vs MA200: {'ABOVE' if price > ma200 else 'BELOW'}
+
+MOMENTUM:
+- RSI(14): {indicators.get('rsi', 50):.1f} {'← OVERBOUGHT — watch for exhaustion' if indicators.get('rsi', 50) > 70 else '← HEALTHY MOMENTUM' if 50 <= indicators.get('rsi', 50) <= 70 else '← OVERSOLD' if indicators.get('rsi', 50) < 30 else ''}
+- MACD crossover (bullish): {'YES — momentum confirmed' if indicators.get('macd_crossover') else 'No'}
+- MACD recent crossover (last 3 bars): {'YES' if indicators.get('macd_crossover_recent') else 'No'}
+- MACD line vs signal: {indicators.get('macd_line', 0):.3f} vs {indicators.get('macd_signal', 0):.3f}
+- RSI divergence (hidden bullish): {'YES — accumulation signal' if indicators.get('rsi_divergence') else 'No'}
+
+TREND:
+- ADX: {indicators.get('adx', 20):.1f} {'(STRONG TREND)' if indicators.get('adx', 0) > 30 else '(WEAK/RANGING)' if indicators.get('adx', 0) < 20 else '(MODERATE)'}
+- Golden cross (MA20>MA50): {'YES' if indicators.get('golden_cross') else 'No'}
+- 52-week high: {'JUST BROKE OUT' if indicators.get('broke_52w_high') else 'Near high' if indicators.get('near_52w_high') else 'Not near'}
+
+VOLUME & STRUCTURE:
+- Volume surge: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
+- OBV trend: {indicators.get('obv_trend', 'NEUTRAL')} {'← SMART MONEY BUYING' if indicators.get('obv_trend') == 'CONFIRMING' else '← SMART MONEY SELLING — caution' if indicators.get('obv_trend') == 'DIVERGING_BEARISH' else ''}
+- Bollinger squeeze: {'YES — breakout imminent' if indicators.get('bb_squeeze') else 'No'}
+- Price above VWAP: {'YES' if indicators.get('price_above_vwap') else 'No'}
+
+EXTERNAL:
+- News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
+- Analyst consensus: {analyst.get('consensus', 'HOLD')}
+- Earnings beats (last 4Q): {analyst.get('beats', 0)}
+{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}{_social_velocity_context(social_velocity)}
+BULLISH SIGNAL SCORE: {score_data.get('total', 0)}/100
+Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
+
+{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
+
+TASK: This is a SHORT-TERM BULLISH (LONG) analysis only. The question is: does this stock have enough momentum to continue higher in the near term?
+
+DO NOT output BEARISH. If the setup is not clearly bullish, output NEUTRAL.
+
+TARGET PRICE: Anchor to the nearest meaningful resistance level — prior swing high, Bollinger upper band, or a round ATR multiple above entry. Do not invent a round number.
+
+STOP PRICE: Set just below the nearest support (MA20, prior consolidation). Use 1.5–2× ATR from entry as a guide.
+
+DAYS TO TARGET: Divide distance from price to target by ATR. Multiply by 1.5 if ADX < 20 (ranging market).
+
+CONFIDENCE — derived from signal count:
+- Count: RSI 50-70 (healthy), MACD bullish crossover, OBV confirming, price above MA20+MA50, volume surge ≥1.5x
+- 5/5 aligned → 85–92
+- 4/5 aligned → 72–84
+- 3/5 aligned → 58–71
+- 2 or fewer → below 58, strongly consider NEUTRAL
+- If you cannot name at least 3 clear bullish signals, do NOT go above 60.
+
+Respond in this exact JSON:
+{{
+  "direction": "BULLISH" | "NEUTRAL",
+  "position": "LONG" | "HOLD",
+  "confidence": <integer derived from signal count>,
+  "target_price": <float — anchored to resistance level>,
+  "stop_price": <float — anchored to support and ATR>,
+  "days_to_target": <integer>,
+  "timing_rationale": "<1 sentence: which specific signals drive the timing and ATR distance to target>",
+  "reasoning": "<2-3 sentences: name the specific signals that agree and any that conflict>",
+  "key_signals": ["signal1", "signal2", "signal3"],
+  "buy_window": "<time range in PT when to enter, e.g. 7:15 AM – 8:30 AM PT>"
+}}
+
+Only output the JSON."""
+
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        result["model"] = MODEL
+        return result
+    except Exception as e:
+        return {
+            "direction": "NEUTRAL",
+            "position": "HOLD",
+            "confidence": 0,
+            "target_price": None,
+            "stop_price": None,
+            "days_to_target": None,
+            "timing_rationale": "",
+            "reasoning": f"Analysis unavailable: {str(e)}",
+            "key_signals": [],
+            "buy_window": "N/A",
+            "model": MODEL,
+        }
+
+
 def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
                           score_data: dict, accuracy_context: str = "",
                           ticker_history: str = "",

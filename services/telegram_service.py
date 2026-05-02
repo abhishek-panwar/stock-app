@@ -142,7 +142,8 @@ def _prediction_line(p: dict) -> str:
 
 def send_nightly_summary(picks: dict, open_trades: int, winning: int,
                          losing: int, neutral: int, universe_total: int,
-                         nasdaq_count: int, hot_count: int, overlap: int) -> bool:
+                         nasdaq_count: int, hot_count: int, overlap: int,
+                         direction_counts: dict = None) -> bool:
     now = _now_pt()
 
     # Collect all predictions and sort by absolute profit descending
@@ -172,10 +173,20 @@ def send_nightly_summary(picks: dict, open_trades: int, winning: int,
 
     pred_lines = "\n\n".join(_prediction_line(p) for p in unique_preds) if unique_preds else "No predictions tonight."
 
+    def _tf_label(tf_key: str, emoji: str) -> str:
+        preds = picks.get(tf_key, [])
+        n = len(preds)
+        if direction_counts and tf_key in direction_counts:
+            b = direction_counts[tf_key].get("bullish", 0)
+            s = direction_counts[tf_key].get("bearish", 0)
+            if b > 0 and s > 0:
+                return f"{emoji} {tf_key.capitalize()}: {n} (🟢{b}/🔴{s})"
+        return f"{emoji} {tf_key.capitalize()}: {n}"
+
     tf_summary = (
-        f"⚡ Short: {len(picks.get('short',[]))}  "
-        f"📈 Mid: {len(picks.get('medium',[]))}  "
-        f"🌱 Long: {len(picks.get('long',[]))}"
+        f"{_tf_label('short', '⚡')}  "
+        f"{_tf_label('medium', '📈')}  "
+        f"{_tf_label('long', '🌱')}"
     )
 
     msg = (
