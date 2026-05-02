@@ -60,13 +60,14 @@ def _inject_css():
 def _lazy_row(label: str, key: str, css_class: str) -> bool:
     """Renders a colored toggle button. Returns True if expanded."""
     _inject_css()
-    is_open = st.session_state.get(key, False)
+    state_key = f"_s_{key}"
+    is_open = st.session_state.get(state_key, False)
     arrow = "▼" if is_open else "▶"
     col, = st.columns([1])
     with col:
         st.markdown(f'<div class="{css_class}"></div>', unsafe_allow_html=True)
         if st.button(f"{arrow}  {label}", key=key, use_container_width=True):
-            st.session_state[key] = not is_open
+            st.session_state[state_key] = not is_open
             st.rerun()
     return is_open
 
