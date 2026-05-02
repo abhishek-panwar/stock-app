@@ -97,7 +97,8 @@ def _fundamentals_context(fundamentals: dict) -> str:
 
 
 def analyze_stock(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
-                  score_data: dict, accuracy_context: str = "", ticker_history: str = "",
+                  earnings: dict = None, score_data: dict = None,
+                  accuracy_context: str = "", ticker_history: str = "",
                   earnings_calendar: dict = None, analyst_upside_pct: float = None,
                   insider_buying: dict = None, fundamentals: dict = None,
                   social_velocity: dict = None) -> dict:
@@ -142,7 +143,7 @@ VOLUME & STRUCTURE:
 EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
-- Earnings beats (last 4Q): {analyst.get('beats', 0)}
+- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}{_social_velocity_context(social_velocity)}
 
 SIGNAL SCORE: {score_data.get('total', 0)}/100
@@ -219,8 +220,8 @@ Only output the JSON."""
 
 
 def analyze_stock_bullish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
-                          score_data: dict, accuracy_context: str = "",
-                          ticker_history: str = "",
+                          earnings: dict = None, score_data: dict = None,
+                          accuracy_context: str = "", ticker_history: str = "",
                           earnings_calendar: dict = None, analyst_upside_pct: float = None,
                           insider_buying: dict = None, fundamentals: dict = None,
                           social_velocity: dict = None) -> dict:
@@ -265,7 +266,7 @@ VOLUME & STRUCTURE:
 EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
-- Earnings beats (last 4Q): {analyst.get('beats', 0)}
+- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}{_social_velocity_context(social_velocity)}
 BULLISH SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
@@ -339,8 +340,8 @@ Only output the JSON."""
 
 
 def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
-                          score_data: dict, accuracy_context: str = "",
-                          ticker_history: str = "",
+                          earnings: dict = None, score_data: dict = None,
+                          accuracy_context: str = "", ticker_history: str = "",
                           earnings_calendar: dict = None) -> dict:
     """
     Short-term bearish Claude prediction — overbought reversal setups only.
@@ -454,7 +455,8 @@ Only output the JSON."""
 
 
 def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
-                       score_data: dict, accuracy_context: str = "", ticker_history: str = "",
+                       earnings: dict = None, score_data: dict = None,
+                       accuracy_context: str = "", ticker_history: str = "",
                        earnings_calendar: dict = None, analyst_upside_pct: float = None,
                        insider_buying: dict = None, fundamentals: dict = None) -> dict:
     """
@@ -477,7 +479,7 @@ PRICE & TREND:
 
 FUNDAMENTALS & CATALYST:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
-- Earnings beats (last 4Q): {analyst.get('beats', 0)}
+- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
 LONG-TERM SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
@@ -487,7 +489,9 @@ Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 TASK: Make a single long-term prediction (60–180 trading days). Every field must be derived from the data above — no defaults, no guessing.
 
-DIRECTION: Only BULLISH if there is a concrete fundamental catalyst (earnings acceleration, analyst re-rating, insider accumulation, expanding margins). Only BEARISH if fundamentals are clearly deteriorating. NEUTRAL if there is no identifiable catalyst.
+DO NOT output BEARISH. If setup is unclear, output NEUTRAL.
+
+DIRECTION: Only BULLISH if there is a concrete fundamental catalyst (earnings acceleration, analyst re-rating, insider accumulation, expanding margins). NEUTRAL if there is no identifiable catalyst.
 
 TARGET PRICE: Must reflect a specific re-rating thesis — e.g. expansion to a higher P/E, mean reversion to analyst target, or a catalyst-driven repricing. State the basis. Minimum 15% move required — if you cannot justify 15%, output NEUTRAL.
 
@@ -507,8 +511,8 @@ CONFIDENCE — derive it from the strength of fundamental evidence, not a gut fe
 
 Respond in this exact JSON:
 {{
-  "direction": "BULLISH" | "BEARISH" | "NEUTRAL",
-  "position": "LONG" | "SHORT" | "HOLD",
+  "direction": "BULLISH" | "NEUTRAL",
+  "position": "LONG" | "HOLD",
   "confidence": <integer derived from fundamental factor count above>,
   "target_price": <float — anchored to a specific re-rating basis>,
   "stop_price": <float — structural level, 10-15% from entry>,
@@ -553,8 +557,8 @@ Only output the JSON."""
 
 
 def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
-                               score_data: dict, accuracy_context: str = "",
-                               ticker_history: str = "",
+                               earnings: dict = None, score_data: dict = None,
+                               accuracy_context: str = "", ticker_history: str = "",
                                earnings_calendar: dict = None,
                                analyst_upside_pct: float = None,
                                insider_buying: dict = None,
@@ -580,7 +584,7 @@ PRICE & TREND:
 
 FUNDAMENTAL DETERIORATION:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')} {'← SELL SIGNAL' if analyst.get('consensus') in ('SELL', 'STRONG_SELL') else ''}
-- Earnings beats (last 4Q): {analyst.get('beats', 0)}/4  (misses = {4 - analyst.get('beats', 0)})
+- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  (misses = {4 - (earnings or {}).get('beats', 0)})
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
 BEARISH SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}

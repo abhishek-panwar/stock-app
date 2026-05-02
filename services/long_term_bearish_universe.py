@@ -145,7 +145,7 @@ def _check_long_bearish_setup(
                     return "bounce", f"5d return {ret_5d:.1f}% — bouncing, not breaking down"
 
         # 4. Fundamental deterioration required — not just a cheap stock
-        if fundamentals:
+        if fundamentals is not None:
             rev_growth  = fundamentals.get("revenue_growth_pct")
             earn_growth = fundamentals.get("earnings_growth_pct")
             fcf         = fundamentals.get("free_cashflow")
@@ -159,6 +159,8 @@ def _check_long_bearish_setup(
             )
             if not has_red_flag:
                 return "fundamentals", "no fundamental red flags (negative growth/FCF or PEG>3)"
+        else:
+            return "fundamentals", "no fundamentals data available"
 
         return None, "passes all checks"
     except Exception:
