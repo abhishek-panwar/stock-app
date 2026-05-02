@@ -35,8 +35,35 @@ def _rate_limit():
         _last_call_time = time.time()
 
 
+_BEARISH_WORDS = {
+    "downgrade", "downgraded", "cut", "cuts", "miss", "missed", "misses",
+    "warning", "warns", "warned", "loss", "losses", "decline", "declining",
+    "weak", "weakness", "disappointing", "disappoints", "disappoint",
+    "layoff", "layoffs", "restructur", "recall", "investigation", "lawsuit",
+    "fraud", "probe", "default", "bankrupt", "sell", "underperform",
+}
+_BULLISH_WORDS = {
+    "upgrade", "upgraded", "beat", "beats", "raise", "raised", "raises",
+    "strong", "strength", "record", "outperform", "buy", "overweight",
+    "growth", "surge", "surges", "profit", "profits", "positive",
+    "expand", "expands", "expansion", "partnership", "contract", "win",
+    "wins", "approval", "approved", "dividend", "buyback",
+}
+
+
+def _keyword_score(text: str) -> float:
+    """Returns -1.0 to +1.0 based on bearish/bullish keyword counts in text."""
+    words = text.lower().split()
+    bull = sum(1 for w in words if any(w.startswith(k) for k in _BULLISH_WORDS))
+    bear = sum(1 for w in words if any(w.startswith(k) for k in _BEARISH_WORDS))
+    total = bull + bear
+    if total == 0:
+        return 0.0
+    return round((bull - bear) / total, 3)
+
+
 def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api: bool = False) -> dict:
-    """Returns aggregated news sentiment for the last N hours."""
+    """Returns keyword-based sentiment score from Finnhub company_news headlines."""
     try:
         _rate_limit()
         now = datetime.utcnow()
@@ -51,14 +78,15 @@ def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api
         scores = []
         articles = []
         for item in news[:20]:
-            sentiment = item.get("sentiment", {})
-            score = sentiment.get("score", 0.0) if sentiment else 0.0
+            headline = item.get("headline", "")
+            summary  = item.get("summary", "")
+            score = _keyword_score(f"{headline} {summary}")
             scores.append(score)
             articles.append({
-                "headline": item.get("headline", ""),
+                "headline": headline,
                 "url": item.get("url", ""),
                 "source": item.get("source", ""),
-                "summary": item.get("summary", ""),
+                "summary": summary,
                 "datetime": item.get("datetime", 0),
             })
         avg_score = sum(scores) / len(scores) if scores else 0.0
