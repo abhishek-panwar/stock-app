@@ -131,6 +131,8 @@ def _recalculate_open_math():
 
 
 def render():
+    global _CARD_CSS_INJECTED
+    _CARD_CSS_INJECTED = False  # re-inject once per render pass
     st.title("📊 Open Predictions")
     now_pt = datetime.now(PT)
     st.caption(f"Last updated: {now_pt.strftime('%b %d, %Y  %I:%M %p PT')}")
@@ -326,7 +328,58 @@ def render():
 
 
 
+_CARD_CSS_INJECTED = False
+
+def _inject_card_css():
+    global _CARD_CSS_INJECTED
+    if _CARD_CSS_INJECTED:
+        return
+    _CARD_CSS_INJECTED = True
+    st.markdown("""
+<style>
+/* Make card header buttons look like expander rows */
+div[data-testid="stHorizontalBlock"]:has(button[data-card-header]) {
+    gap: 0 !important;
+}
+button[data-card-header] {
+    background: white !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 10px 0 0 10px !important;
+    text-align: left !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: #1e293b !important;
+    padding: 10px 14px !important;
+    width: 100% !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+    transition: border-color 0.15s, box-shadow 0.15s !important;
+}
+button[data-card-header]:hover {
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+    color: #0f172a !important;
+}
+button[data-card-del] {
+    background: white !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: none !important;
+    border-radius: 0 10px 10px 0 !important;
+    color: #94a3b8 !important;
+    font-size: 13px !important;
+    padding: 10px 10px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+}
+button[data-card-del]:hover {
+    color: #dc2626 !important;
+    border-color: #fca5a5 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 def _prediction_card(p: dict, _unused: set = None):
+    _inject_card_css()
+
     ticker       = p.get("ticker", "—")
     direction    = p.get("direction", "NEUTRAL")
     confidence   = p.get("confidence", 0)
@@ -335,60 +388,70 @@ def _prediction_card(p: dict, _unused: set = None):
     timeframe    = p.get("timeframe", "short")
     predicted_on = p.get("predicted_on", "")
 
-    company = p.get("company_name") or ticker
-
+    company    = p.get("company_name") or ticker
     entry      = _calc_entry(p)
     tgt_low    = p.get("target_low") or 0
     tgt_high   = p.get("target_high") or 0
     tgt_mid    = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
     stop       = p.get("stop_loss") or 0
     profit_pct = _calc_profit_pct(p)
-    rr = abs(tgt_mid - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
+    rr         = abs(tgt_mid - entry) / abs(entry - stop) if entry > 0 and stop > 0 and abs(entry - stop) > 0 else 0
     profit_str = f"+{profit_pct:.1f}%" if profit_pct > 0 else f"{profit_pct:.1f}%"
 
     expiry_str, days_left = _expiry(p)
     days_to_target = p.get("days_to_target")
-    tenure_str = f"~{days_to_target}d" if days_to_target else "?"
-
+    tenure_str     = f"~{days_to_target}d" if days_to_target else "?"
     age_days, age_badge = _age_info(predicted_on)
 
-    dir_icon  = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
-    dir_color = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
+    dir_icon   = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
+    dir_color  = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
     prof_color = "#15803d" if profit_pct > 0 else "#b91c1c"
-    hc_tag    = "  🎯" if confidence >= 75 else ""
-    pos_tag   = f"  ·  {position}" if position not in ("HOLD", "") else ""
-    exp_tag   = (
+    dir_circle = "🟢" if direction == "BULLISH" else "🔴" if direction == "BEARISH" else "⚪"
+    hc_tag     = "  🎯" if confidence >= 75 else ""
+    pos_tag    = f"  ·  {position}" if position not in ("HOLD", "") else ""
+    exp_tag    = (
         f"  ·  {days_left}d left" if days_left and days_left > 0
         else ("  ·  expired" if days_left is not None and days_left <= 0 else "")
     )
 
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+    exp_key = f"exp_{pred_id}"
+    is_open = st.session_state.get(exp_key, False)
 
-    dir_circle = "🟢" if direction == "BULLISH" else "🔴" if direction == "BEARISH" else "⚪"
+    arrow  = "▼" if is_open else "▶"
     header = (
-        f"{dir_circle} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
+        f"{arrow}  {dir_circle} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
         f"{confidence}% conf  ·  {profit_str} potential  ·  {tenure_str}"
         f"{pos_tag}{exp_tag}  ·  {age_days}d old{hc_tag}"
     )
 
-    with st.expander(header, expanded=False):
+    # ── Header row: toggle button + delete (2 widget calls total when collapsed) ─
+    hdr_col, del_col = st.columns([11.2, 0.4])
+    with hdr_col:
+        if st.button(header, key=f"toggle_{pred_id}", use_container_width=True):
+            st.session_state[exp_key] = not is_open
+            st.rerun()
+    with del_col:
+        if st.button("✕", key=f"del_{pred_id}", help="Delete"):
+            try:
+                from database.db import soft_delete_prediction
+                soft_delete_prediction(pred_id)
+                if "_open_deleted" not in st.session_state:
+                    st.session_state["_open_deleted"] = set()
+                st.session_state["_open_deleted"].add(pred_id)
+                _fetch_open_predictions.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
+
+    # ── Body — skipped entirely when collapsed ─────────────────────────────────
+    if not is_open:
+        return
+
+    with st.container(border=True):
         badge_html = _asset_badge(p)
-        bcol, dcol = st.columns([9, 1])
-        with bcol:
-            if badge_html:
-                st.markdown(f"<div style='margin-bottom:6px'>{badge_html}</div>", unsafe_allow_html=True)
-        with dcol:
-            if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
-                try:
-                    from database.db import soft_delete_prediction
-                    soft_delete_prediction(pred_id)
-                    if "_open_deleted" not in st.session_state:
-                        st.session_state["_open_deleted"] = set()
-                    st.session_state["_open_deleted"].add(pred_id)
-                    _fetch_open_predictions.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete failed: {e}")
+        if badge_html:
+            st.markdown(f"<div style='margin-bottom:6px'>{badge_html}</div>", unsafe_allow_html=True)
 
         st.markdown(
             f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center">
@@ -412,14 +475,12 @@ def _prediction_card(p: dict, _unused: set = None):
             st.write(f"Price at signal: ${entry:.2f}")
             st.write(f"Buy range: ${bl:.2f} – ${bh:.2f}")
             st.write(f"Stop loss: ${stop:.2f}")
-            mcap = p.get("market_cap")
+            mcap   = p.get("market_cap")
             avgvol = p.get("avg_volume")
             if mcap:
-                mcap_str = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
-                st.write(f"Market cap: {mcap_str}")
+                st.write(f"Market cap: {'${:.1f}B'.format(mcap/1e9) if mcap >= 1e9 else '${:.0f}M'.format(mcap/1e6)}")
             if avgvol:
-                vol_str = f"{avgvol/1e6:.1f}M" if avgvol >= 1e6 else f"{avgvol/1e3:.0f}K"
-                st.write(f"Avg volume: {vol_str}")
+                st.write(f"Avg volume: {'{:.1f}M'.format(avgvol/1e6) if avgvol >= 1e6 else '{:.0f}K'.format(avgvol/1e3)}")
         with c2:
             st.markdown("**Target**")
             st.write(f"Range: ${tl:.2f} – ${th:.2f}")
