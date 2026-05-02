@@ -618,8 +618,9 @@ def _prediction_card(p: dict, _unused: set = None):
 
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
 
+    dir_circle = "🟢" if direction == "BULLISH" else "🔴" if direction == "BEARISH" else "⚪"
     header = (
-        f"**{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
+        f"{dir_circle} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
         f"{confidence}% conf  ·  {profit_str} potential  ·  {tenure_str}"
         f"{pos_tag}{exp_tag}  ·  {age_days}d old{hc_tag}"
     )
