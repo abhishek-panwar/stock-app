@@ -9,6 +9,7 @@ load_dotenv()
 
 EARNINGS_UNIVERSE_TTL_H = 168   # 7 days — refresh weekly
 ANALYST_TARGET_TTL_H    = 24    # per-ticker analyst price target cache
+NEWS_SENTIMENT_TTL_H    = 24    # news keyword sentiment — refresh daily
 EARNINGS_WINDOW_DAYS    = 14    # how far ahead to scan for earnings
 
 # Thread-safe rate limiter: Finnhub free tier = 60 calls/min → 1 call/sec minimum
@@ -64,6 +65,12 @@ def _keyword_score(text: str) -> float:
 
 def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api: bool = False) -> dict:
     """Returns keyword-based sentiment score from Finnhub company_news headlines."""
+    from database.db import get_cache, set_cache
+    cache_key = f"news_sentiment_{ticker}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         _rate_limit()
         now = datetime.utcnow()
@@ -74,7 +81,9 @@ def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api
             from database.db import log_api_call
             log_api_call(run_date, "finnhub_news", ticker, True)
         if not news:
-            return {"score": 0.0, "volume": 0, "articles": []}
+            result = {"score": 0.0, "volume": 0, "articles": []}
+            set_cache(cache_key, result, ttl_hours=NEWS_SENTIMENT_TTL_H)
+            return result
         scores = []
         articles = []
         for item in news[:20]:
@@ -90,7 +99,9 @@ def get_news_sentiment(ticker: str, hours: int = 48, run_date: str = "", log_api
                 "datetime": item.get("datetime", 0),
             })
         avg_score = sum(scores) / len(scores) if scores else 0.0
-        return {"score": round(avg_score, 3), "volume": len(news), "articles": articles}
+        result = {"score": round(avg_score, 3), "volume": len(news), "articles": articles}
+        set_cache(cache_key, result, ttl_hours=NEWS_SENTIMENT_TTL_H)
+        return result
     except Exception as e:
         if log_api and run_date:
             from database.db import log_api_call
