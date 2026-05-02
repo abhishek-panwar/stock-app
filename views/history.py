@@ -5,6 +5,12 @@ import pytz
 PT = pytz.timezone("America/Los_Angeles")
 
 
+@st.cache_data(ttl=60)
+def _fetch_closed_predictions() -> list:
+    from database.db import get_predictions
+    return get_predictions(limit=1000)
+
+
 def _calc_entry(p: dict) -> float:
     bl = p.get("buy_range_low") or 0
     bh = p.get("buy_range_high") or 0
@@ -127,6 +133,7 @@ def _recalculate_metrics():
             state="complete",
             expanded=False,
         )
+        _fetch_closed_predictions.clear()
         st.rerun()
 
     except Exception as e:
@@ -137,11 +144,15 @@ def render():
     st.title("📜 Closed Predictions")
 
     try:
-        from database.db import get_predictions
-        all_preds = get_predictions(limit=1000)
+        all_preds = _fetch_closed_predictions()
     except Exception as e:
         st.error(f"Database error: {e}")
         return
+
+    # Apply in-session deletes so removed predictions disappear instantly
+    deleted = st.session_state.get("_closed_deleted", set())
+    if deleted:
+        all_preds = [p for p in all_preds if p.get("id") not in deleted]
 
     # Only show closed predictions on this page
     all_closed = [p for p in all_preds if p.get("outcome") in ("WIN", "LOSS")]
@@ -471,6 +482,10 @@ def _prediction_card(p: dict):
                 try:
                     from database.db import soft_delete_prediction
                     soft_delete_prediction(pred_id)
+                    if "_closed_deleted" not in st.session_state:
+                        st.session_state["_closed_deleted"] = set()
+                    st.session_state["_closed_deleted"].add(pred_id)
+                    _fetch_closed_predictions.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
