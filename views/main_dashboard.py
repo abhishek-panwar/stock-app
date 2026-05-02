@@ -411,15 +411,12 @@ def render():
             if not bucket_preds:
                 continue
             bucket_preds = sorted(bucket_preds, key=sort_fn)
-            st.markdown(
-                f'<div style="font-size:12px;font-weight:600;color:#94a3b8;'
-                f'letter-spacing:0.05em;text-transform:uppercase;margin:10px 0 4px">'
-                f'{bucket_label} — {len(bucket_preds)} prediction{"s" if len(bucket_preds) != 1 else ""}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            for p in bucket_preds:
-                _prediction_card(p)
+            with st.expander(
+                f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
+                expanded=(bucket_label in ("📅 Tomorrow", "✨ Today")),
+            ):
+                for p in bucket_preds:
+                    _prediction_card(p)
 
     if not predictions:
         _show_empty_state()
@@ -637,25 +634,16 @@ def _prediction_card(p: dict, _unused: set = None):
     hc_badge   = " 🎯" if confidence >= 75 else ""
 
     # ── Collapsed header row (always rendered — cheap) ─────────────────────────
-    hdr_col, btn_col, del_col = st.columns([10, 0.5, 0.5])
-    with hdr_col:
-        st.markdown(
-            f'<div style="background:{bg};border-left:4px solid {border};'
-            f'border-radius:0 6px 6px 0;padding:7px 12px;margin:2px 0;font-size:13px;cursor:default">'
-            f'<strong style="font-size:14px;color:#0f172a">{ticker}</strong>'
-            f'<span style="color:#64748b;font-size:12px"> — {company}</span>  ·  '
-            f'<span style="color:{dir_color};font-weight:700">{dir_icon} {direction}</span>  ·  '
-            f'<span style="color:#1d4ed8">{confidence}%</span> conf  ·  '
-            f'{score}/100  ·  '
-            f'<span style="color:{prof_color};font-weight:700">{profit_str}</span>'
-            f'{pos_tag}  ·  {tenure_str}{exp_tag}'
-            f'  ·  <span style="color:#94a3b8;font-size:11px">{age_days}d old</span>'
-            f'{hc_badge}'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    btn_col, del_col = st.columns([11, 0.5])
     with btn_col:
-        if st.button("▼" if is_open else "▶", key=f"toggle_{pred_id}", help="Expand / collapse"):
+        arrow = "▼" if is_open else "▶"
+        label = (
+            f'{arrow}  **{ticker}** — {company}  ·  '
+            f'{"🟢" if direction == "BULLISH" else "🔴" if direction == "BEARISH" else "⚪"} {direction}  ·  '
+            f'{confidence}% conf  ·  {score}/100  ·  '
+            f'**{profit_str}**{pos_tag}  ·  {tenure_str}{exp_tag}  ·  {age_days}d old{hc_badge}'
+        )
+        if st.button(label, key=f"toggle_{pred_id}", use_container_width=True):
             st.session_state[exp_key] = not is_open
             st.rerun()
     with del_col:
