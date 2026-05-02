@@ -44,7 +44,7 @@ def fetch_all(
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                df = get_price_history(ticker, period="6mo")
+                df = get_price_history(ticker, period="1y")
 
             if df.empty:
                 return  # no price data — cannot score, exclude ticker

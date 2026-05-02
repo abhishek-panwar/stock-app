@@ -4,6 +4,7 @@ Uses the free public EDGAR API — no key required.
 SEC requires a descriptive User-Agent header.
 """
 import requests
+import threading
 from datetime import datetime, timedelta
 
 _USER_AGENT = "stock-app-abhi research@example.com"
@@ -20,6 +21,7 @@ INSIDER_MODERATE_USD    = 100_000  # threshold for MODERATE signal
 # In-memory CIK cache to avoid repeated bulk downloads per scanner run
 _cik_cache: dict[str, str] = {}
 _cik_cache_loaded = False
+_cik_load_lock = threading.Lock()
 
 
 def _session() -> requests.Session:
@@ -38,37 +40,40 @@ def _load_cik_map() -> None:
     global _cik_cache_loaded
     if _cik_cache_loaded:
         return
-    try:
-        from database.db import get_cache, set_cache
-        cached = get_cache("sec_cik_map")
-        if cached:
-            _cik_cache.update(cached)
-            _cik_cache_loaded = True
-            print(f"  SEC CIK map: loaded from cache ({len(_cik_cache)} tickers)")
+    with _cik_load_lock:
+        if _cik_cache_loaded:  # re-check after acquiring lock — another thread may have loaded it
             return
-    except Exception:
-        pass
-
-    try:
-        resp = _session().get(
-            "https://www.sec.gov/files/company_tickers.json", timeout=15
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        for entry in data.values():
-            ticker = entry.get("ticker", "").upper()
-            cik = str(entry.get("cik_str", "")).zfill(10)
-            if ticker:
-                _cik_cache[ticker] = cik
-        _cik_cache_loaded = True
         try:
-            from database.db import set_cache
-            set_cache("sec_cik_map", dict(_cik_cache), ttl_hours=CIK_MAP_TTL_H)
-            print(f"  SEC CIK map: downloaded and cached ({len(_cik_cache)} tickers)")
+            from database.db import get_cache, set_cache
+            cached = get_cache("sec_cik_map")
+            if cached:
+                _cik_cache.update(cached)
+                _cik_cache_loaded = True
+                print(f"  SEC CIK map: loaded from cache ({len(_cik_cache)} tickers)")
+                return
         except Exception:
             pass
-    except Exception:
-        pass
+
+        try:
+            resp = _session().get(
+                "https://www.sec.gov/files/company_tickers.json", timeout=15
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for entry in data.values():
+                ticker = entry.get("ticker", "").upper()
+                cik = str(entry.get("cik_str", "")).zfill(10)
+                if ticker:
+                    _cik_cache[ticker] = cik
+            _cik_cache_loaded = True
+            try:
+                from database.db import set_cache
+                set_cache("sec_cik_map", dict(_cik_cache), ttl_hours=CIK_MAP_TTL_H)
+                print(f"  SEC CIK map: downloaded and cached ({len(_cik_cache)} tickers)")
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 def _ticker_to_cik(ticker: str) -> str | None:

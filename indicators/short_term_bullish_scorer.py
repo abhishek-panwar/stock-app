@@ -148,7 +148,7 @@ def compute_short_term_bullish_score(
     struct_score = 0
     if ind.get("bb_breakout_up"):
         struct_score += 6
-    elif ind.get("bb_squeeze") and ind.get("bb_position", 0.5) < 0.6:
+    elif ind.get("bb_squeeze") and ind.get("bb_width_pct", 1.0) <= 0.20:
         struct_score += 3   # squeeze building, not yet broken out
     if ind.get("atr_rising"):
         struct_score += 3
