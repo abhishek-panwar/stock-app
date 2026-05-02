@@ -337,40 +337,58 @@ def _inject_card_css():
     _CARD_CSS_INJECTED = True
     st.markdown("""
 <style>
-/* Make card header buttons look like expander rows */
-div[data-testid="stHorizontalBlock"]:has(button[data-card-header]) {
-    gap: 0 !important;
-}
-button[data-card-header] {
-    background: white !important;
-    border: 1px solid #e2e8f0 !important;
-    border-radius: 10px 0 0 10px !important;
+/* Style D: color-coded left border on toggle button via sentinel div + :has() */
+[data-testid="stColumn"]:has(div.card-bullish) button {
+    background: #f0fdf4 !important;
+    border: 1px solid #bbf7d0 !important;
+    border-left: 4px solid #16a34a !important;
+    border-radius: 8px 0 0 8px !important;
     text-align: left !important;
     font-size: 13.5px !important;
     font-weight: 500 !important;
     color: #1e293b !important;
     padding: 10px 14px !important;
     width: 100% !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
-    transition: border-color 0.15s, box-shadow 0.15s !important;
 }
-button[data-card-header]:hover {
-    border-color: #cbd5e1 !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
-    color: #0f172a !important;
+[data-testid="stColumn"]:has(div.card-bearish) button {
+    background: #fef2f2 !important;
+    border: 1px solid #fecaca !important;
+    border-left: 4px solid #dc2626 !important;
+    border-radius: 8px 0 0 8px !important;
+    text-align: left !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: #1e293b !important;
+    padding: 10px 14px !important;
+    width: 100% !important;
 }
-button[data-card-del] {
-    background: white !important;
+[data-testid="stColumn"]:has(div.card-neutral) button {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: 4px solid #94a3b8 !important;
+    border-radius: 8px 0 0 8px !important;
+    text-align: left !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: #1e293b !important;
+    padding: 10px 14px !important;
+    width: 100% !important;
+}
+/* Delete button */
+[data-testid="stColumn"]:has(div.card-del) button {
+    background: #f8fafc !important;
     border: 1px solid #e2e8f0 !important;
     border-left: none !important;
-    border-radius: 0 10px 10px 0 !important;
+    border-radius: 0 8px 8px 0 !important;
     color: #94a3b8 !important;
     font-size: 13px !important;
     padding: 10px 10px !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+    box-shadow: none !important;
+    min-height: unset !important;
 }
-button[data-card-del]:hover {
+[data-testid="stColumn"]:has(div.card-del) button:hover {
     color: #dc2626 !important;
+    background: #fff1f2 !important;
     border-color: #fca5a5 !important;
 }
 </style>
@@ -418,6 +436,8 @@ def _prediction_card(p: dict, _unused: set = None):
     exp_key = f"exp_{pred_id}"
     is_open = st.session_state.get(exp_key, False)
 
+    css_class = "card-bullish" if direction == "BULLISH" else "card-bearish" if direction == "BEARISH" else "card-neutral"
+
     arrow  = "▼" if is_open else "▶"
     header = (
         f"{arrow}  {dir_circle} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
@@ -428,10 +448,12 @@ def _prediction_card(p: dict, _unused: set = None):
     # ── Header row: toggle button + delete (2 widget calls total when collapsed) ─
     hdr_col, del_col = st.columns([11.2, 0.4])
     with hdr_col:
+        st.markdown(f'<div class="{css_class}"></div>', unsafe_allow_html=True)
         if st.button(header, key=f"toggle_{pred_id}", use_container_width=True):
             st.session_state[exp_key] = not is_open
             st.rerun()
     with del_col:
+        st.markdown('<div class="card-del"></div>', unsafe_allow_html=True)
         if st.button("✕", key=f"del_{pred_id}", help="Delete"):
             try:
                 from database.db import soft_delete_prediction
