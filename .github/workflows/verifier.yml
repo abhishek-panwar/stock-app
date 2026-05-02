@@ -2,7 +2,7 @@ name: Prediction Verifier
 
 on:
   schedule:
-    - cron: '30 3 * * *'  # 8:30 PM PT daily
+    - cron: '30 3 * * *'  # 8:30 PM PT  Daily
   workflow_dispatch:
 
 jobs:

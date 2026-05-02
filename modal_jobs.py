@@ -1,13 +1,22 @@
 """
 Modal scheduled jobs — replaces GitHub Actions cron triggers.
 Deploy with: modal deploy modal_jobs.py
+
+All schedules are defined in config/schedule.py.
+To change a timing, edit config/schedule.py and run:
+    python3 config/schedule.py --sync
 """
 import modal
+import sys
 from pathlib import Path
 
 app = modal.App("stock-app")
 
 project_dir = Path(__file__).parent
+
+# Import schedule config to read cron strings
+sys.path.insert(0, str(project_dir))
+from config.schedule import to_cron, get_job
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -31,12 +40,12 @@ image = (
 secrets = [modal.Secret.from_name("stock-app-secrets")]
 
 
-# ── Nightly Scanner — Sun–Fri (Sun night for Monday open, Fri for long-term) ──
+# ── Nightly Scanner ────────────────────────────────────────────────────────────
 @app.function(
     image=image,
     secrets=secrets,
     timeout=1200,
-    schedule=modal.Cron("20 5 * * 0-6"),  # 10:20 PM PT daily
+    schedule=modal.Cron(to_cron(get_job("nightly_scanner"))),
 )
 def nightly_scanner():
     import sys
@@ -50,7 +59,7 @@ def nightly_scanner():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("0 22 * * 1-5"),  # 3:00 PM PT Mon–Fri
+    schedule=modal.Cron(to_cron(get_job("prediction_verifier_modal"))),
 )
 def prediction_verifier():
     import sys
@@ -64,7 +73,7 @@ def prediction_verifier():
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("30 22 * * 1-5"),  # 3:30 PM PT Mon–Fri
+    schedule=modal.Cron(to_cron(get_job("feedback_engine_modal"))),
 )
 def feedback_engine():
     import sys
@@ -74,15 +83,15 @@ def feedback_engine():
 
 
 # Health Monitor moved to GitHub Actions (health_check.yml) to free up Modal slot.
-
 # Opportunity Analyzer moved to GitHub Actions (Modal free tier limit is 5 crons)
+
 
 # ── Failure Analyzer ──────────────────────────────────────────────────────────
 @app.function(
     image=image,
     secrets=secrets,
     timeout=300,
-    schedule=modal.Cron("0 1 * * 1"),  # 6:00 PM PT Mondays only
+    schedule=modal.Cron(to_cron(get_job("failure_analyzer"))),
 )
 def failure_analyzer():
     import sys
@@ -97,7 +106,7 @@ def failure_analyzer():
     image=image,
     secrets=secrets,
     timeout=600,
-    schedule=modal.Cron("0 15 * * 5,6,0"),  # 8:00 AM PT Fri, Sat, Sun
+    schedule=modal.Cron(to_cron(get_job("fundamentals_fetcher"))),
 )
 def fundamentals_fetcher():
     import sys
