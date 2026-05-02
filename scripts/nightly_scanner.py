@@ -1,6 +1,9 @@
 """
-Nightly scanner — runs at 8:00 PM PT via GitHub Actions.
-Scores universe, picks top 20 stocks, one Claude call each, buckets by days_to_target.
+Nightly scanner — runs at 10:20 PM PT via Modal.
+Two parallel pipelines:
+  Bullish: top 30 scored stocks → Claude bullish analysis → save BULLISH predictions
+  Bearish: top 20 overbought reversal candidates → Claude bearish analysis → save BEARISH predictions
+Friday: long-term scorer replaces bullish short-term scorer for bullish pipeline.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,18 +19,26 @@ from services.yfinance_service import get_price_history, get_ticker_info, get_fu
 from services.social_service import get_social_velocity
 from services.finnhub_service import get_news_sentiment, get_social_sentiment, get_analyst_recommendation, get_earnings_history, get_upcoming_earnings_universe, get_analyst_price_target
 from services.edgar_service import get_insider_buying
-from services.screener_service import build_universe, get_hot_tickers, rank_predictions, compute_buy_window, get_asset_class
+from services.screener_service import rank_predictions, compute_buy_window, get_asset_class
+from services.short_term_bullish_universe import build_bullish_universe, get_bullish_hot_tickers
+from services.short_term_bearish_universe import build_bearish_universe, get_bearish_hot_tickers
 from indicators.technicals import compute_all
-from indicators.scoring import compute_signal_score, compute_long_score, compute_buy_range, FORMULA_VERSION
-from services.ai_service import analyze_stock, analyze_stock_long, estimate_cost
+from indicators.scoring import compute_long_score, compute_buy_range
+from indicators.short_term_bullish_scorer import compute_short_term_bullish_score, FORMULA_VERSION as BULLISH_FORMULA_VERSION
+from indicators.short_term_bearish_scorer import compute_short_term_bearish_score, FORMULA_VERSION as BEARISH_FORMULA_VERSION
+from services.ai_service import analyze_stock, analyze_stock_bearish, analyze_stock_long, estimate_cost
 from services.telegram_service import send_nightly_summary
-from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, get_pending_prediction_for_ticker, replace_prediction_if_stronger, run_migrations
+from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, replace_prediction_if_stronger, run_migrations
 
-SCORE_THRESHOLD        = 45    # minimum score to be eligible
-MAX_STOCKS             = 50    # top N scored stocks sent to Claude
-MIN_PROFIT_PCT         = 4.0   # minimum absolute profit % to save a prediction
-EARNINGS_WINDOW_DAYS   = 14    # how far ahead to fetch the earnings calendar
-CLAUDE_LOG_CACHE_TTL_H = 168   # cache TTL for raw Claude scan log (7 days)
+BULLISH_SCORE_THRESHOLD = 45   # minimum bullish score to pass to Claude
+BEARISH_SCORE_THRESHOLD = 40   # minimum bearish score to pass to Claude
+MAX_BULLISH_STOCKS      = 30   # top N bullish stocks sent to Claude
+MAX_BEARISH_STOCKS      = 20   # top N bearish stocks sent to Claude
+MIN_PROFIT_PCT          = 4.0  # minimum absolute profit % to save a prediction
+EARNINGS_WINDOW_DAYS    = 14   # how far ahead to fetch the earnings calendar
+CLAUDE_LOG_CACHE_TTL_H  = 168  # cache TTL for raw Claude scan log (7 days)
+
+FORMULA_VERSION = BULLISH_FORMULA_VERSION  # kept for scan_log compatibility
 ANALYST_TARGET_TTL_H   = 24    # cache TTL for per-ticker analyst price targets
 
 # Claude's days_to_target → timeframe bucket
@@ -55,28 +66,38 @@ def run(debug: bool = False):
         "errors_recovered": 0,
     }
 
-    # ── Build universe ────────────────────────────────────────────────────────
-    print("Building universe...")
+    # ── Build universes (bullish + bearish in parallel) ───────────────────────
+    print("Building bullish universe...")
     try:
-        hot_tickers = get_hot_tickers()
-        universe, nasdaq_count, hot_count, overlap_count = build_universe(hot_tickers)
+        bullish_hot = get_bullish_hot_tickers()
+        bullish_universe, nasdaq_count, hot_count, overlap_count = build_bullish_universe(bullish_hot)
     except Exception as e:
-        log_error("scanner", f"Failed to build universe: {e}", level="ERROR")
+        log_error("scanner", f"Failed to build bullish universe: {e}", level="ERROR")
         raise
 
-    universe_total = len(universe)
+    print("Building bearish universe...")
+    try:
+        bearish_raw = get_bearish_hot_tickers()
+        bearish_universe = build_bearish_universe(bearish_raw)
+    except Exception as e:
+        log_error("scanner", f"Failed to build bearish universe: {e}", level="WARNING")
+        bearish_universe = []
+
+    universe_total = len(bullish_universe) + len(bearish_universe)
     scan_stats.update({
         "nasdaq100_count": nasdaq_count,
         "hot_stock_count": hot_count,
         "overlap_count": overlap_count,
         "universe_total": universe_total,
+        "bullish_universe_count": len(bullish_universe),
+        "bearish_universe_count": len(bearish_universe),
     })
-    log_error("scanner", f"Universe: {universe_total} stocks", level="INFO")
+    log_error("scanner", f"Universe: {len(bullish_universe)} bullish + {len(bearish_universe)} bearish candidates", level="INFO")
 
     # Persist hot tickers to DB for display on dashboard
     try:
-        save_hot_tickers(hot_tickers, start_time.isoformat())
-        print(f"  Saved {len(hot_tickers)} hot tickers to DB")
+        save_hot_tickers(bullish_hot, start_time.isoformat())
+        print(f"  Saved {len(bullish_hot)} bullish hot tickers to DB")
     except Exception as e:
         log_error("scanner", f"Failed to save hot tickers: {e}", level="WARNING")
 
@@ -92,7 +113,6 @@ def run(debug: bool = False):
             pass
     print("Loading bulk earnings calendar (Finnhub call at most once per 7 days)...")
     earnings_universe = get_upcoming_earnings_universe(days_ahead=EARNINGS_WINDOW_DAYS)
-    universe_tickers = {item["ticker"] for item in universe}
 
     # ── Determine scan mode early so scoring loop can skip short-term gate on Fridays ──
     is_friday = start_time.weekday() == 4  # 0=Mon … 4=Fri
@@ -107,13 +127,13 @@ def run(debug: bool = False):
     except Exception:
         pass
 
-    # ── Score every stock concurrently ───────────────────────────────────────
-    print(f"Scoring {universe_total} stocks (10 workers)...")
-    scored = []
+    # ── Score bullish universe concurrently ──────────────────────────────────
+    print(f"Scoring {len(bullish_universe)} bullish candidates (10 workers)...")
+    bullish_scored = []
     shadow = []
-    _scored_lock = __import__("threading").Lock()
+    _lock = __import__("threading").Lock()
 
-    def _score_one(item):
+    def _score_bullish(item):
         ticker = item["ticker"]
         source = item["source"]
         try:
@@ -124,13 +144,12 @@ def run(debug: bool = False):
             if df.empty:
                 return
             rows = len(df)
-
             ind = compute_all(df)
             if not ind:
                 return
 
-            sentiment = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=True)
-            social = get_social_sentiment(ticker, run_date=run_date, log_api=True)
+            sentiment      = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=True)
+            social         = get_social_sentiment(ticker, run_date=run_date, log_api=True)
             sentiment["mentions"] = social.get("mentions", 0)
             analyst        = get_analyst_recommendation(ticker, run_date=run_date, log_api=True)
             earnings       = get_earnings_history(ticker, run_date=run_date, log_api=True)
@@ -142,26 +161,35 @@ def run(debug: bool = False):
 
             ec_data = earnings_universe.get(ticker.upper())
             earnings_calendar = (
-                {"has_upcoming": True,
-                 "days_to_earnings": ec_data["days_to_earnings"],
+                {"has_upcoming": True, "days_to_earnings": ec_data["days_to_earnings"],
                  "earnings_date": ec_data["earnings_date"]}
                 if ec_data else {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
             )
 
-            score_data = compute_signal_score(
-                ind, sentiment, analyst, earnings, source=source,
-                earnings_calendar=earnings_calendar, analyst_target=analyst_target,
-                insider_buying=insider_buying, fundamentals=fundamentals,
-                social_velocity=social_vel,
-            )
+            if scan_mode == "long":
+                score_data = compute_long_score(
+                    ind, sentiment, analyst, earnings, source=source,
+                    earnings_calendar=earnings_calendar, analyst_target=analyst_target,
+                    insider_buying=insider_buying, fundamentals=fundamentals,
+                )
+                threshold = 30
+            else:
+                score_data = compute_short_term_bullish_score(
+                    ind, sentiment, analyst, earnings, source=source,
+                    earnings_calendar=earnings_calendar, analyst_target=analyst_target,
+                    insider_buying=insider_buying, fundamentals=fundamentals,
+                    social_velocity=social_vel,
+                )
+                threshold = BULLISH_SCORE_THRESHOLD
+
             total = score_data["total"]
 
-            with _scored_lock:
+            with _lock:
                 scan_stats["yfinance_rows_fetched"] += rows
                 scan_stats["finnhub_news_fetched"]  += sentiment.get("volume", 0)
 
-                if scan_mode == "short" and total < SCORE_THRESHOLD:
-                    if 40 <= total < SCORE_THRESHOLD:
+                if total < threshold:
+                    if threshold - 5 <= total < threshold:
                         shadow.append({
                             "ticker": ticker,
                             "scan_timestamp": start_time.isoformat(),
@@ -173,89 +201,126 @@ def run(debug: bool = False):
                             "bb_squeeze": ind.get("bb_squeeze"),
                             "volume_surge_ratio": ind.get("volume_surge_ratio"),
                             "obv_trend": ind.get("obv_trend"),
-                            "formula_version": FORMULA_VERSION,
+                            "formula_version": BULLISH_FORMULA_VERSION,
                         })
                     return
 
-                scored.append({
-                    "ticker": ticker,
-                    "company_name": info.get("name", ticker),
-                    "market_cap": info.get("market_cap"),
-                    "avg_volume": info.get("avg_volume"),
-                    "source": source,
-                    "score": total,
-                    "score_data": score_data,
-                    "indicators": ind,
-                    "sentiment": sentiment,
-                    "analyst": analyst,
-                    "earnings": earnings,
-                    "earnings_calendar": earnings_calendar,
+                bullish_scored.append({
+                    "ticker": ticker, "company_name": info.get("name", ticker),
+                    "market_cap": info.get("market_cap"), "avg_volume": info.get("avg_volume"),
+                    "source": source, "score": total, "score_data": score_data,
+                    "indicators": ind, "sentiment": sentiment, "analyst": analyst,
+                    "earnings": earnings, "earnings_calendar": earnings_calendar,
                     "analyst_upside_pct": score_data.get("analyst_upside_pct"),
-                    "insider_buying": insider_buying,
-                    "fundamentals": fundamentals,
+                    "insider_buying": insider_buying, "fundamentals": fundamentals,
                     "social_velocity": social_vel,
                 })
-
         except Exception as e:
-            with _scored_lock:
+            with _lock:
                 scan_stats["errors_encountered"] += 1
-            log_error("scanner", f"Scoring error: {ticker}: {e}", detail=str(e), ticker=ticker)
+            log_error("scanner", f"Bullish scoring error {ticker}: {e}", detail=str(e), ticker=ticker)
             print(f"  Error on {ticker}: {e}")
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_score_one, item): item["ticker"] for item in universe}
+        futures = {executor.submit(_score_bullish, item): item["ticker"] for item in bullish_universe}
         for future in as_completed(futures):
-            pass  # errors handled inside _score_one
+            pass
 
-    # Deduplicate alias pairs — keep highest scoring one
-    ALIASES = [
-        {"GOOGL", "GOOG"},
-        {"BRK-A", "BRK-B"},
-        {"META", "FB"},
-    ]
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    seen_groups: list[set] = []
-    deduped = []
-    for s in scored:
-        ticker = s["ticker"]
-        in_group = next((g for g in ALIASES if ticker in g), None)
-        if in_group:
-            if in_group in seen_groups:
-                print(f"  {ticker} skipped — alias already represented")
-                continue
-            seen_groups.append(in_group)
-        deduped.append(s)
+    # ── Score bearish universe concurrently ──────────────────────────────────
+    print(f"Scoring {len(bearish_universe)} bearish candidates (10 workers)...")
+    bearish_scored = []
 
-    # ── Friday = long-term scan; Sun–Thu = short-term scan ───────────────────
+    def _score_bearish(item):
+        ticker = item["ticker"]
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = get_price_history(ticker, period="3mo")
+            if df.empty:
+                return
+            ind = compute_all(df)
+            if not ind:
+                return
 
+            sentiment = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=True)
+            social    = get_social_sentiment(ticker, run_date=run_date, log_api=True)
+            sentiment["mentions"] = social.get("mentions", 0)
+            analyst   = get_analyst_recommendation(ticker, run_date=run_date, log_api=True)
+            earnings  = get_earnings_history(ticker, run_date=run_date, log_api=True)
+            info      = get_ticker_info(ticker, run_date=run_date, log_api=True)
+
+            ec_data = earnings_universe.get(ticker.upper())
+            earnings_calendar = (
+                {"has_upcoming": True, "days_to_earnings": ec_data["days_to_earnings"],
+                 "earnings_date": ec_data["earnings_date"]}
+                if ec_data else {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
+            )
+
+            score_data = compute_short_term_bearish_score(
+                ind, sentiment, analyst, earnings,
+                source=item["source"],
+                earnings_calendar=earnings_calendar,
+            )
+            total = score_data["total"]
+
+            if total < BEARISH_SCORE_THRESHOLD:
+                return
+
+            with _lock:
+                bearish_scored.append({
+                    "ticker": ticker, "company_name": info.get("name", ticker),
+                    "market_cap": info.get("market_cap"), "avg_volume": info.get("avg_volume"),
+                    "source": item["source"], "score": total, "score_data": score_data,
+                    "indicators": ind, "sentiment": sentiment, "analyst": analyst,
+                    "earnings": earnings, "earnings_calendar": earnings_calendar,
+                    "analyst_upside_pct": None, "insider_buying": None,
+                    "fundamentals": None, "social_velocity": None,
+                })
+        except Exception as e:
+            with _lock:
+                scan_stats["errors_encountered"] += 1
+            log_error("scanner", f"Bearish scoring error {ticker}: {e}", detail=str(e), ticker=ticker)
+            print(f"  Error on {ticker}: {e}")
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_score_bearish, item): item["ticker"] for item in bearish_universe}
+        for future in as_completed(futures):
+            pass
+
+    # ── Deduplicate alias pairs ───────────────────────────────────────────────
+    ALIASES = [{"GOOGL", "GOOG"}, {"BRK-A", "BRK-B"}, {"META", "FB"}]
+
+    def _dedupe(scored_list: list) -> list:
+        scored_list.sort(key=lambda x: x["score"], reverse=True)
+        seen_groups: list[set] = []
+        result = []
+        for s in scored_list:
+            t = s["ticker"]
+            group = next((g for g in ALIASES if t in g), None)
+            if group:
+                if group in seen_groups:
+                    continue
+                seen_groups.append(group)
+            result.append(s)
+        return result
+
+    bullish_scored = _dedupe(bullish_scored)
+    bearish_scored = _dedupe(bearish_scored)
+
+    # ── Friday: re-score bullish with long-term scorer ────────────────────────
     if scan_mode == "long":
-        # Re-score all collected items with long-term scorer
-        long_scored = []
-        for item in deduped:
-            try:
-                long_score_data = compute_long_score(
-                    item["indicators"], item["sentiment"], item["analyst"], item["earnings"],
-                    source=item["source"],
-                    earnings_calendar=item.get("earnings_calendar"),
-                    analyst_target=None,  # analyst_target not stored in scored — use upside from fundamentals
-                    insider_buying=item.get("insider_buying"),
-                    fundamentals=item.get("fundamentals"),
-                )
-                if long_score_data["total"] >= 30:  # lower threshold for long-term
-                    long_scored.append({**item, "score": long_score_data["total"], "score_data": long_score_data})
-            except Exception as e:
-                log_error("scanner", f"Long score error {item['ticker']}: {e}", level="WARNING")
-
-        long_scored.sort(key=lambda x: x["score"], reverse=True)
-        top_stocks = long_scored[:MAX_STOCKS]
-        print(f"Long-term scorer: {len(long_scored)} candidates → top {len(top_stocks)} to Claude")
+        top_bullish = bullish_scored[:MAX_BULLISH_STOCKS]
+        print(f"Long-term scorer: {len(bullish_scored)} candidates → top {len(top_bullish)} to Claude")
     else:
-        top_stocks = deduped[:MAX_STOCKS]
+        top_bullish = bullish_scored[:MAX_BULLISH_STOCKS]
 
-    scan_stats["stocks_analyzed"] = len(top_stocks)
-    print(f"Universe: {universe_total} stocks scanned · {nasdaq_count} Nasdaq earnings + {hot_count} hot → {overlap_count} overlap")
-    print(f"Total Claude batch: {len(top_stocks)} stocks")
+    top_bearish = bearish_scored[:MAX_BEARISH_STOCKS]
+
+    scan_stats["stocks_analyzed"] = len(top_bullish) + len(top_bearish)
+    print(f"Universe: {len(bullish_universe)} bullish + {len(bearish_universe)} bearish scanned")
+    print(f"Claude batch: {len(top_bullish)} bullish + {len(top_bearish)} bearish = {len(top_bullish) + len(top_bearish)} total")
 
     for s in shadow:
         try:
@@ -263,20 +328,29 @@ def run(debug: bool = False):
         except Exception as e:
             log_error("scanner", f"Shadow insert failed {s.get('ticker')}: {e}", level="WARNING")
 
-    # ── One Claude call per stock ─────────────────────────────────────────────
+    # ── Claude calls — shared helper ──────────────────────────────────────────
     all_predictions = []
     claude_raw_log  = []
 
-    for item in top_stocks:
-        ticker = item["ticker"]
-        ind    = item["indicators"]
-        sentiment = item["sentiment"]
-        analyst   = item["analyst"]
+    def _run_claude_prediction(item: dict, pipeline: str) -> None:
+        """Calls Claude for one stock, saves prediction. pipeline = 'bullish' | 'bearish'"""
+        ticker     = item["ticker"]
+        ind        = item["indicators"]
+        sentiment  = item["sentiment"]
+        analyst    = item["analyst"]
         score_data = item["score_data"]
 
         try:
             ticker_history = _get_ticker_history(ticker)
-            if scan_mode == "long":
+
+            if pipeline == "bearish":
+                ai = analyze_stock_bearish(
+                    ticker, ind, sentiment, analyst, score_data,
+                    accuracy_context=accuracy_context,
+                    ticker_history=ticker_history,
+                    earnings_calendar=item.get("earnings_calendar"),
+                )
+            elif scan_mode == "long":
                 ai = analyze_stock_long(
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
@@ -305,12 +379,23 @@ def run(debug: bool = False):
             price      = ind.get("price", 0)
             atr        = ind.get("atr", price * 0.02) or (price * 0.02)
 
-            # Use Claude's target/stop if valid, otherwise derive from ATR
+            # Discard NEUTRAL responses from bearish pipeline (and any wrong-direction responses)
+            if pipeline == "bearish" and direction != "BEARISH":
+                claude_raw_log.append({
+                    "ticker": ticker, "pipeline": pipeline, "score": item["score"],
+                    "price": price, "direction": direction, "passed_filter": False,
+                    "reasoning": ai.get("reasoning", ""), "key_signals": ai.get("key_signals", []),
+                })
+                print(f"  {ticker} bearish skipped — Claude returned {direction}")
+                return
+            if pipeline == "bullish" and direction == "BEARISH":
+                print(f"  {ticker} bullish skipped — Claude returned BEARISH (wrong pipeline)")
+                return
+
             target_price = ai.get("target_price")
             stop_price   = ai.get("stop_price")
-
-            raw_target = target_price
-            raw_stop   = stop_price
+            raw_target   = target_price
+            raw_stop     = stop_price
 
             if not target_price or target_price <= 0:
                 mult = {"BULLISH": 1.5, "BEARISH": -1.5}.get(direction, 1.0)
@@ -319,125 +404,105 @@ def run(debug: bool = False):
                 pct = 0.02
                 stop_price = round(price * (1 - pct) if direction == "BULLISH" else price * (1 + pct), 2)
 
-            # Use enough decimal places for low-price assets (crypto like DOGE)
-            decimals = 6 if price < 1 else 4 if price < 10 else 2
+            decimals     = 6 if price < 1 else 4 if price < 10 else 2
             target_price = round(float(target_price), decimals)
             stop_price   = round(float(stop_price), decimals)
+            target_low   = round(target_price * 0.97, decimals)
+            target_high  = round(target_price * 1.03, decimals)
 
-            # target_low/high for UI compatibility — use ±3% of target_price
-            target_low  = round(target_price * 0.97, decimals)
-            target_high = round(target_price * 1.03, decimals)
-
-            # Profit % filter — based on target_low (what UI shows as "Profit potential")
-            profit_pct = abs(target_low - price) / price * 100 if price > 0 else 0
+            profit_pct    = abs(target_low - price) / price * 100 if price > 0 else 0
             passed_filter = profit_pct >= MIN_PROFIT_PCT
 
-            # ── Collect raw Claude response before any filter ─────────────────
             claude_raw_log.append({
-                "ticker":           ticker,
-                "score":            item["score"],
-                "price":            price,
-                "direction":        direction,
-                "position":         position,
-                "confidence":       confidence,
-                "raw_target":       raw_target,
-                "raw_stop":         raw_stop,
-                "used_target":      target_price,
-                "used_stop":        stop_price,
-                "profit_pct":       round(profit_pct, 2),
-                "passed_filter":    passed_filter,
-                "days_to_target":   ai.get("days_to_target"),
-                "reasoning":        ai.get("reasoning", ""),
-                "key_signals":      ai.get("key_signals", []),
+                "ticker": ticker, "pipeline": pipeline, "score": item["score"], "price": price,
+                "direction": direction, "position": position, "confidence": confidence,
+                "raw_target": raw_target, "raw_stop": raw_stop,
+                "used_target": target_price, "used_stop": stop_price,
+                "profit_pct": round(profit_pct, 2), "passed_filter": passed_filter,
+                "days_to_target": ai.get("days_to_target"),
+                "reasoning": ai.get("reasoning", ""),
+                "key_signals": ai.get("key_signals", []),
             })
 
             if not passed_filter:
                 print(f"  {ticker} skipped — profit {profit_pct:.1f}% < {MIN_PROFIT_PCT}%")
-                continue
+                return
 
             buy_low, buy_high = compute_buy_range(price, atr, direction)
-            buy_window = ai.get("buy_window") or compute_buy_window("short", score_data["total"])
+            buy_window        = ai.get("buy_window") or compute_buy_window("short", score_data["total"])
 
-            # Bucket by Claude's days estimate
             days_to_target = ai.get("days_to_target")
             if not days_to_target or days_to_target <= 0:
-                # ATR fallback: how many days to cover target distance
                 dist = abs(target_price - price)
                 days_to_target = max(2, round(dist / atr))
 
             timeframe  = _bucket(days_to_target)
             expires_on = (start_time + timedelta(days=round(days_to_target * 1.2))).isoformat()
 
-            # Build earnings label for UI display
             ec = item.get("earnings_calendar") or {}
             if ec.get("has_upcoming"):
                 days_e = ec.get("days_to_earnings", 0)
-                if days_e == 0:
-                    earnings_label = "⚡ EARNINGS TODAY"
-                elif days_e == 1:
-                    earnings_label = "⚡ EARNINGS TOMORROW"
-                else:
-                    earnings_label = f"⚡ EARNINGS IN {days_e} DAYS"
+                earnings_label = ("⚡ EARNINGS TODAY" if days_e == 0
+                                  else "⚡ EARNINGS TOMORROW" if days_e == 1
+                                  else f"⚡ EARNINGS IN {days_e} DAYS")
             else:
                 earnings_label = ""
 
-            # Build insider signal label for UI display
             ib = item.get("insider_buying") or {}
             if ib.get("has_insider_buying"):
-                strength = ib.get("signal_strength", "")
+                strength  = ib.get("signal_strength", "")
                 total_usd = ib.get("total_purchased_usd", 0)
                 total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1_000_000 else f"${total_usd/1e3:.0f}K"
                 insider_signal = f"👤 INSIDER BUY {total_str} ★" if strength == "STRONG" else f"👤 INSIDER BUY {total_str}"
             else:
                 insider_signal = ""
 
+            fv = BULLISH_FORMULA_VERSION if pipeline == "bullish" else BEARISH_FORMULA_VERSION
             pred = {
-                "ticker":               ticker,
-                "asset_class":          get_asset_class(ticker),
-                "company_name":         item.get("company_name", ticker),
-                "predicted_on":         start_time.isoformat(),
-                "expires_on":           expires_on,
-                "days_to_target":       days_to_target,
-                "timing_rationale":     ai.get("timing_rationale", ""),
-                "timeframe":            timeframe,
-                "direction":            direction,
-                "position":             position,
-                "confidence":           confidence,
-                "score":                score_data["total"],
-                "price_at_prediction":  price,
-                "buy_range_low":        buy_low,
-                "buy_range_high":       buy_high,
-                "target_low":           target_low,
-                "target_high":          target_high,
-                "stop_loss":            stop_price,
-                "reasoning":            ai.get("reasoning", ""),
-                "source":               item["source"],
-                "formula_version":      FORMULA_VERSION,
-                "outcome":              "PENDING",
-                "earnings_label":       earnings_label or None,
-                "insider_signal":       insider_signal or None,
-                "market_cap":           item.get("market_cap") or None,
-                "avg_volume":           item.get("avg_volume") or None,
+                "ticker":              ticker,
+                "asset_class":         get_asset_class(ticker),
+                "company_name":        item.get("company_name", ticker),
+                "predicted_on":        start_time.isoformat(),
+                "expires_on":          expires_on,
+                "days_to_target":      days_to_target,
+                "timing_rationale":    ai.get("timing_rationale", ""),
+                "timeframe":           timeframe,
+                "direction":           direction,
+                "position":            position,
+                "confidence":          confidence,
+                "score":               score_data["total"],
+                "price_at_prediction": price,
+                "buy_range_low":       buy_low,
+                "buy_range_high":      buy_high,
+                "target_low":          target_low,
+                "target_high":         target_high,
+                "stop_loss":           stop_price,
+                "reasoning":           ai.get("reasoning", ""),
+                "source":              item["source"],
+                "formula_version":     fv,
+                "outcome":             "PENDING",
+                "earnings_label":      earnings_label or None,
+                "insider_signal":      insider_signal or None,
+                "market_cap":          item.get("market_cap") or None,
+                "avg_volume":          item.get("avg_volume") or None,
             }
 
             action = replace_prediction_if_stronger(ticker, profit_pct, pred)
             if action == "skipped":
                 print(f"  {ticker} skipped — existing prediction is stronger or equal")
-                continue
+                return
             if action == "replaced":
-                print(f"  {ticker} replaced — new prediction is stronger (+{profit_pct:.1f}%)")
-            # action == "insert" → no existing prediction, insert normally
+                print(f"  {ticker} replaced — new prediction stronger (+{profit_pct:.1f}%)")
 
             saved = insert_prediction(pred)
-            pred["id"]        = saved.get("id")
+            pred["id"]         = saved.get("id")
             pred["buy_window"] = buy_window
-            pred["buy_low"]   = buy_low
-            pred["buy_high"]  = buy_high
+            pred["buy_low"]    = buy_low
+            pred["buy_high"]   = buy_high
             all_predictions.append(pred)
             scan_stats["predictions_created"] += 1
-            print(f"  {ticker} ({item['company_name']}) → {direction} {timeframe}-term, {days_to_target}d, {confidence}% conf")
+            print(f"  [{pipeline}] {ticker} ({item['company_name']}) → {direction} {timeframe}-term, {days_to_target}d, {confidence}% conf")
 
-            # Save news articles for publication credibility tracking
             try:
                 from services.analyst_service import save_articles_for_prediction
                 articles = item.get("sentiment", {}).get("articles", [])
@@ -450,6 +515,14 @@ def run(debug: bool = False):
             scan_stats["errors_encountered"] += 1
             log_error("scanner", f"Prediction error {ticker}: {e}", detail=str(e), ticker=ticker)
             print(f"  Error on {ticker}: {e}")
+
+    print(f"Running Claude: {len(top_bullish)} bullish predictions...")
+    for item in top_bullish:
+        _run_claude_prediction(item, "bullish")
+
+    print(f"Running Claude: {len(top_bearish)} bearish predictions...")
+    for item in top_bearish:
+        _run_claude_prediction(item, "bearish")
 
     scan_stats["claude_cost_usd"] = estimate_cost(scan_stats["claude_calls_made"])
 

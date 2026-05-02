@@ -23,22 +23,42 @@ def compute_all(df: pd.DataFrame) -> dict:
     rsi_val = float(rsi_series.iloc[-1]) if not rsi_series.empty else 50.0
 
     rsi_divergence = False
+    rsi_bearish_divergence = False
     if len(close) >= 10:
-        price_trend = close.iloc[-5:].is_monotonic_decreasing
-        rsi_trend = rsi_series.iloc[-5:].is_monotonic_increasing
-        rsi_divergence = bool(price_trend and rsi_trend)
+        price_trend_down = close.iloc[-5:].is_monotonic_decreasing
+        price_trend_up   = close.iloc[-5:].is_monotonic_increasing
+        rsi_trend_up     = rsi_series.iloc[-5:].is_monotonic_increasing
+        rsi_trend_down   = rsi_series.iloc[-5:].is_monotonic_decreasing
+        # Bullish: price falling, RSI rising (hidden demand)
+        rsi_divergence         = bool(price_trend_down and rsi_trend_up)
+        # Bearish: price rising, RSI falling (weakening momentum / distribution)
+        rsi_bearish_divergence = bool(price_trend_up and rsi_trend_down)
 
     # ── MACD ─────────────────────────────────────────────────────────────────
     macd_ind = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
     macd_line = float(macd_ind.macd().iloc[-1]) if not macd_ind.macd().empty else 0.0
     macd_signal_val = float(macd_ind.macd_signal().iloc[-1]) if not macd_ind.macd_signal().empty else 0.0
     macd_hist = float(macd_ind.macd_diff().iloc[-1]) if not macd_ind.macd_diff().empty else 0.0
+    macd_hist_prev = float(macd_ind.macd_diff().iloc[-2]) if len(macd_ind.macd_diff()) > 1 else macd_hist
     macd_prev = float(macd_ind.macd().iloc[-2]) if len(macd_ind.macd()) > 1 else macd_line
     macd_signal_prev = float(macd_ind.macd_signal().iloc[-2]) if len(macd_ind.macd_signal()) > 1 else macd_signal_val
     macd_crossover = (macd_prev < macd_signal_prev) and (macd_line > macd_signal_val)
+    macd_crossover_bearish = (macd_prev > macd_signal_prev) and (macd_line < macd_signal_val)
+
+    # Bullish crossover within last 3 bars
+    macd_crossover_recent = False
+    _ml = macd_ind.macd()
+    _ms = macd_ind.macd_signal()
+    if len(_ml) >= 4:
+        for _i in range(2, 4):
+            if (float(_ml.iloc[-_i - 1]) < float(_ms.iloc[-_i - 1]) and
+                    float(_ml.iloc[-_i]) > float(_ms.iloc[-_i])):
+                macd_crossover_recent = True
+                break
 
     # ── Rate of Change ────────────────────────────────────────────────────────
-    roc_5_val = float(close.pct_change(5).iloc[-1] * 100) if len(close) > 5 else 0.0
+    roc_5_val  = float(close.pct_change(5).iloc[-1]  * 100) if len(close) > 5  else 0.0
+    roc_10_val = float(close.pct_change(10).iloc[-1] * 100) if len(close) > 10 else 0.0
     roc_20_val = float(close.pct_change(20).iloc[-1] * 100) if len(close) > 20 else 0.0
 
     # ── Moving Averages ───────────────────────────────────────────────────────
@@ -121,11 +141,16 @@ def compute_all(df: pd.DataFrame) -> dict:
         "price": price,
         "rsi": rsi_val,
         "rsi_divergence": rsi_divergence,
+        "rsi_bearish_divergence": rsi_bearish_divergence,
         "macd_line": macd_line,
         "macd_signal": macd_signal_val,
         "macd_hist": macd_hist,
+        "macd_hist_prev": macd_hist_prev,
         "macd_crossover": macd_crossover,
+        "macd_crossover_recent": macd_crossover_recent,
+        "macd_crossover_bearish": macd_crossover_bearish,
         "roc_5": roc_5_val,
+        "roc_10": roc_10_val,
         "roc_20": roc_20_val,
         "ma20": ma20_val,
         "ma50": ma50_val,

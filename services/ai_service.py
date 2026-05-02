@@ -218,6 +218,121 @@ Only output the JSON."""
         }
 
 
+def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
+                          score_data: dict, accuracy_context: str = "",
+                          ticker_history: str = "",
+                          earnings_calendar: dict = None) -> dict:
+    """
+    Short-term bearish Claude prediction — overbought reversal setups only.
+    Focused on: how far and how fast will this extended stock pull back?
+    """
+    price = indicators.get("price", 0)
+    atr   = indicators.get("atr", price * 0.02) or (price * 0.02)
+    ma20  = indicators.get("ma20") or price
+    ma50  = indicators.get("ma50") or price
+
+    roc_5  = indicators.get("roc_5", 0) or 0
+    roc_10 = indicators.get("roc_10", 0) or 0
+    ext_pct = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
+
+    prompt = f"""You are a short-term stock analyst specializing in overbought reversals.
+{ticker} has had a strong recent run and is showing exhaustion signals. Analyze whether a pullback is likely.
+
+PRICE & EXTENSION:
+- Current price: ${price:.2f}
+- ATR(14): ${atr:.2f}/day  (~{atr/price*100:.1f}% daily range)
+- MA20: ${ma20:.2f}  MA50: ${ma50:.2f}
+- Extension above MA20: {ext_pct:.1f}%  (>8% = significantly extended)
+- 5-day return: {roc_5:+.1f}%   10-day return: {roc_10:+.1f}%
+
+EXHAUSTION SIGNALS:
+- RSI(14): {indicators.get('rsi', 50):.1f}  {'← OVERBOUGHT' if indicators.get('rsi', 50) > 70 else '← APPROACHING OVERBOUGHT' if indicators.get('rsi', 50) > 65 else ''}
+- Bearish RSI divergence (price up, RSI down): {'YES — distribution signal' if indicators.get('rsi_bearish_divergence') else 'No'}
+- MACD bearish crossover (line < signal): {'YES — momentum confirmed reverting' if indicators.get('macd_crossover_bearish') else 'No'}
+- MACD histogram vs prior bar: {indicators.get('macd_hist', 0):.3f} vs {indicators.get('macd_hist_prev', 0):.3f} {'(SHRINKING — momentum fading)' if indicators.get('macd_hist', 0) < indicators.get('macd_hist_prev', 0) else '(growing)'}
+- BB position: {'ABOVE upper band — extended' if indicators.get('bb_breakout_up') else 'Below upper band — rejected from resistance'}
+- Price above VWAP: {'YES' if indicators.get('price_above_vwap') else 'No'}
+
+DISTRIBUTION SIGNALS:
+- OBV trend: {indicators.get('obv_trend', 'NEUTRAL')}  {'← SMART MONEY SELLING' if indicators.get('obv_trend') == 'DIVERGING_BEARISH' else ''}
+- Volume surge ratio: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
+
+EXTERNAL:
+- News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
+- Analyst consensus: {analyst.get('consensus', 'HOLD')}
+{'- ⚠️ EARNINGS IN ' + str(earnings_calendar.get("days_to_earnings")) + ' DAYS — gap risk, be cautious' if earnings_calendar and earnings_calendar.get("has_upcoming") else '- No upcoming earnings'}
+
+REVERSAL SCORE: {score_data.get('total', 0)}/100
+Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
+
+{f"ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
+
+TASK: This is a SHORT-TERM BEARISH (SHORT) analysis only. The question is: has this stock run too far, too fast, and is a pullback imminent?
+
+DO NOT output BULLISH. If the setup is not clearly bearish, output NEUTRAL.
+
+TARGET PRICE: The pullback target. Anchor to MA20 (natural mean reversion level), the nearest support level, or a prior consolidation zone. A typical mean reversion from 8% above MA20 returns to MA20 = ${ma20:.2f}.
+
+STOP PRICE: The level that invalidates the short — a new high, or the price level where the run clearly resumes. Typically 1–2× ATR above entry.
+
+DAYS TO TARGET: Short-term reversals play out in 3–10 days. Divide pullback distance by ATR.
+
+CONFIDENCE — derived from signal count:
+- Count: RSI >70, bearish RSI divergence, MACD fading/crossing, OBV distributing, price >8% above MA20
+- 5 signals → 85–92
+- 4 signals → 72–84
+- 3 signals → 58–71
+- 2 or fewer → below 58, strongly consider NEUTRAL
+- If you cannot name at least 3 exhaustion signals, do NOT go above 60.
+
+Respond in this exact JSON:
+{{
+  "direction": "BEARISH" | "NEUTRAL",
+  "position": "SHORT" | "HOLD",
+  "confidence": <integer derived from signal count>,
+  "target_price": <float — anchored to MA20 or support level>,
+  "stop_price": <float — level that invalidates the short>,
+  "days_to_target": <integer 3–10>,
+  "timing_rationale": "<1 sentence: which exhaustion signals are firing and expected reversion distance>",
+  "reasoning": "<2-3 sentences: name each signal present and any that conflict>",
+  "key_signals": ["signal1", "signal2", "signal3"],
+  "buy_window": "<time range in PT to enter short, e.g. 7:15 AM – 8:30 AM PT>"
+}}
+
+Only output the JSON."""
+
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        result["model"] = MODEL
+        return result
+    except Exception as e:
+        return {
+            "direction": "NEUTRAL",
+            "position": "HOLD",
+            "confidence": 0,
+            "target_price": None,
+            "stop_price": None,
+            "days_to_target": None,
+            "timing_rationale": "",
+            "reasoning": f"Analysis unavailable: {str(e)}",
+            "key_signals": [],
+            "buy_window": "N/A",
+            "model": MODEL,
+        }
+
+
 def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
                        score_data: dict, accuracy_context: str = "", ticker_history: str = "",
                        earnings_calendar: dict = None, analyst_upside_pct: float = None,
