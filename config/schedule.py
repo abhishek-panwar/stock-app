@@ -32,7 +32,7 @@ JOBS = [
         "label":       "Nightly Scanner",
         "platform":    "modal",
         "time_pt":     (22, 20),        # 10:20 PM PT
-        "days":        "daily",
+        "days":        [0, 1, 2, 3, 4, 6],  # Mon–Fri + Sun (not Sat)
         "description": "Score universe, pick top 50, Claude predictions, Telegram summary",
     },
     {
