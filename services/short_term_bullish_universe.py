@@ -1,80 +1,61 @@
 """
 Short-term bullish universe builder.
 
-Selection criteria:
-  - Hot tickers: Yahoo day_gainers + most_actives + trending + Alpha Vantage gainers/actives
-    (day_losers intentionally excluded — losers feed the bearish universe)
-  - Nasdaq 100 stocks with upcoming earnings (within 14 days) AND price above MA50
-    (below MA50 going into earnings = higher miss risk → bearish candidate instead)
-  - Market cap floor: $2B
-  - Momentum pre-filter: price > MA20, 5-day return > -5%, up-day volume bias
+get_bullish_hot_tickers()  — HTTP only, returns raw candidate ticker list
+get_bullish_candidates()   — returns Nasdaq earnings candidates (no API calls)
+filter_bullish_universe()  — pure computation from pre-fetched ticker_data
+                             (no live API calls — reads ind/df from the shared fetch store)
+
+Selection criteria (evaluated from pre-fetched data):
+  - Market cap >= $2B
+  - Price >= MA20 (basic uptrend posture)
+  - 5-day return > -5% (not in active selloff)
+  - Up-day volume >= down-day volume over last 10 sessions (accumulation bias)
+  - Nasdaq earnings stocks additionally require price >= MA50
 """
 
 import os
-from datetime import datetime
-import pytz
 
-PT = pytz.timezone("America/Los_Angeles")
 MIN_MARKET_CAP = 2_000_000_000  # $2B
 
 
-def build_bullish_universe(hot_tickers: list[str]) -> tuple[list[dict], int, int, int]:
+def fetch_alpha_vantage_gainers() -> set[str]:
     """
-    Returns (universe, nasdaq_earnings_count, hot_count, overlap_count).
-    universe entries: {"ticker": str, "source": str}
-    source: "nasdaq_earnings" | "hot_stock" | "both"
+    Fetches top_gainers + most_actively_traded from Alpha Vantage.
+    Called ONCE per scanner run and shared between bullish and bearish builders.
+    Returns empty set if AV key not configured or request fails.
     """
-    from services.screener_service import load_watchlist
-    data = load_watchlist()
-    nasdaq = set(data["nasdaq100"])
-    hot = set(hot_tickers)
-
+    import requests
+    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
+    if not av_key:
+        print("  Alpha Vantage key not set — skipping AV tickers")
+        return set()
     try:
-        from database.db import get_earnings_calendar_from_db
-        earnings_tickers = {row["ticker"] for row in get_earnings_calendar_from_db()}
-    except Exception:
-        earnings_tickers = set()
-
-    nasdaq_earnings_candidates = nasdaq & earnings_tickers
-
-    # Filter Nasdaq earnings stocks: must be above MA50 (uptrend going into earnings)
-    nasdaq_with_earnings = set()
-    for t in nasdaq_earnings_candidates:
-        if _passes_ma50_check(t):
-            nasdaq_with_earnings.add(t)
-        else:
-            print(f"  {t} excluded from bullish — below MA50 going into earnings")
-
-    overlap = nasdaq_with_earnings & hot
-
-    universe = []
-    seen = set()
-    filtered_mcap = 0
-
-    for t in list(hot) + [t for t in nasdaq_with_earnings if t not in hot]:
-        source = "both" if t in overlap else ("nasdaq_earnings" if t in nasdaq_with_earnings else "hot_stock")
-        mcap = _get_market_cap(t)
-        if mcap > 0 and mcap < MIN_MARKET_CAP:
-            filtered_mcap += 1
-            print(f"  {t} filtered — market cap ${mcap/1e6:.0f}M (below $2B floor)")
-            continue
-        if not _passes_momentum_prefilter(t):
-            print(f"  {t} excluded from bullish — failed momentum pre-filter")
-            continue
-        if t not in seen:
-            universe.append({"ticker": t, "source": source})
-            seen.add(t)
-
-    if filtered_mcap:
-        print(f"  Filtered {filtered_mcap} tickers below $2B market cap")
-
-    return universe, len(nasdaq_with_earnings), len(hot), len(overlap)
+        r = requests.get(
+            f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={av_key}",
+            timeout=10,
+        )
+        data = r.json()
+        raw: set[str] = set()
+        for category in ("top_gainers", "most_actively_traded"):
+            for item in data.get(category, []):
+                sym = item.get("ticker", "")
+                if sym and "=" not in sym and "/" not in sym:
+                    raw.add(sym.upper())
+        print(f"  Alpha Vantage: {len(raw)} tickers (gainers + actives)")
+        return raw
+    except Exception as e:
+        print(f"  Alpha Vantage fetch failed: {e}")
+        return set()
 
 
-def get_bullish_hot_tickers() -> list[str]:
+def get_bullish_hot_tickers(av_gainers: set[str] | None = None) -> list[str]:
     """
-    Returns tickers likely in uptrends: gainers, actives, trending.
-    Intentionally excludes day_losers (those go to bearish universe).
+    Returns raw bullish candidate tickers: gainers + actives + trending.
+    Intentionally excludes day_losers — those feed the bearish universe.
+    HTTP only — no yfinance, no Finnhub.
+
+    av_gainers: pass result of fetch_alpha_vantage_gainers() to avoid double-calling AV.
     """
     import requests
 
@@ -97,21 +78,8 @@ def get_bullish_hot_tickers() -> list[str]:
         except Exception:
             pass
 
-    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
-    if av_key:
-        try:
-            r = requests.get(
-                f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={av_key}",
-                timeout=10,
-            )
-            data = r.json()
-            for category in ("top_gainers", "most_actively_traded"):
-                for item in data.get(category, []):
-                    sym = item.get("ticker", "")
-                    if sym and "=" not in sym and "/" not in sym:
-                        raw.add(sym.upper())
-        except Exception:
-            pass
+    if av_gainers:
+        raw |= av_gainers
 
     # Always include crypto/commodities in bullish universe
     raw.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
@@ -121,82 +89,134 @@ def get_bullish_hot_tickers() -> list[str]:
     return tickers
 
 
-# ── Pre-filters ────────────────────────────────────────────────────────────────
-
-def _get_market_cap(ticker: str) -> int:
-    try:
-        import yfinance as yf
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return int(yf.Ticker(ticker).info.get("marketCap") or 0)
-    except Exception:
-        return 0
-
-
-def _passes_ma50_check(ticker: str) -> bool:
-    """Returns True if price is above MA50. Used to qualify Nasdaq earnings stocks."""
-    try:
-        import yfinance as yf
-        import warnings
-        import pandas as pd
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            df = yf.Ticker(ticker).history(period="3mo")
-        if df.empty or len(df) < 50:
-            return True  # not enough data — don't exclude
-        close = df["Close"]
-        ma50 = close.rolling(50).mean().iloc[-1]
-        return float(close.iloc[-1]) >= float(ma50)
-    except Exception:
-        return True
-
-
-def _passes_momentum_prefilter(ticker: str) -> bool:
+def get_bullish_candidates(earnings_tickers: set[str]) -> tuple[set[str], set[str]]:
     """
-    Lightweight momentum check before full scoring.
-    Rejects stocks that are in active selloffs or have no upward bias.
-    Criteria:
-      - Price >= MA20 (basic uptrend posture)
-      - 5-day return > -5% (not in active selloff)
-      - Up-day volume >= down-day volume over last 10 days (accumulation bias)
-    Returns True (passes) if data is unavailable — don't exclude on missing data.
+    Returns (nasdaq_earnings_candidates, nasdaq100_set) — no API calls.
+    Caller passes earnings_tickers from the already-loaded DB.
+    """
+    from services.screener_service import load_watchlist
+    data = load_watchlist()
+    nasdaq = set(data["nasdaq100"])
+    return nasdaq & earnings_tickers, nasdaq
+
+
+def filter_bullish_universe(
+    hot_tickers: list[str],
+    nasdaq_earnings_candidates: set[str],
+    nasdaq100: set[str],
+    ticker_data: dict,
+    bearish_tickers: set[str],
+) -> tuple[list[dict], int, int, int]:
+    """
+    Filters the bullish universe using pre-fetched data — zero live API calls.
+
+    hot_tickers            : raw candidates from get_bullish_hot_tickers()
+    nasdaq_earnings_candidates : Nasdaq tickers with upcoming earnings
+    nasdaq100              : full Nasdaq 100 set
+    ticker_data            : {ticker: data_dict} from market_data_fetcher.fetch_all()
+    bearish_tickers        : tickers already assigned to bearish pipeline — excluded here
+
+    Returns (universe, nasdaq_earnings_count, hot_count, overlap_count).
+    universe entries: {"ticker": str, "source": str}
+    """
+    hot = set(hot_tickers)
+    nasdaq_with_earnings: set[str] = set()
+
+    # MA50 check for Nasdaq earnings stocks — from pre-fetched ind
+    for t in nasdaq_earnings_candidates:
+        if t not in ticker_data:
+            continue  # no price data fetched — skip
+        ind = ticker_data[t]["ind"]
+        price = ind.get("price", 0)
+        ma50  = ind.get("ma50")
+        if ma50 is None or price >= ma50:
+            nasdaq_with_earnings.add(t)
+        else:
+            print(f"  {t} excluded from bullish — below MA50 going into earnings")
+
+    overlap = nasdaq_with_earnings & hot
+
+    universe = []
+    seen = set()
+    filtered_mcap      = 0
+    filtered_momentum  = 0
+    filtered_bearish   = 0
+
+    all_candidates = list(hot) + [t for t in nasdaq_with_earnings if t not in hot]
+
+    for t in all_candidates:
+        if t in seen:
+            continue
+
+        # Exclude tickers already in bearish pipeline
+        if t in bearish_tickers:
+            filtered_bearish += 1
+            print(f"  {t} excluded from bullish — assigned to bearish pipeline")
+            continue
+
+        if t not in ticker_data:
+            continue  # no data fetched — skip silently (was already logged during fetch)
+
+        data = ticker_data[t]
+        ind  = data["ind"]
+        df   = data["df"]
+
+        # Market cap check
+        mcap = data.get("market_cap") or 0
+        if mcap > 0 and mcap < MIN_MARKET_CAP:
+            filtered_mcap += 1
+            print(f"  {t} filtered — market cap ${mcap/1e6:.0f}M (below $2B floor)")
+            continue
+
+        # Momentum pre-filter — pure computation from pre-fetched data
+        if not _passes_momentum_prefilter_from_data(ind, df):
+            filtered_momentum += 1
+            print(f"  {t} excluded from bullish — failed momentum pre-filter")
+            continue
+
+        source = "both" if t in overlap else ("nasdaq_earnings" if t in nasdaq_with_earnings else "hot_stock")
+        universe.append({"ticker": t, "source": source})
+        seen.add(t)
+
+    print(
+        f"  Bullish universe: {len(universe)} stocks "
+        f"(filtered: {filtered_mcap} mcap, {filtered_momentum} momentum, {filtered_bearish} bearish-overlap)"
+    )
+    return universe, len(nasdaq_with_earnings), len(hot), len(overlap)
+
+
+def _passes_momentum_prefilter_from_data(ind: dict, df) -> bool:
+    """
+    Momentum check using already-fetched indicators and price DataFrame.
+    No live API calls.
+    Returns True (passes / include in bullish) if data is insufficient.
     """
     try:
-        import yfinance as yf
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            df = yf.Ticker(ticker).history(period="1mo")
-        if df.empty or len(df) < 10:
-            return True
+        price = ind.get("price", 0)
+        ma20  = ind.get("ma20")
 
-        close  = df["Close"]
-        volume = df["Volume"]
-        price  = float(close.iloc[-1])
+        # Price >= MA20
+        if ma20 is not None and price < ma20:
+            return False
 
-        # MA20 check
-        if len(close) >= 20:
-            ma20 = float(close.rolling(20).mean().iloc[-1])
-            if price < ma20:
-                return False
-
-        # 5-day return check
+        # 5-day return > -5%
+        close = df["close"] if "close" in df.columns else df["Close"]
         if len(close) >= 5:
-            ret_5d = (price - float(close.iloc[-5])) / float(close.iloc[-5]) * 100
+            ret_5d = (float(close.iloc[-1]) - float(close.iloc[-5])) / float(close.iloc[-5]) * 100
             if ret_5d < -5.0:
                 return False
 
-        # Volume bias: up-day vol vs down-day vol over last 10 sessions
-        if len(df) >= 10:
-            last10 = df.iloc[-10:]
-            up_days   = last10[last10["Close"] >= last10["Open"]]
-            down_days = last10[last10["Close"] <  last10["Open"]]
-            up_vol   = float(up_days["Volume"].sum())
-            down_vol = float(down_days["Volume"].sum())
+        # Up-day volume >= down-day volume over last 10 sessions
+        if "volume" in df.columns and len(df) >= 10:
+            last10    = df.iloc[-10:]
+            open_col  = "open"  if "open"  in df.columns else "Open"
+            close_col = "close" if "close" in df.columns else "Close"
+            vol_col   = "volume"
+            up_vol   = float(last10[last10[close_col] >= last10[open_col]][vol_col].sum())
+            down_vol = float(last10[last10[close_col] <  last10[open_col]][vol_col].sum())
             if down_vol > 0 and up_vol < down_vol:
                 return False
 
         return True
     except Exception:
-        return True
+        return True  # on any error, include — don't drop on missing data

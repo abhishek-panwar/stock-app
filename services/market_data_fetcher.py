@@ -1,0 +1,113 @@
+"""
+Single concurrent data fetch pass over the full ticker superset.
+
+Both bullish and bearish pipelines read from this shared in-memory store —
+no ticker is fetched more than once per scanner run.
+
+Failure policy:
+  - Empty price history or failed compute_all → ticker excluded (cannot score)
+  - All other failures (Finnhub, EDGAR, social) → safe empty defaults returned,
+    ticker still included with partial data. Never silently dropped.
+"""
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from indicators.technicals import compute_all
+
+
+def fetch_all(
+    tickers: list[str],
+    run_date: str,
+    earnings_universe: dict,
+    log_api: bool = True,
+) -> tuple[dict, dict]:
+    """
+    Fetches all required market data for each ticker concurrently (10 workers).
+
+    Returns:
+      ticker_data : {ticker: data_dict}  — only tickers with valid price data + indicators
+      stats       : {"rows_fetched": int, "news_fetched": int, "errors": int}
+    """
+    ticker_data: dict = {}
+    stats = {"rows_fetched": 0, "news_fetched": 0, "errors": 0}
+    _lock = threading.Lock()
+
+    def _fetch_one(ticker: str) -> None:
+        try:
+            import warnings
+            from services.yfinance_service import get_price_history, get_ticker_info, get_fundamentals
+            from services.social_service import get_social_velocity
+            from services.finnhub_service import (
+                get_news_sentiment, get_social_sentiment, get_analyst_recommendation,
+                get_earnings_history, get_analyst_price_target,
+            )
+            from services.edgar_service import get_insider_buying
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = get_price_history(ticker, period="6mo")
+
+            if df.empty:
+                return  # no price data — cannot score, exclude ticker
+
+            ind = compute_all(df)
+            if not ind:
+                return  # indicator computation failed — exclude ticker
+
+            # All subsequent fetches return safe defaults on failure — ticker stays in
+            sentiment      = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=log_api)
+            social         = get_social_sentiment(ticker, run_date=run_date, log_api=log_api)
+            sentiment["mentions"] = social.get("mentions", 0)
+            analyst        = get_analyst_recommendation(ticker, run_date=run_date, log_api=log_api)
+            earnings       = get_earnings_history(ticker, run_date=run_date, log_api=log_api)
+            analyst_target = get_analyst_price_target(ticker, run_date=run_date, log_api=log_api)
+            insider_buying = get_insider_buying(ticker, days_back=14, run_date=run_date, log_api=log_api)
+            fundamentals   = get_fundamentals(ticker, run_date=run_date, log_api=log_api)
+            social_vel     = get_social_velocity(ticker)
+            info           = get_ticker_info(ticker, run_date=run_date, log_api=log_api)
+
+            ec_data = earnings_universe.get(ticker.upper())
+            earnings_calendar = (
+                {"has_upcoming": True,
+                 "days_to_earnings": ec_data["days_to_earnings"],
+                 "earnings_date":    ec_data["earnings_date"]}
+                if ec_data
+                else {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
+            )
+
+            with _lock:
+                ticker_data[ticker] = {
+                    "df":               df,
+                    "ind":              ind,
+                    "sentiment":        sentiment,
+                    "analyst":          analyst,
+                    "earnings":         earnings,
+                    "analyst_target":   analyst_target,
+                    "insider_buying":   insider_buying,
+                    "fundamentals":     fundamentals,
+                    "social_velocity":  social_vel,
+                    "info":             info,
+                    "earnings_calendar": earnings_calendar,
+                    "company_name":     info.get("name", ticker),
+                    "market_cap":       info.get("market_cap"),
+                    "avg_volume":       info.get("avg_volume"),
+                }
+                stats["rows_fetched"] += len(df)
+                stats["news_fetched"] += sentiment.get("volume", 0)
+
+        except Exception as e:
+            with _lock:
+                stats["errors"] += 1
+            from database.db import log_error
+            log_error("scanner", f"Data fetch error {ticker}: {e}", detail=str(e), ticker=ticker)
+            print(f"  Fetch error on {ticker}: {e}")
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fetch_one, t): t for t in tickers}
+        for future in as_completed(futures):
+            pass  # errors handled inside _fetch_one
+
+    print(
+        f"  Data fetch complete: {len(ticker_data)}/{len(tickers)} tickers "
+        f"({stats['errors']} errors, {stats['rows_fetched']} price rows)"
+    )
+    return ticker_data, stats

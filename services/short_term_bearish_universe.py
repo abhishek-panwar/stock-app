@@ -1,20 +1,20 @@
 """
 Short-term bearish universe builder — Type 1: overbought reversal setups.
 
-Target: stocks that have had a sustained multi-day run and are showing
-exhaustion signals. NOT stocks already in a downtrend.
+get_bearish_hot_tickers()  — HTTP only, returns raw candidate ticker list
+filter_bearish_universe()  — pure computation from pre-fetched ticker_data
+                             (no live API calls — reads ind from the shared fetch store)
 
-Selection criteria:
-  - Yahoo day_gainers (today's top gainers)
-  - Alpha Vantage top_gainers
-  - Stocks that have gained 8%+ over the last 5 trading days (recent run filter)
-  - RSI pre-filter: RSI >= 65 (approaching or in overbought territory)
-  - Price extended: price > MA20 by >= 4% (stretched from mean)
-  - Market cap floor: $2B
-  - Explicitly excludes crypto and commodities (these trend, not revert)
+Selection criteria (evaluated from pre-fetched data):
+  - Market cap >= $2B
+  - 5-day return >= 8% (has had a real sustained run)
+  - RSI >= 65 (approaching or in overbought territory)
+  - Price > MA20 by >= 4% (extended from mean — prime for reversion)
+  - Crypto and commodities excluded (trend, not revert)
 """
 
 import os
+
 MIN_MARKET_CAP = 2_000_000_000  # $2B
 
 _EXCLUDE_TICKERS = {
@@ -24,11 +24,13 @@ _EXCLUDE_TICKERS = {
 }
 
 
-def get_bearish_hot_tickers() -> list[str]:
+def get_bearish_hot_tickers(av_gainers: set[str] | None = None) -> list[str]:
     """
-    Returns recent gainers — the raw pool of overbought reversal candidates.
-    Includes today's day_gainers + Alpha Vantage top_gainers.
-    Crypto and commodities excluded — they trend, mean reversion is unreliable.
+    Returns raw bearish candidate tickers: today's top gainers.
+    HTTP only — no yfinance, no Finnhub.
+
+    av_gainers: pass result of fetch_alpha_vantage_gainers() to avoid double-calling AV.
+                AV top_gainers are included as bearish candidates (high-run stocks).
     """
     import requests
 
@@ -48,108 +50,96 @@ def get_bearish_hot_tickers() -> list[str]:
     except Exception:
         pass
 
-    av_key = os.environ.get("ALPHA_VANTAGE_KEY", "")
-    if av_key:
-        try:
-            r = requests.get(
-                f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={av_key}",
-                timeout=10,
-            )
-            for item in r.json().get("top_gainers", []):
-                sym = item.get("ticker", "")
-                if sym and "=" not in sym and "/" not in sym:
-                    raw.add(sym.upper())
-        except Exception:
-            pass
+    # AV top_gainers are also bearish candidates (same stocks that ran hard)
+    if av_gainers:
+        raw |= av_gainers
 
-    # Remove excluded asset classes
     raw -= _EXCLUDE_TICKERS
     tickers = sorted(raw)
-    print(f"  Bearish candidate pool: {len(tickers)} recent gainers")
+    print(f"  Bearish candidate pool: {len(tickers)} raw gainers")
     return tickers
 
 
-def build_bearish_universe(raw_tickers: list[str]) -> list[dict]:
+def filter_bearish_universe(
+    raw_tickers: list[str],
+    ticker_data: dict,
+) -> tuple[list[dict], set[str]]:
     """
     Filters raw gainers down to genuine overbought reversal setups.
-    Returns list of {"ticker": str, "source": "bearish_candidate"}.
+    Uses pre-fetched data — zero live API calls.
 
-    Passes if ALL of:
-      1. Market cap >= $2B
-      2. 5-day return >= 8% (has had a real run)
-      3. RSI >= 65 (approaching or in overbought)
-      4. Price > MA20 by >= 4% (extended from mean, prime for reversion)
+    Returns:
+      (universe, bearish_ticker_set)
+      universe entries: {"ticker": str, "source": "bearish_candidate"}
+      bearish_ticker_set: set of tickers assigned to bearish, for bullish exclusion
     """
     universe = []
-    filtered = {"mcap": 0, "run": 0, "rsi": 0, "extension": 0}
+    bearish_tickers: set[str] = set()
+    filtered = {"mcap": 0, "run": 0, "rsi": 0, "extension": 0, "no_data": 0}
 
     for ticker in raw_tickers:
         if ticker in _EXCLUDE_TICKERS:
             continue
 
-        result = _check_reversal_setup(ticker)
-        if result["fail_reason"]:
-            filtered[result["fail_reason"]] = filtered.get(result["fail_reason"], 0) + 1
-            print(f"  {ticker} excluded from bearish — {result['fail_reason']}: {result['detail']}")
+        if ticker not in ticker_data:
+            filtered["no_data"] += 1
+            # Not silently dropped — logged during fetch phase
+            continue
+
+        data = ticker_data[ticker]
+        ind  = data["ind"]
+        df   = data["df"]
+
+        fail_reason, detail = _check_reversal_setup_from_data(data, ind, df)
+        if fail_reason:
+            filtered[fail_reason] = filtered.get(fail_reason, 0) + 1
+            print(f"  {ticker} excluded from bearish — {fail_reason}: {detail}")
             continue
 
         universe.append({"ticker": ticker, "source": "bearish_candidate"})
+        bearish_tickers.add(ticker)
 
     print(
         f"  Bearish universe: {len(universe)} stocks "
         f"(filtered: {filtered['mcap']} mcap, {filtered['run']} run<8%, "
-        f"{filtered['rsi']} rsi<65, {filtered['extension']} extension<4%)"
+        f"{filtered['rsi']} rsi<65, {filtered['extension']} extension<4%, "
+        f"{filtered['no_data']} no data)"
     )
-    return universe
+    return universe, bearish_tickers
 
 
-def _check_reversal_setup(ticker: str) -> dict:
+def _check_reversal_setup_from_data(data: dict, ind: dict, df) -> tuple[str | None, str]:
     """
-    Returns {"fail_reason": str|None, "detail": str}.
-    fail_reason is None if the ticker passes all checks.
+    Returns (fail_reason, detail). fail_reason is None if the ticker passes all checks.
+    Pure computation from pre-fetched data — no API calls.
     """
     try:
-        import yfinance as yf
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            t = yf.Ticker(ticker)
-            info = t.info
-            df   = t.history(period="3mo")
-
-        if df.empty or len(df) < 20:
-            return {"fail_reason": None, "detail": "insufficient data — passing through"}
+        price = ind.get("price", 0)
 
         # 1. Market cap check
-        mcap = int(info.get("marketCap") or 0)
+        mcap = data.get("market_cap") or 0
         if mcap > 0 and mcap < MIN_MARKET_CAP:
-            return {"fail_reason": "mcap", "detail": f"${mcap/1e6:.0f}M < $2B"}
-
-        close = df["Close"]
-        price = float(close.iloc[-1])
+            return "mcap", f"${mcap/1e6:.0f}M < $2B"
 
         # 2. 5-day run check — must have gained >= 8%
+        close = df["close"] if "close" in df.columns else df["Close"]
         if len(close) >= 5:
-            ret_5d = (price - float(close.iloc[-5])) / float(close.iloc[-5]) * 100
+            ret_5d = (float(close.iloc[-1]) - float(close.iloc[-5])) / float(close.iloc[-5]) * 100
             if ret_5d < 8.0:
-                return {"fail_reason": "run", "detail": f"5d return {ret_5d:.1f}% < 8%"}
+                return "run", f"5d return {ret_5d:.1f}% < 8%"
 
         # 3. RSI check — must be >= 65
-        try:
-            import ta
-            rsi = float(ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1])
-        except Exception:
-            rsi = 50.0
+        rsi = ind.get("rsi", 50)
         if rsi < 65:
-            return {"fail_reason": "rsi", "detail": f"RSI {rsi:.1f} < 65"}
+            return "rsi", f"RSI {rsi:.1f} < 65"
 
         # 4. Extension from MA20 — must be >= 4% above MA20
-        if len(close) >= 20:
-            ma20 = float(close.rolling(20).mean().iloc[-1])
+        ma20 = ind.get("ma20")
+        if ma20 is not None and ma20 > 0:
             extension_pct = (price - ma20) / ma20 * 100
             if extension_pct < 4.0:
-                return {"fail_reason": "extension", "detail": f"only {extension_pct:.1f}% above MA20"}
+                return "extension", f"only {extension_pct:.1f}% above MA20"
 
-        return {"fail_reason": None, "detail": "passes all checks"}
+        return None, "passes all checks"
     except Exception:
-        return {"fail_reason": None, "detail": "error in check — passing through"}
+        return None, "error in check — passing through"
