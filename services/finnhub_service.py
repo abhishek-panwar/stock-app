@@ -9,7 +9,9 @@ load_dotenv()
 
 EARNINGS_UNIVERSE_TTL_H = 168   # 7 days — refresh weekly
 ANALYST_TARGET_TTL_H    = 24    # per-ticker analyst price target cache
+ANALYST_REC_TTL_H       = 24    # per-ticker analyst recommendation cache
 NEWS_SENTIMENT_TTL_H    = 24    # news keyword sentiment — refresh daily
+EARNINGS_HISTORY_TTL_H  = 168   # 7 days — earnings data changes weekly at most
 EARNINGS_WINDOW_DAYS    = 14    # how far ahead to scan for earnings
 
 # Thread-safe rate limiter: Finnhub free tier = 60 calls/min → 1 call/sec minimum
@@ -181,6 +183,12 @@ def get_social_sentiment(ticker: str, run_date: str = "", log_api: bool = False)
 
 def get_analyst_recommendation(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     try:
+        from database.db import get_cache, set_cache
+        cache_key = f"analyst_rec_{ticker}"
+        cached = get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         _rate_limit()
         recs = get_client().recommendation_trends(ticker)
         if log_api and run_date:
@@ -206,10 +214,12 @@ def get_analyst_recommendation(ticker: str, run_date: str = "", log_api: bool = 
             consensus = "SELL"
         else:
             consensus = "STRONG_SELL"
-        return {
+        result = {
             "consensus": consensus, "score": round(score, 3),
             "strong_buy": sb, "buy": b, "hold": h, "sell": s, "strong_sell": ss,
         }
+        set_cache(cache_key, result, ttl_hours=ANALYST_REC_TTL_H)
+        return result
     except Exception as e:
         if log_api and run_date:
             from database.db import log_api_call
@@ -219,6 +229,12 @@ def get_analyst_recommendation(ticker: str, run_date: str = "", log_api: bool = 
 
 def get_earnings_history(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     try:
+        from database.db import get_cache, set_cache
+        cache_key = f"earnings_history_{ticker}"
+        cached = get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         _rate_limit()
         earnings = get_client().company_earnings(ticker, limit=4)
         if log_api and run_date:
@@ -237,7 +253,9 @@ def get_earnings_history(ticker: str, run_date: str = "", log_api: bool = False)
                 streak += 1
             else:
                 streak = 0
-        return {"beats": beats, "consecutive_beats": streak}
+        result = {"beats": beats, "consecutive_beats": streak}
+        set_cache(cache_key, result, ttl_hours=EARNINGS_HISTORY_TTL_H)
+        return result
     except Exception as e:
         if log_api and run_date:
             from database.db import log_api_call
