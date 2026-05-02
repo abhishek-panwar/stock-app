@@ -377,16 +377,17 @@ def _inject_card_css():
     padding: 10px 14px !important;
     width: 100% !important;
 }
-[data-testid="stColumn"]:has(div.card-bullish) button div,
-[data-testid="stColumn"]:has(div.card-bearish) button div,
-[data-testid="stColumn"]:has(div.card-neutral) button div,
+[data-testid="stColumn"]:has(div.card-bullish) button [data-testid="stMarkdownContainer"],
+[data-testid="stColumn"]:has(div.card-bearish) button [data-testid="stMarkdownContainer"],
+[data-testid="stColumn"]:has(div.card-neutral) button [data-testid="stMarkdownContainer"] {
+    width: 100% !important;
+    text-align: left !important;
+}
 [data-testid="stColumn"]:has(div.card-bullish) button p,
 [data-testid="stColumn"]:has(div.card-bearish) button p,
 [data-testid="stColumn"]:has(div.card-neutral) button p {
     text-align: left !important;
-    width: 100% !important;
     margin: 0 !important;
-    padding: 0 !important;
 }
 /* Delete button */
 [data-testid="stColumn"]:has(div.card-del) button {
