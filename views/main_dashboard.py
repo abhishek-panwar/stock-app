@@ -344,6 +344,7 @@ def _inject_card_css():
     border-left: 4px solid #16a34a !important;
     border-radius: 8px 0 0 8px !important;
     text-align: left !important;
+    justify-content: flex-start !important;
     font-size: 13.5px !important;
     font-weight: 500 !important;
     color: #1e293b !important;
@@ -356,6 +357,7 @@ def _inject_card_css():
     border-left: 4px solid #dc2626 !important;
     border-radius: 8px 0 0 8px !important;
     text-align: left !important;
+    justify-content: flex-start !important;
     font-size: 13.5px !important;
     font-weight: 500 !important;
     color: #1e293b !important;
@@ -368,6 +370,7 @@ def _inject_card_css():
     border-left: 4px solid #94a3b8 !important;
     border-radius: 8px 0 0 8px !important;
     text-align: left !important;
+    justify-content: flex-start !important;
     font-size: 13.5px !important;
     font-weight: 500 !important;
     color: #1e293b !important;
