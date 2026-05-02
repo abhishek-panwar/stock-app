@@ -552,6 +552,109 @@ Only output the JSON."""
         }
 
 
+def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
+                               score_data: dict, accuracy_context: str = "",
+                               ticker_history: str = "",
+                               earnings_calendar: dict = None,
+                               analyst_upside_pct: float = None,
+                               insider_buying: dict = None,
+                               fundamentals: dict = None) -> dict:
+    """
+    Long-term bearish Claude prediction — Friday scan only.
+    Focuses on fundamental deterioration and institutional re-rating downward over 60-180 days.
+    DO NOT output BULLISH — if no clear bearish catalyst, output NEUTRAL.
+    """
+    price  = indicators.get("price", 0)
+    ma50   = indicators.get("ma50") or price
+    ma200  = indicators.get("ma200") or price
+
+    prompt = f"""You are a long-term stock analyst. Analyze {ticker} for a SHORT position over 60–180 days.
+IGNORE short-term noise (RSI, MACD, volume spikes). Focus on fundamental deterioration and structural breakdown.
+
+PRICE & TREND:
+- Current price: ${price:.2f}
+- MA50: ${ma50:.2f}  MA200: ${ma200:.2f}
+- Price vs MA50: {'ABOVE' if price > ma50 else 'BELOW ← structural weakness'}  |  vs MA200: {'ABOVE' if price > ma200 else 'BELOW ← institutional trend broken'}
+- ADX (trend strength): {indicators.get('adx', 20):.1f}
+- Death cross (MA50 < MA200): {'YES — confirmed downtrend' if ma50 < ma200 else 'No'}
+
+FUNDAMENTAL DETERIORATION:
+- Analyst consensus: {analyst.get('consensus', 'HOLD')} {'← SELL SIGNAL' if analyst.get('consensus') in ('SELL', 'STRONG_SELL') else ''}
+- Earnings beats (last 4Q): {analyst.get('beats', 0)}/4  (misses = {4 - analyst.get('beats', 0)})
+{_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
+BEARISH SIGNAL SCORE: {score_data.get('total', 0)}/100
+Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
+
+{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
+
+TASK: Make a single long-term BEARISH prediction (60–180 trading days). Every field must derive from the data above.
+
+DO NOT output BULLISH. If there is no clear fundamental deterioration thesis, output NEUTRAL.
+
+DIRECTION: Only BEARISH if there is a concrete fundamental deterioration catalyst (revenue declining, earnings misses, analyst downgrades, negative FCF, margin compression). NEUTRAL if fundamentals are mixed or no clear catalyst exists.
+
+TARGET PRICE: Must reflect a specific re-rating thesis — e.g. compression to a lower P/E, reversion to a prior support level, or a deterioration-driven repricing. Minimum 15% downside required — if you cannot justify 15%, output NEUTRAL.
+
+STOP PRICE: Wide enough to survive short-term bounces. Anchor to a meaningful structural level (e.g. MA200, prior resistance). Typically 10–15% above entry for BEARISH.
+
+DAYS TO TARGET: Base on the deterioration timeline — next earnings cycle = ~60d, full re-rating = 120–180d.
+
+CONFIDENCE — derive from strength of fundamental evidence:
+- Count: (1) Revenue/earnings decline confirmed, (2) Analyst SELL/downgrade, (3) Negative FCF or margin collapse, (4) Consecutive earnings misses
+- 4/4 → 80–90
+- 3/4 → 65–79
+- 2/4 → 50–64
+- 1/4 or fewer → below 50, strongly consider NEUTRAL
+- If you cannot name at least 2 concrete deterioration factors, do NOT output confidence above 55.
+
+Respond in this exact JSON:
+{{
+  "direction": "BEARISH" | "NEUTRAL",
+  "position": "SHORT" | "HOLD",
+  "confidence": <integer derived from factor count above>,
+  "target_price": <float — anchored to a specific re-rating basis>,
+  "stop_price": <float — structural level 10-15% above entry>,
+  "days_to_target": <integer — 60 to 180, based on deterioration timeline>,
+  "timing_rationale": "<1 sentence: name the specific deterioration catalyst and when it is expected to force a re-rating>",
+  "reasoning": "<3-4 sentences: name each deterioration factor present and what is missing>",
+  "key_signals": ["signal1", "signal2", "signal3"],
+  "buy_window": "Any time — long-term position, entry timing less critical"
+}}
+
+Only output the JSON."""
+
+    try:
+        response = get_client().messages.create(
+            model=MODEL,
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        result["model"] = MODEL
+        return result
+    except Exception as e:
+        return {
+            "direction": "NEUTRAL",
+            "position": "HOLD",
+            "confidence": 0,
+            "target_price": None,
+            "stop_price": None,
+            "days_to_target": None,
+            "timing_rationale": "",
+            "reasoning": f"Analysis unavailable: {str(e)}",
+            "key_signals": [],
+            "buy_window": "Any time",
+            "model": MODEL,
+        }
+
+
 def analyze_forensic(ticker: str, price_summary: str, indicators_timeline: str,
                      news_timeline: str, date_range: str) -> dict:
     """Deep forensic analysis for the Deep Dive page."""

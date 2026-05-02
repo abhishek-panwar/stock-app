@@ -1,0 +1,200 @@
+"""
+Long-term bullish scorer — Friday scan, 60-180 day moves.
+
+Extracted from scoring.py compute_long_score() and promoted to its own file
+to mirror the short_term_bullish_scorer / short_term_bearish_scorer pattern.
+
+Signal philosophy:
+  - De-weights short-term technicals entirely
+  - Heavily weights fundamentals + insider accumulation + analyst conviction
+  - Earnings beats = proxy for management execution quality
+  - Trend (MA200, golden cross) = institutional position confirmation
+  - Social velocity deliberately excluded — it's a short-term noise signal
+"""
+
+FORMULA_VERSION = "long_bullish_v1.0"
+
+
+def compute_long_term_bullish_score(
+    ind: dict,
+    sentiment: dict,
+    analyst: dict,
+    earnings: dict,
+    source: str = "nasdaq100",
+    earnings_calendar: dict = None,
+    analyst_target: dict = None,
+    insider_buying: dict = None,
+    fundamentals: dict = None,
+) -> dict:
+    """
+    Returns score dict with breakdown and total (0–100).
+    Higher score = stronger long-term bullish re-rating thesis.
+
+    Groups (100 pts total):
+      Fundamentals  30 pts  — revenue/earnings growth, margins, FCF, PEG
+      Insider       25 pts  — strongest long-term signal; executives buying own stock
+      Analyst       20 pts  — consensus + mean target upside %
+      Earnings      15 pts  — consecutive beats = quality of execution
+      Trend         10 pts  — MA200 position, golden cross on long MAs
+    """
+    scores = {}
+    bonus = 0
+    bonus_reasons = []
+
+    price = ind.get("price", 0)
+
+    # ── Group 1: Fundamentals (30 pts) ────────────────────────────────────────
+    fund_score = 0
+    if fundamentals:
+        rev_growth  = fundamentals.get("revenue_growth_pct")
+        earn_growth = fundamentals.get("earnings_growth_pct")
+        op_margin   = fundamentals.get("operating_margin_pct")
+        fcf         = fundamentals.get("free_cashflow")
+        peg         = fundamentals.get("peg_ratio")
+
+        if rev_growth is not None:
+            if rev_growth >= 25:
+                fund_score += 10
+                bonus_reasons.append(f"Revenue growth {rev_growth:.0f}% YoY (+10)")
+            elif rev_growth >= 15:
+                fund_score += 7
+                bonus_reasons.append(f"Revenue growth {rev_growth:.0f}% YoY (+7)")
+            elif rev_growth >= 8:
+                fund_score += 4
+            elif rev_growth < 0:
+                fund_score -= 3  # declining revenue is a structural headwind
+
+        if earn_growth is not None:
+            if earn_growth >= 25:
+                fund_score += 8
+                bonus_reasons.append(f"Earnings growth {earn_growth:.0f}% YoY (+8)")
+            elif earn_growth >= 10:
+                fund_score += 5
+                bonus_reasons.append(f"Earnings growth {earn_growth:.0f}% YoY (+5)")
+            elif earn_growth < 0:
+                fund_score -= 2
+
+        if op_margin is not None:
+            if op_margin >= 25:
+                fund_score += 6
+                bonus_reasons.append(f"Strong operating margin {op_margin:.0f}% (+6)")
+            elif op_margin >= 15:
+                fund_score += 4
+            elif op_margin >= 5:
+                fund_score += 2
+
+        if fcf is not None and fcf > 0:
+            fund_score += 4
+            bonus_reasons.append("Positive FCF (+4)")
+
+        if peg is not None and 0 < peg < 1:
+            fund_score += 6
+            bonus_reasons.append(f"PEG {peg:.2f} — undervalued growth (+6)")
+        elif peg is not None and 1 <= peg < 2:
+            fund_score += 2
+
+    scores["fundamentals"] = round(min(max(fund_score, 0), 30), 1)
+
+    # ── Group 2: Insider Buying (25 pts) ──────────────────────────────────────
+    insider_score = 0
+    if insider_buying and insider_buying.get("has_insider_buying"):
+        strength  = insider_buying.get("signal_strength", "NONE")
+        total_usd = insider_buying.get("total_purchased_usd", 0)
+        n         = insider_buying.get("num_insiders", 1)
+        total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1e6 else f"${total_usd/1e3:.0f}K"
+        if strength == "STRONG":
+            insider_score = 25
+            bonus_reasons.append(f"Insider buying STRONG — {total_str} by {n} insider(s) (+25)")
+        elif strength == "MODERATE":
+            insider_score = 15
+            bonus_reasons.append(f"Insider buying MODERATE — {total_str} by {n} insider(s) (+15)")
+        else:
+            insider_score = 8
+
+    scores["insider"] = insider_score
+
+    # ── Group 3: Analyst Conviction (20 pts) ──────────────────────────────────
+    analyst_score = 0
+    consensus = analyst.get("consensus", "HOLD")
+    analyst_score += {"STRONG_BUY": 10, "BUY": 7, "HOLD": 3, "SELL": 0, "STRONG_SELL": 0}.get(consensus, 3)
+
+    analyst_upside_pct = None
+    if analyst_target and analyst_target.get("mean_target") and price > 0:
+        upside_pct = (analyst_target["mean_target"] - price) / price * 100
+        analyst_upside_pct = round(upside_pct, 1)
+        if upside_pct >= 30:
+            analyst_score += 10
+            bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% — strong conviction (+10)")
+        elif upside_pct >= 20:
+            analyst_score += 7
+            bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% (+7)")
+        elif upside_pct >= 10:
+            analyst_score += 4
+
+    scores["analyst"] = round(min(analyst_score, 20), 1)
+
+    # ── Group 4: Earnings Quality (15 pts) ────────────────────────────────────
+    earnings_score = 0
+    consecutive = earnings.get("consecutive_beats", 0)
+    if consecutive >= 4:
+        earnings_score = 15
+        bonus_reasons.append(f"{consecutive} consecutive earnings beats — institutional re-rating likely (+15)")
+    elif consecutive >= 3:
+        earnings_score = 11
+        bonus_reasons.append(f"{consecutive} consecutive earnings beats (+11)")
+    elif consecutive >= 2:
+        earnings_score = 7
+    elif consecutive >= 1:
+        earnings_score = 4
+
+    # Upcoming earnings = near-term catalyst that can pull forward the re-rating
+    if earnings_calendar and earnings_calendar.get("has_upcoming") and consecutive >= 2:
+        earnings_score = min(earnings_score + 3, 15)
+        days_to_earn = earnings_calendar.get("days_to_earnings", 99)
+        bonus_reasons.append(f"Earnings catalyst in {days_to_earn}d with {consecutive} consecutive beats")
+
+    scores["earnings"] = earnings_score
+
+    # ── Group 5: Trend (10 pts) — only long-term trend signals ───────────────
+    trend_score = 0
+    ma50  = ind.get("ma50") or price
+    ma200 = ind.get("ma200") or price
+
+    if price > ma200:
+        trend_score += 5   # above 200-day = institutional trend intact
+    if price > ma50 and ma50 > ma200:
+        trend_score += 3   # golden cross on longer MAs = bull regime
+        bonus_reasons.append("Price above MA50 > MA200 — bull regime (+3)")
+    if ind.get("adx", 0) > 25:
+        trend_score += 2
+
+    scores["trend"] = round(min(trend_score, 10), 1)
+
+    # ── Source bonus ──────────────────────────────────────────────────────────
+    if source == "both":
+        bonus += 2
+        bonus_reasons.append("Dual-list appearance (+2)")
+
+    base  = sum(scores.values())
+    total = min(round(base + bonus), 100)
+
+    # Conviction: need at least 2 of the 3 core fundamental groups to have meaningful scores
+    confirmations = 0
+    if scores.get("fundamentals", 0) >= 10:  confirmations += 1
+    if scores.get("insider", 0) >= 15:       confirmations += 1
+    if scores.get("analyst", 0) >= 10:       confirmations += 1
+    if scores.get("earnings", 0) >= 7:       confirmations += 1
+    conviction_pass = total >= 35 and confirmations >= 2
+
+    return {
+        "total": total,
+        "base": round(base),
+        "bonus": bonus,
+        "bonus_reasons": bonus_reasons,
+        "breakdown": scores,
+        "formula_version": FORMULA_VERSION,
+        "analyst_upside_pct": analyst_upside_pct,
+        "earnings_calendar": earnings_calendar,
+        "insider_buying": insider_buying,
+        "conviction_pass": conviction_pass,
+    }

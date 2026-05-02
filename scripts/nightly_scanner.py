@@ -1,9 +1,15 @@
 """
 Nightly scanner — runs at 10:20 PM PT via Modal.
-Two parallel pipelines:
-  Bullish: top 30 scored stocks → Claude bullish analysis → save BULLISH predictions
-  Bearish: top 20 overbought reversal candidates → Claude bearish analysis → save BEARISH predictions
-Friday: long-term scorer replaces bullish short-term scorer for bullish pipeline.
+
+Mon–Thu (short-term):
+  Bullish: top 30 momentum stocks → Claude bullish → BULLISH predictions
+  Bearish: top 20 overbought reversal candidates → Claude bearish → BEARISH predictions
+
+Friday (long-term):
+  Bullish: top 30 fundamental re-rating candidates → Claude long bullish → BULLISH predictions
+  Bearish: top 20 fundamental deterioration candidates → Claude long bearish → BEARISH predictions
+
+Both modes share: superset fetch, _run_claude_prediction helper, alias dedup, Telegram summary.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,24 +25,32 @@ from services.finnhub_service import get_upcoming_earnings_universe
 from services.screener_service import rank_predictions, compute_buy_window, get_asset_class
 from services.short_term_bullish_universe import get_bullish_hot_tickers, get_bullish_candidates, filter_bullish_universe, fetch_alpha_vantage_gainers
 from services.short_term_bearish_universe import get_bearish_hot_tickers, filter_bearish_universe
+from services.long_term_bullish_universe import get_long_bullish_hot_tickers, filter_long_bullish_universe
+from services.long_term_bearish_universe import get_long_bearish_hot_tickers, filter_long_bearish_universe
 from services.market_data_fetcher import fetch_all
-from indicators.scoring import compute_long_score, compute_buy_range
+from indicators.scoring import compute_buy_range
 from indicators.short_term_bullish_scorer import compute_short_term_bullish_score, FORMULA_VERSION as BULLISH_FORMULA_VERSION
 from indicators.short_term_bearish_scorer import compute_short_term_bearish_score, FORMULA_VERSION as BEARISH_FORMULA_VERSION
-from services.ai_service import analyze_stock, analyze_stock_bearish, analyze_stock_bullish, analyze_stock_long, estimate_cost
+from indicators.long_term_bullish_scorer import compute_long_term_bullish_score, FORMULA_VERSION as LONG_BULLISH_FORMULA_VERSION
+from indicators.long_term_bearish_scorer import compute_long_term_bearish_score, FORMULA_VERSION as LONG_BEARISH_FORMULA_VERSION
+from services.ai_service import analyze_stock_bullish, analyze_stock_bearish, analyze_stock_long, analyze_stock_long_bearish, estimate_cost
 from services.telegram_service import send_nightly_summary
 from database.db import insert_prediction, insert_scan_log, insert_shadow_price, get_accuracy_stats, log_error, save_hot_tickers, replace_prediction_if_stronger, run_migrations
 
-BULLISH_SCORE_THRESHOLD = 45   # minimum bullish score to pass to Claude
-BEARISH_SCORE_THRESHOLD = 40   # minimum bearish score to pass to Claude
-MAX_BULLISH_STOCKS      = 30   # top N bullish stocks sent to Claude
-MAX_BEARISH_STOCKS      = 20   # top N bearish stocks sent to Claude
-MIN_PROFIT_PCT          = 4.0  # minimum absolute profit % to save a prediction
-EARNINGS_WINDOW_DAYS    = 14   # how far ahead to fetch the earnings calendar
-CLAUDE_LOG_CACHE_TTL_H  = 168  # cache TTL for raw Claude scan log (7 days)
+# Short-term thresholds (Mon–Thu)
+BULLISH_SCORE_THRESHOLD      = 45
+BEARISH_SCORE_THRESHOLD      = 40
+# Long-term thresholds (Friday) — lower bar, fundamentals need time to play out
+LONG_BULLISH_SCORE_THRESHOLD = 35
+LONG_BEARISH_SCORE_THRESHOLD = 35
+MAX_BULLISH_STOCKS           = 30   # top N bullish stocks sent to Claude
+MAX_BEARISH_STOCKS           = 20   # top N bearish stocks sent to Claude
+MIN_PROFIT_PCT               = 4.0  # minimum absolute profit % to save a prediction
+EARNINGS_WINDOW_DAYS         = 14   # how far ahead to fetch the earnings calendar
+CLAUDE_LOG_CACHE_TTL_H       = 168  # cache TTL for raw Claude scan log (7 days)
 
-FORMULA_VERSION = BULLISH_FORMULA_VERSION  # kept for scan_log compatibility
-ANALYST_TARGET_TTL_H   = 24    # cache TTL for per-ticker analyst price targets
+FORMULA_VERSION      = BULLISH_FORMULA_VERSION  # kept for scan_log compatibility
+ANALYST_TARGET_TTL_H = 24    # cache TTL for per-ticker analyst price targets
 
 # Claude's days_to_target → timeframe bucket
 def _bucket(days: int) -> str:
@@ -99,20 +113,27 @@ def run(debug: bool = False):
     print("Loading bulk earnings calendar (Finnhub call at most once per 7 days)...")
     earnings_universe = get_upcoming_earnings_universe(days_ahead=EARNINGS_WINDOW_DAYS)
 
-    # ── Step 3: Build superset — union of all candidates, deduplicated ────────
-    # earnings_universe already loaded above — derive tickers from it directly (no extra DB call)
-    earnings_tickers = set(earnings_universe.keys())
-
-    nasdaq_earnings_candidates, nasdaq100 = get_bullish_candidates(earnings_tickers)
-
-    superset: set[str] = set(bullish_hot) | set(bearish_raw) | nasdaq_earnings_candidates
-    print(f"  Superset: {len(superset)} unique tickers "
-          f"({len(bullish_hot)} bullish hot + {len(bearish_raw)} bearish raw + "
-          f"{len(nasdaq_earnings_candidates)} Nasdaq earnings, after dedup)")
-
     is_friday = start_time.weekday() == 4
     scan_mode = "long" if (is_friday and not debug) else "short"
     print(f"  Scan mode: {scan_mode.upper()} ({'Friday long-term' if scan_mode == 'long' else 'short-term'})")
+
+    # ── Step 3: Build superset — union of all candidates, deduplicated ────────
+    # earnings_universe already loaded above — derive tickers from it directly (no extra DB call)
+    earnings_tickers = set(earnings_universe.keys())
+    nasdaq_earnings_candidates, nasdaq100 = get_bullish_candidates(earnings_tickers)
+
+    if scan_mode == "long":
+        long_bearish_raw = get_long_bearish_hot_tickers()
+        long_bullish_hot = get_long_bullish_hot_tickers(av_gainers=av_gainers)
+        superset: set[str] = set(long_bullish_hot) | set(long_bearish_raw) | nasdaq_earnings_candidates
+        print(f"  Superset (Friday long): {len(superset)} unique tickers "
+              f"({len(long_bullish_hot)} long bullish + {len(long_bearish_raw)} long bearish + "
+              f"{len(nasdaq_earnings_candidates)} Nasdaq earnings, after dedup)")
+    else:
+        superset: set[str] = set(bullish_hot) | set(bearish_raw) | nasdaq_earnings_candidates
+        print(f"  Superset: {len(superset)} unique tickers "
+              f"({len(bullish_hot)} bullish hot + {len(bearish_raw)} bearish raw + "
+              f"{len(nasdaq_earnings_candidates)} Nasdaq earnings, after dedup)")
 
     run_date = start_time.strftime("%Y-%m-%d")
     try:
@@ -134,17 +155,30 @@ def run(debug: bool = False):
     scan_stats["errors_encountered"]    = fetch_stats["errors"]
 
     # ── Step 5: Filter universes from pre-fetched data (no API calls) ─────────
-    print("Filtering bearish universe from pre-fetched data...")
-    bearish_universe, bearish_tickers = filter_bearish_universe(bearish_raw, ticker_data)
+    if scan_mode == "long":
+        print("Filtering long bearish universe from pre-fetched data...")
+        bearish_universe, bearish_tickers = filter_long_bearish_universe(long_bearish_raw, ticker_data)
 
-    print("Filtering bullish universe from pre-fetched data...")
-    bullish_universe, nasdaq_count, hot_count, overlap_count = filter_bullish_universe(
-        hot_tickers=bullish_hot,
-        nasdaq_earnings_candidates=nasdaq_earnings_candidates,
-        nasdaq100=nasdaq100,
-        ticker_data=ticker_data,
-        bearish_tickers=bearish_tickers,   # Issue #2 fix: exclude bearish tickers from bullish
-    )
+        print("Filtering long bullish universe from pre-fetched data...")
+        bullish_universe, nasdaq_count, hot_count, overlap_count = filter_long_bullish_universe(
+            hot_tickers=long_bullish_hot,
+            nasdaq_earnings_candidates=nasdaq_earnings_candidates,
+            nasdaq100=nasdaq100,
+            ticker_data=ticker_data,
+            long_bearish_tickers=bearish_tickers,
+        )
+    else:
+        print("Filtering bearish universe from pre-fetched data...")
+        bearish_universe, bearish_tickers = filter_bearish_universe(bearish_raw, ticker_data)
+
+        print("Filtering bullish universe from pre-fetched data...")
+        bullish_universe, nasdaq_count, hot_count, overlap_count = filter_bullish_universe(
+            hot_tickers=bullish_hot,
+            nasdaq_earnings_candidates=nasdaq_earnings_candidates,
+            nasdaq100=nasdaq100,
+            ticker_data=ticker_data,
+            bearish_tickers=bearish_tickers,
+        )
 
     universe_total = len(bullish_universe) + len(bearish_universe)
     scan_stats.update({
@@ -156,7 +190,7 @@ def run(debug: bool = False):
         "bearish_universe_count": len(bearish_universe),
     })
     log_error("scanner",
-              f"Universe: {len(bullish_universe)} bullish + {len(bearish_universe)} bearish "
+              f"Universe ({scan_mode}): {len(bullish_universe)} bullish + {len(bearish_universe)} bearish "
               f"(fetched {len(ticker_data)}/{len(superset)} tickers)", level="INFO")
 
     # ── Step 6: Score both universes — pure computation, zero API calls ────────
@@ -164,6 +198,18 @@ def run(debug: bool = False):
     bullish_scored = []
     bearish_scored = []
     shadow = []
+
+    # Pick scorer and threshold based on scan mode
+    if scan_mode == "long":
+        _bullish_threshold  = LONG_BULLISH_SCORE_THRESHOLD
+        _bearish_threshold  = LONG_BEARISH_SCORE_THRESHOLD
+        _bullish_fv         = LONG_BULLISH_FORMULA_VERSION
+        _bearish_fv         = LONG_BEARISH_FORMULA_VERSION
+    else:
+        _bullish_threshold  = BULLISH_SCORE_THRESHOLD
+        _bearish_threshold  = BEARISH_SCORE_THRESHOLD
+        _bullish_fv         = BULLISH_FORMULA_VERSION
+        _bearish_fv         = BEARISH_FORMULA_VERSION
 
     for item in bullish_universe:
         ticker = item["ticker"]
@@ -174,13 +220,12 @@ def run(debug: bool = False):
         ind  = data["ind"]
         try:
             if scan_mode == "long":
-                score_data = compute_long_score(
+                score_data = compute_long_term_bullish_score(
                     ind, data["sentiment"], data["analyst"], data["earnings"],
                     source=source, earnings_calendar=data["earnings_calendar"],
                     analyst_target=data["analyst_target"],
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                 )
-                threshold = 30
             else:
                 score_data = compute_short_term_bullish_score(
                     ind, data["sentiment"], data["analyst"], data["earnings"],
@@ -189,18 +234,17 @@ def run(debug: bool = False):
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                     social_velocity=data["social_velocity"],
                 )
-                threshold = BULLISH_SCORE_THRESHOLD
 
             total = score_data["total"]
-            if total < threshold:
-                if threshold - 5 <= total < threshold:
+            if total < _bullish_threshold:
+                if _bullish_threshold - 5 <= total < _bullish_threshold:
                     shadow.append({
                         "ticker": ticker, "scan_timestamp": start_time.isoformat(),
                         "score_at_rejection": total, "price": ind.get("price"),
                         "volume": None, "rsi": ind.get("rsi"),
                         "macd_signal": ind.get("macd_signal"), "bb_squeeze": ind.get("bb_squeeze"),
                         "volume_surge_ratio": ind.get("volume_surge_ratio"),
-                        "obv_trend": ind.get("obv_trend"), "formula_version": BULLISH_FORMULA_VERSION,
+                        "obv_trend": ind.get("obv_trend"), "formula_version": _bullish_fv,
                     })
                 continue
 
@@ -225,20 +269,29 @@ def run(debug: bool = False):
             continue
         ind  = data["ind"]
         try:
-            score_data = compute_short_term_bearish_score(
-                ind, data["sentiment"], data["analyst"], data["earnings"],
-                source=item["source"], earnings_calendar=data["earnings_calendar"],
-            )
+            if scan_mode == "long":
+                score_data = compute_long_term_bearish_score(
+                    ind, data["sentiment"], data["analyst"], data["earnings"],
+                    source=item["source"], earnings_calendar=data["earnings_calendar"],
+                    analyst_target=data["analyst_target"],
+                    insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
+                )
+            else:
+                score_data = compute_short_term_bearish_score(
+                    ind, data["sentiment"], data["analyst"], data["earnings"],
+                    source=item["source"], earnings_calendar=data["earnings_calendar"],
+                )
+
             total = score_data["total"]
-            if total < BEARISH_SCORE_THRESHOLD:
-                if BEARISH_SCORE_THRESHOLD - 5 <= total < BEARISH_SCORE_THRESHOLD:
+            if total < _bearish_threshold:
+                if _bearish_threshold - 5 <= total < _bearish_threshold:
                     shadow.append({
                         "ticker": ticker, "scan_timestamp": start_time.isoformat(),
                         "score_at_rejection": total, "price": ind.get("price"),
                         "volume": None, "rsi": ind.get("rsi"),
                         "macd_signal": ind.get("macd_signal"), "bb_squeeze": ind.get("bb_squeeze"),
                         "volume_surge_ratio": ind.get("volume_surge_ratio"),
-                        "obv_trend": ind.get("obv_trend"), "formula_version": BEARISH_FORMULA_VERSION,
+                        "obv_trend": ind.get("obv_trend"), "formula_version": _bearish_fv,
                     })
                 continue
 
@@ -248,8 +301,9 @@ def run(debug: bool = False):
                 "source": item["source"], "score": total, "score_data": score_data,
                 "indicators": ind, "sentiment": data["sentiment"], "analyst": data["analyst"],
                 "earnings": data["earnings"], "earnings_calendar": data["earnings_calendar"],
-                "analyst_upside_pct": None, "insider_buying": None,
-                "fundamentals": None, "social_velocity": None,
+                "analyst_upside_pct": score_data.get("analyst_upside_pct"),
+                "insider_buying": data["insider_buying"], "fundamentals": data["fundamentals"],
+                "social_velocity": None,
             })
         except Exception as e:
             scan_stats["errors_encountered"] += 1
@@ -305,7 +359,17 @@ def run(debug: bool = False):
             expected_direction = "BEARISH" if pipeline == "bearish" else "BULLISH"
             ticker_history = _get_ticker_history(ticker, expected_direction)
 
-            if pipeline == "bearish":
+            if pipeline == "bearish" and scan_mode == "long":
+                ai = analyze_stock_long_bearish(
+                    ticker, ind, sentiment, analyst, score_data,
+                    accuracy_context=accuracy_context,
+                    ticker_history=ticker_history,
+                    earnings_calendar=item.get("earnings_calendar"),
+                    analyst_upside_pct=item.get("analyst_upside_pct"),
+                    insider_buying=item.get("insider_buying"),
+                    fundamentals=item.get("fundamentals"),
+                )
+            elif pipeline == "bearish":
                 ai = analyze_stock_bearish(
                     ticker, ind, sentiment, analyst, score_data,
                     accuracy_context=accuracy_context,
@@ -427,7 +491,10 @@ def run(debug: bool = False):
             else:
                 insider_signal = ""
 
-            fv = BULLISH_FORMULA_VERSION if pipeline == "bullish" else BEARISH_FORMULA_VERSION
+            if pipeline == "bullish":
+                fv = LONG_BULLISH_FORMULA_VERSION if scan_mode == "long" else BULLISH_FORMULA_VERSION
+            else:
+                fv = LONG_BEARISH_FORMULA_VERSION if scan_mode == "long" else BEARISH_FORMULA_VERSION
             pred = {
                 "ticker":              ticker,
                 "asset_class":         get_asset_class(ticker),
