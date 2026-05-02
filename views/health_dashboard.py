@@ -4,8 +4,76 @@ import pytz
 
 PT = pytz.timezone("America/Los_Angeles")
 
+_CSS_INJECTED = False
+
+def _inject_css():
+    global _CSS_INJECTED
+    if _CSS_INJECTED:
+        return
+    _CSS_INJECTED = True
+    st.markdown("""
+<style>
+[data-testid="stColumn"]:has(div.hd-green) button {
+    background: #f0fdf4 !important; border: 1px solid #bbf7d0 !important;
+    border-left: 4px solid #16a34a !important; border-radius: 8px 0 0 8px !important;
+    justify-content: flex-start !important; font-size: 13.5px !important;
+    font-weight: 500 !important; color: #1e293b !important;
+    padding: 10px 14px !important; width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.hd-red) button {
+    background: #fef2f2 !important; border: 1px solid #fecaca !important;
+    border-left: 4px solid #dc2626 !important; border-radius: 8px 0 0 8px !important;
+    justify-content: flex-start !important; font-size: 13.5px !important;
+    font-weight: 500 !important; color: #1e293b !important;
+    padding: 10px 14px !important; width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.hd-yellow) button {
+    background: #fefce8 !important; border: 1px solid #fef08a !important;
+    border-left: 4px solid #ca8a04 !important; border-radius: 8px 0 0 8px !important;
+    justify-content: flex-start !important; font-size: 13.5px !important;
+    font-weight: 500 !important; color: #1e293b !important;
+    padding: 10px 14px !important; width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.hd-grey) button {
+    background: #f8fafc !important; border: 1px solid #e2e8f0 !important;
+    border-left: 4px solid #94a3b8 !important; border-radius: 8px 0 0 8px !important;
+    justify-content: flex-start !important; font-size: 13.5px !important;
+    font-weight: 500 !important; color: #1e293b !important;
+    padding: 10px 14px !important; width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.hd-green) button[data-testid="stBaseButton-secondary"] > div,
+[data-testid="stColumn"]:has(div.hd-red) button[data-testid="stBaseButton-secondary"] > div,
+[data-testid="stColumn"]:has(div.hd-yellow) button[data-testid="stBaseButton-secondary"] > div,
+[data-testid="stColumn"]:has(div.hd-grey) button[data-testid="stBaseButton-secondary"] > div {
+    justify-content: flex-start !important; width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.hd-green) button span,
+[data-testid="stColumn"]:has(div.hd-red) button span,
+[data-testid="stColumn"]:has(div.hd-yellow) button span,
+[data-testid="stColumn"]:has(div.hd-grey) button span {
+    width: 100% !important; text-align: left !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def _lazy_row(label: str, key: str, css_class: str) -> bool:
+    """Renders a colored toggle button. Returns True if expanded."""
+    _inject_css()
+    is_open = st.session_state.get(key, False)
+    arrow = "▼" if is_open else "▶"
+    col, = st.columns([1])
+    with col:
+        st.markdown(f'<div class="{css_class}"></div>', unsafe_allow_html=True)
+        if st.button(f"{arrow}  {label}", key=key, use_container_width=True):
+            st.session_state[key] = not is_open
+            st.rerun()
+    return is_open
+
 
 def render():
+    global _CSS_INJECTED
+    _CSS_INJECTED = False
     st.title("🔧 System Health Dashboard")
     st.caption(f"Checked at: {datetime.now(PT).strftime('%b %d, %Y  %I:%M %p PT')}")
 
@@ -110,39 +178,40 @@ def render():
     st.markdown("---")
 
     # ── Earnings Next 2 Weeks ─────────────────────────────────────────────────
-    with st.expander("📅 Earnings Next 2 Weeks", expanded=False):
-        try:
-            from database.db import get_earnings_calendar_from_db
-            rows = get_earnings_calendar_from_db()
-            if rows:
-                scanned_at = rows[0].get("scanned_at", "")
-                try:
-                    dt = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
-                    ts = dt.astimezone(PT).strftime("%b %d  %I:%M %p PT")
-                except Exception:
-                    ts = scanned_at[:10]
-                st.caption(f"Stocks reporting earnings in the next 14 days · fetched {ts} · {len(rows)} tickers")
+    if _lazy_row("📅 Earnings Next 2 Weeks", "hd_earnings", "hd-grey"):
+        with st.container(border=True):
+            try:
+                from database.db import get_earnings_calendar_from_db
+                rows = get_earnings_calendar_from_db()
+                if rows:
+                    scanned_at = rows[0].get("scanned_at", "")
+                    try:
+                        dt = datetime.fromisoformat(scanned_at.replace("Z", "+00:00"))
+                        ts = dt.astimezone(PT).strftime("%b %d  %I:%M %p PT")
+                    except Exception:
+                        ts = scanned_at[:10]
+                    st.caption(f"Stocks reporting earnings in the next 14 days · fetched {ts} · {len(rows)} tickers")
 
-                from collections import defaultdict
-                by_day = defaultdict(list)
-                for row in rows:
-                    by_day[row.get("days_to_earnings", 99)].append(row)
+                    from collections import defaultdict
+                    by_day = defaultdict(list)
+                    for row in rows:
+                        by_day[row.get("days_to_earnings", 99)].append(row)
 
-                for days in sorted(by_day.keys()):
-                    tickers = by_day[days]
-                    label = "Today" if days == 0 else "Tomorrow" if days == 1 else f"In {days} days"
-                    date_str = tickers[0].get("earnings_date", "")
-                    st.markdown(f"**{label}** · {date_str}")
-                    badges = " ".join(
-                        f'<span style="background:#78350f;color:#fde68a;padding:2px 8px;border-radius:12px;font-size:0.78rem;margin:2px">'
-                        f'📅 {r["ticker"]}</span>'
-                        for r in tickers
-                    )
-                    st.markdown(badges, unsafe_allow_html=True)
-            else:
-                st.info("No earnings data yet. Run the scanner to populate.")
-        except Exception as e:
-            st.warning(f"Could not load earnings calendar: {e}")
+                    for days in sorted(by_day.keys()):
+                        tickers = by_day[days]
+                        day_label = "Today" if days == 0 else "Tomorrow" if days == 1 else f"In {days} days"
+                        date_str = tickers[0].get("earnings_date", "")
+                        st.markdown(f"**{day_label}** · {date_str}")
+                        badges = " ".join(
+                            f'<span style="background:#78350f;color:#fde68a;padding:2px 8px;border-radius:12px;font-size:0.78rem;margin:2px">'
+                            f'📅 {r["ticker"]}</span>'
+                            for r in tickers
+                        )
+                        st.markdown(badges, unsafe_allow_html=True)
+                else:
+                    st.info("No earnings data yet. Run the scanner to populate.")
+            except Exception as e:
+                st.warning(f"Could not load earnings calendar: {e}")
 
     st.markdown("---")
     st.markdown("---")
@@ -195,28 +264,28 @@ def _render_api_call_log():
         failed  = total - success
         label   = API_LABELS.get(api_key, api_key)
         icon    = "✅" if failed == 0 else "⚠️" if failed < total * 0.2 else "❌"
+        css_class = "hd-red" if failed >= total * 0.2 else "hd-yellow" if failed > 0 else "hd-green"
+        row_key = f"hd_api_{api_key}_{selected_date}"
 
-        with st.expander(
-            f"{icon} **{label}** — {success}/{total} succeeded · {failed} failed",
-            expanded=(failed > 0),
-        ):
-            h1, h2, h3 = st.columns(3)
-            h1.metric("Total", total)
-            h2.metric("Succeeded", success)
-            h3.metric("Failed", failed, delta=f"-{failed}" if failed else None,
-                      delta_color="inverse" if failed > 0 else "off")
+        if _lazy_row(f"{icon} **{label}** — {success}/{total} succeeded · {failed} failed", row_key, css_class):
+            with st.container(border=True):
+                h1, h2, h3 = st.columns(3)
+                h1.metric("Total", total)
+                h2.metric("Succeeded", success)
+                h3.metric("Failed", failed, delta=f"-{failed}" if failed else None,
+                          delta_color="inverse" if failed > 0 else "off")
 
-            failures = [r for r in api_rows if not r["success"]]
-            if failures:
-                st.markdown("**Failed tickers:**")
-                import pandas as pd
-                fail_df = pd.DataFrame([{
-                    "Ticker": r["ticker"],
-                    "Error":  r.get("error") or "—",
-                } for r in failures])
-                st.dataframe(fail_df, use_container_width=True, hide_index=True)
-            else:
-                st.success("All calls succeeded.")
+                failures = [r for r in api_rows if not r["success"]]
+                if failures:
+                    st.markdown("**Failed tickers:**")
+                    import pandas as pd
+                    fail_df = pd.DataFrame([{
+                        "Ticker": r["ticker"],
+                        "Error":  r.get("error") or "—",
+                    } for r in failures])
+                    st.dataframe(fail_df, use_container_width=True, hide_index=True)
+                else:
+                    st.success("All calls succeeded.")
 
 
 def _test_telegram():
@@ -364,7 +433,7 @@ def _render_error_logs():
         "INFO":    ("background:#f0fdf4;color:#14532d", "ℹ️"),
     }
 
-    for log in logs:
+    for i, log in enumerate(logs):
         level   = log.get("level", "INFO")
         source  = log.get("source", "—")
         ticker  = log.get("ticker") or ""
@@ -378,21 +447,22 @@ def _render_error_logs():
 
         style, icon = LEVEL_STYLE.get(level, LEVEL_STYLE["INFO"])
         ticker_tag = f"<span style='background:#e0e7ff;color:#3730a3;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px'>{ticker}</span>" if ticker else ""
+        css_class = "hd-red" if level == "ERROR" else "hd-yellow" if level == "WARNING" else "hd-green"
+        log_key = f"hd_log_{i}_{log.get('occurred_at','')[:16]}"
 
-        with st.expander(
-            f"{icon} [{source}] {message[:80]}{'…' if len(message) > 80 else ''}  —  {ts}",
-            expanded=False,
-        ):
-            st.markdown(
-                f"<div style='{style};border-radius:8px;padding:10px 14px;font-size:13px'>"
-                f"<strong>{icon} {level}</strong> · <code>{source}</code>{ticker_tag}<br>"
-                f"<span style='color:#374151'>{message}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            if detail:
-                st.code(detail, language=None)
-            st.caption(f"Logged at: {ts}")
+        row_label = f"{icon} [{source}] {message[:80]}{'…' if len(message) > 80 else ''}  —  {ts}"
+        if _lazy_row(row_label, log_key, css_class):
+            with st.container(border=True):
+                st.markdown(
+                    f"<div style='{style};border-radius:8px;padding:10px 14px;font-size:13px'>"
+                    f"<strong>{icon} {level}</strong> · <code>{source}</code>{ticker_tag}<br>"
+                    f"<span style='color:#374151'>{message}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                if detail:
+                    st.code(detail, language=None)
+                st.caption(f"Logged at: {ts}")
 
 
 def _check_all_components() -> list[dict]:
