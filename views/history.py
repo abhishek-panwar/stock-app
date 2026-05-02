@@ -141,6 +141,8 @@ def _recalculate_metrics():
 
 
 def render():
+    global _CARD_CSS_INJECTED
+    _CARD_CSS_INJECTED = False
     st.title("📜 Closed Predictions")
 
     try:
@@ -411,7 +413,37 @@ def render():
                     _prediction_card(p)
 
 
+_CARD_CSS_INJECTED = False
+
+def _inject_card_css():
+    global _CARD_CSS_INJECTED
+    if _CARD_CSS_INJECTED:
+        return
+    _CARD_CSS_INJECTED = True
+    st.markdown("""
+<style>
+[data-testid="stVerticalBlock"]:has(> div > div.card-bullish) [data-testid="stExpander"] details {
+    border-left: 4px solid #16a34a !important;
+    background: #f0fdf4 !important;
+    border-top: 1px solid #bbf7d0 !important;
+    border-right: 1px solid #bbf7d0 !important;
+    border-bottom: 1px solid #bbf7d0 !important;
+    border-radius: 0 8px 8px 0 !important;
+}
+[data-testid="stVerticalBlock"]:has(> div > div.card-bearish) [data-testid="stExpander"] details {
+    border-left: 4px solid #dc2626 !important;
+    background: #fef2f2 !important;
+    border-top: 1px solid #fecaca !important;
+    border-right: 1px solid #fecaca !important;
+    border-bottom: 1px solid #fecaca !important;
+    border-radius: 0 8px 8px 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 def _prediction_card(p: dict):
+    _inject_card_css()
     outcome    = p.get("outcome", "LOSS")
     ticker     = p.get("ticker", "—")
     direction  = p.get("direction", "NEUTRAL")
@@ -470,7 +502,9 @@ def _prediction_card(p: dict):
         f"{pos_tag}  ·  {ret_str}{reason_tag}"
     )
 
-    pred_id = p.get("id") or f"{ticker}_{timeframe}_{p.get('predicted_on','')[:10]}"
+    pred_id   = p.get("id") or f"{ticker}_{timeframe}_{p.get('predicted_on','')[:10]}"
+    css_class = "card-bullish" if outcome == "WIN" else "card-bearish"
+    st.markdown(f'<div class="{css_class}"></div>', unsafe_allow_html=True)
     with st.expander(header, expanded=False):
         badge_html = _asset_badge(p)
         bcol, dcol = st.columns([9, 1])
