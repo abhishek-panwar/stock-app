@@ -373,7 +373,7 @@ def _run_verifier():
 
 
 def _render_error_logs():
-    st.markdown("### 🪵 Error Logs")
+    st.markdown("### 🪵 Error Logs (last 5 days · max 5 per day)")
 
     try:
         from database.db import get_error_logs
@@ -390,7 +390,7 @@ def _render_error_logs():
 
     try:
         logs = get_error_logs(
-            days=4,
+            days=5,
             source=None if src_filter == "All" else src_filter,
             level=None if lvl_filter == "All" else lvl_filter,
         )

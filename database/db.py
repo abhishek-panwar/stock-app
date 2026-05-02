@@ -359,9 +359,35 @@ def get_api_call_log_dates() -> list:
 # ── Error Logs ────────────────────────────────────────────────────────────────
 
 def log_error(source: str, message: str, detail: str = "", ticker: str = "", level: str = "ERROR"):
-    """Write an error/warning/info entry. Silently no-ops if DB is unavailable."""
+    """Write an error/warning/info entry. Silently no-ops if DB is unavailable.
+
+    Enforces two limits on the error_logs table before each write:
+    - Max 5 rows per calendar day (UTC): deletes oldest beyond 5 for today
+    - Max 5 days history: deletes all rows older than 5 days
+    """
     try:
-        get_client().table("error_logs").insert({
+        from datetime import datetime, timedelta, timezone
+        client = get_client()
+        now_utc = datetime.now(timezone.utc)
+
+        # 1. Purge rows older than 5 days
+        cutoff = (now_utc - timedelta(days=5)).isoformat()
+        client.table("error_logs").delete().lt("occurred_at", cutoff).execute()
+
+        # 2. Cap today at 5 rows — delete oldest beyond 5
+        today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        today_rows = (client.table("error_logs")
+                      .select("id,occurred_at")
+                      .gte("occurred_at", today_start)
+                      .order("occurred_at", desc=False)
+                      .execute().data)
+        if len(today_rows) >= 5:
+            to_delete = today_rows[:len(today_rows) - 4]  # keep 4, make room for 1 new
+            for row in to_delete:
+                client.table("error_logs").delete().eq("id", row["id"]).execute()
+
+        # 3. Insert the new entry
+        client.table("error_logs").insert({
             "source": source,
             "level": level,
             "ticker": ticker or None,
@@ -371,10 +397,13 @@ def log_error(source: str, message: str, detail: str = "", ticker: str = "", lev
     except Exception:
         pass  # never let logging crash the caller
 
-def get_error_logs(days: int = 30, source: str = None, level: str = None) -> list:
+def get_error_logs(days: int = 5, source: str = None, level: str = None) -> list:
     from datetime import datetime, timedelta
     since = (datetime.utcnow() - timedelta(days=days)).isoformat()
-    q = get_client().table("error_logs").select("*").gte("occurred_at", since).order("occurred_at", desc=True).limit(500)
+    q = (get_client().table("error_logs")
+         .select("*")
+         .gte("occurred_at", since)
+         .order("occurred_at", desc=True))
     if source:
         q = q.eq("source", source)
     if level:
