@@ -37,7 +37,7 @@ def fetch_all(
             from services.yfinance_service import get_price_history, get_ticker_info, get_fundamentals
             from services.social_service import get_social_velocity
             from services.finnhub_service import (
-                get_news_sentiment, get_social_sentiment, get_analyst_recommendation,
+                get_news_sentiment, get_analyst_recommendation,
                 get_earnings_history, get_analyst_price_target,
             )
             from services.edgar_service import get_insider_buying
@@ -55,8 +55,6 @@ def fetch_all(
 
             # All subsequent fetches return safe defaults on failure — ticker stays in
             sentiment      = get_news_sentiment(ticker, hours=48, run_date=run_date, log_api=log_api)
-            social         = get_social_sentiment(ticker, run_date=run_date, log_api=log_api)
-            sentiment["mentions"] = social.get("mentions", 0)
             analyst        = get_analyst_recommendation(ticker, run_date=run_date, log_api=log_api)
             earnings       = get_earnings_history(ticker, run_date=run_date, log_api=log_api)
             analyst_target = get_analyst_price_target(ticker, run_date=run_date, log_api=log_api)

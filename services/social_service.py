@@ -6,9 +6,15 @@ Cached 1h in Supabase (social moves fast).
 import os
 import requests
 import time
+import threading
 from datetime import datetime, timezone, timedelta
 
 SOCIAL_CACHE_TTL_H = 1
+
+# Reddit enforces ~1 req/sec globally across all threads
+_reddit_lock = threading.Lock()
+_reddit_last_call: float = 0.0
+_REDDIT_DELAY = 1.1  # seconds between requests
 
 
 def get_social_velocity(ticker: str) -> dict:
@@ -123,7 +129,17 @@ def _fetch_reddit(ticker: str) -> dict:
                 "limit": 25,
                 "t": "day",
             }
+            # Global rate limiter — all threads serialize through this lock
+            global _reddit_last_call
+            with _reddit_lock:
+                elapsed = time.time() - _reddit_last_call
+                if elapsed < _REDDIT_DELAY:
+                    time.sleep(_REDDIT_DELAY - elapsed)
+                _reddit_last_call = time.time()
+
             r = requests.get(url, headers=headers, params=params, timeout=10)
+            if r.status_code == 429:
+                break  # rate limited — stop fetching for this ticker
             if r.status_code != 200:
                 continue
 
@@ -137,8 +153,6 @@ def _fetch_reddit(ticker: str) -> dict:
                     recent_count += 1
                 elif ts >= older_cutoff:
                     older_count += 1
-
-            time.sleep(0.3)  # Reddit asks for ~1 req/sec per subreddit
         except Exception:
             continue
 
