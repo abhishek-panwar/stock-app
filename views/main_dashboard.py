@@ -657,6 +657,7 @@ def _prediction_card(p: dict, _unused: set = None):
     with btn_col:
         if st.button("▼" if is_open else "▶", key=f"toggle_{pred_id}", help="Expand / collapse"):
             st.session_state[exp_key] = not is_open
+            st.rerun()
     with del_col:
         if st.button("✕", key=f"del_{pred_id}", help="Delete prediction"):
             try:
