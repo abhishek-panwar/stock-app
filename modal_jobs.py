@@ -54,20 +54,6 @@ def nightly_scanner():
     s.run()
 
 
-# ── Prediction Verifier ────────────────────────────────────────────────────────
-@app.function(
-    image=image,
-    secrets=secrets,
-    timeout=300,
-    schedule=modal.Cron(to_cron(get_job("prediction_verifier_modal"))),
-)
-def prediction_verifier():
-    import sys
-    sys.path.insert(0, "/root/app")
-    import scripts.prediction_verifier as s
-    s.run()
-
-
 # ── Feedback Engine ────────────────────────────────────────────────────────────
 @app.function(
     image=image,

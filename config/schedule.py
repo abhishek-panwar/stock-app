@@ -36,14 +36,6 @@ JOBS = [
         "description": "Score universe, pick top 50, Claude predictions, Telegram summary",
     },
     {
-        "id":          "prediction_verifier_modal",
-        "label":       "Prediction Verifier",
-        "platform":    "modal",
-        "time_pt":     (15, 0),         # 3:00 PM PT
-        "days":        "weekdays",
-        "description": "Check target/stop hits on open predictions, close as WIN/LOSS",
-    },
-    {
         "id":          "feedback_engine_modal",
         "label":       "Feedback Engine",
         "platform":    "modal",
@@ -202,11 +194,10 @@ def sync_all():
         src = f.read()
 
     MODAL_ID_MAP = {
-        "nightly_scanner":         "nightly_scanner",
-        "prediction_verifier_modal": "prediction_verifier",
-        "feedback_engine_modal":   "feedback_engine",
-        "failure_analyzer":        "failure_analyzer",
-        "fundamentals_fetcher":    "fundamentals_fetcher",
+        "nightly_scanner":       "nightly_scanner",
+        "feedback_engine_modal": "feedback_engine",
+        "failure_analyzer":      "failure_analyzer",
+        "fundamentals_fetcher":  "fundamentals_fetcher",
     }
 
     for job in JOBS:
