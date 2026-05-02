@@ -422,21 +422,57 @@ def _inject_card_css():
     _CARD_CSS_INJECTED = True
     st.markdown("""
 <style>
-[data-testid="stVerticalBlock"]:has(> div > div.card-bullish) [data-testid="stExpander"] details {
-    border-left: 4px solid #16a34a !important;
+/* Style D: color-coded left border on toggle button via sentinel div + :has() */
+[data-testid="stColumn"]:has(div.card-win) button {
     background: #f0fdf4 !important;
-    border-top: 1px solid #bbf7d0 !important;
-    border-right: 1px solid #bbf7d0 !important;
-    border-bottom: 1px solid #bbf7d0 !important;
-    border-radius: 0 8px 8px 0 !important;
+    border: 1px solid #bbf7d0 !important;
+    border-left: 4px solid #16a34a !important;
+    border-radius: 8px 0 0 8px !important;
+    justify-content: flex-start !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: #1e293b !important;
+    padding: 10px 14px !important;
+    width: 100% !important;
 }
-[data-testid="stVerticalBlock"]:has(> div > div.card-bearish) [data-testid="stExpander"] details {
-    border-left: 4px solid #dc2626 !important;
+[data-testid="stColumn"]:has(div.card-loss) button {
     background: #fef2f2 !important;
-    border-top: 1px solid #fecaca !important;
-    border-right: 1px solid #fecaca !important;
-    border-bottom: 1px solid #fecaca !important;
+    border: 1px solid #fecaca !important;
+    border-left: 4px solid #dc2626 !important;
+    border-radius: 8px 0 0 8px !important;
+    justify-content: flex-start !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    color: #1e293b !important;
+    padding: 10px 14px !important;
+    width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.card-win) button[data-testid="stBaseButton-secondary"] > div,
+[data-testid="stColumn"]:has(div.card-loss) button[data-testid="stBaseButton-secondary"] > div {
+    justify-content: flex-start !important;
+    width: 100% !important;
+}
+[data-testid="stColumn"]:has(div.card-win) button[data-testid="stBaseButton-secondary"] span,
+[data-testid="stColumn"]:has(div.card-loss) button[data-testid="stBaseButton-secondary"] span {
+    width: 100% !important;
+    text-align: left !important;
+}
+/* Delete button */
+[data-testid="stColumn"]:has(div.card-del) button {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: none !important;
     border-radius: 0 8px 8px 0 !important;
+    color: #94a3b8 !important;
+    font-size: 13px !important;
+    padding: 10px 10px !important;
+    box-shadow: none !important;
+    min-height: unset !important;
+}
+[data-testid="stColumn"]:has(div.card-del) button:hover {
+    color: #dc2626 !important;
+    background: #fff1f2 !important;
+    border-color: #fca5a5 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -485,49 +521,63 @@ def _prediction_card(p: dict):
     company      = p.get("company_name") or ticker
     outcome_icon = "🟢" if outcome == "WIN" else "🔴"
     dir_icon     = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
+    dir_color    = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
+    outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c"
+    prof_color   = "#15803d" if profit_pct > 0 else "#b91c1c"
+    ret_color    = "#15803d" if (ret or 0) > 0 else "#b91c1c"
     pos_tag      = f"  ·  {position}" if position not in ("HOLD", "") else ""
     closed_reason = p.get("closed_reason", "")
     if closed_reason == "TARGET_HIT":
-        reason_tag = "  ·  :green[TARGET HIT]"
+        reason_tag = "  ·  ✅ TARGET HIT"
     elif closed_reason == "STOP_LOSS":
-        reason_tag = "  ·  :red[STOP LOSS]"
+        reason_tag = "  ·  🛑 STOP LOSS"
     elif closed_reason:
         reason_tag = f"  ·  {closed_reason}"
     else:
         reason_tag = ""
 
+    pred_id   = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
+    exp_key   = f"hexp_{pred_id}"
+    is_open   = st.session_state.get(exp_key, False)
+    css_class = "card-win" if outcome == "WIN" else "card-loss"
+
+    arrow  = "▼" if is_open else "▶"
     header = (
-        f"{outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
+        f"{arrow}  {outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
         f"{confidence}% conf  ·  {profit_str} potential  ·  {tenure_str}"
         f"{pos_tag}  ·  {ret_str}{reason_tag}"
     )
 
-    pred_id   = p.get("id") or f"{ticker}_{timeframe}_{p.get('predicted_on','')[:10]}"
-    css_class = "card-bullish" if outcome == "WIN" else "card-bearish"
-    st.markdown(f'<div class="{css_class}"></div>', unsafe_allow_html=True)
-    with st.expander(header, expanded=False):
-        badge_html = _asset_badge(p)
-        bcol, dcol = st.columns([9, 1])
-        with bcol:
-            if badge_html:
-                st.markdown(f"<div style='margin-bottom:6px'>{badge_html}</div>", unsafe_allow_html=True)
-        with dcol:
-            if st.button("✕", key=f"hdel_{pred_id}", help="Delete"):
-                try:
-                    from database.db import soft_delete_prediction
-                    soft_delete_prediction(pred_id)
-                    if "_closed_deleted" not in st.session_state:
-                        st.session_state["_closed_deleted"] = set()
-                    st.session_state["_closed_deleted"].add(pred_id)
-                    _fetch_closed_predictions.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Delete failed: {e}")
+    # ── Header row: toggle + delete ────────────────────────────────────────────
+    hdr_col, del_col = st.columns([11.2, 0.4])
+    with hdr_col:
+        st.markdown(f'<div class="{css_class}"></div>', unsafe_allow_html=True)
+        if st.button(header, key=f"htoggle_{pred_id}", use_container_width=True):
+            st.session_state[exp_key] = not is_open
+            st.rerun()
+    with del_col:
+        st.markdown('<div class="card-del"></div>', unsafe_allow_html=True)
+        if st.button("✕", key=f"hdel_{pred_id}", help="Delete"):
+            try:
+                from database.db import soft_delete_prediction
+                soft_delete_prediction(pred_id)
+                if "_closed_deleted" not in st.session_state:
+                    st.session_state["_closed_deleted"] = set()
+                st.session_state["_closed_deleted"].add(pred_id)
+                _fetch_closed_predictions.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Delete failed: {e}")
 
-        dir_color     = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
-        outcome_color = "#15803d" if outcome == "WIN" else "#b91c1c"
-        prof_color    = "#15803d" if profit_pct > 0 else "#b91c1c"
-        ret_color     = "#15803d" if (ret or 0) > 0 else "#b91c1c"
+    # ── Body — skipped entirely when collapsed ─────────────────────────────────
+    if not is_open:
+        return
+
+    with st.container(border=True):
+        badge_html = _asset_badge(p)
+        if badge_html:
+            st.markdown(f"<div style='margin-bottom:6px'>{badge_html}</div>", unsafe_allow_html=True)
+
         st.markdown(
             f"""<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px">
             {_pill("Direction", f"{dir_icon} {direction}", dir_color)}
