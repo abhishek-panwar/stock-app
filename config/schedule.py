@@ -70,14 +70,6 @@ JOBS = [
         "description": "Backup verifier after market close",
     },
     {
-        "id":          "feedback",
-        "label":       "Feedback Engine (GHA)",
-        "platform":    "gha",
-        "time_pt":     (20, 45),        # 8:45 PM PT
-        "days":        "daily",
-        "description": "Backup feedback engine run",
-    },
-    {
         "id":          "opportunity_analyzer",
         "label":       "Opportunity Analyzer",
         "platform":    "gha",
