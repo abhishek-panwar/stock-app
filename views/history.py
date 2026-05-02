@@ -24,13 +24,6 @@ def _calc_profit_pct(p: dict) -> float:
     return (tgt_mid - entry) / entry * 100
 
 
-@st.cache_data(ttl=3600)
-def _get_company_name(ticker: str) -> str:
-    try:
-        from services.yfinance_service import get_ticker_info
-        return get_ticker_info(ticker).get("name", ticker)
-    except Exception:
-        return ticker
 
 
 def _days_held(p: dict) -> int:
@@ -446,7 +439,7 @@ def _prediction_card(p: dict):
     else:
         tenure_str = f"held {actual_days}d"
 
-    company      = p.get("company_name") or _get_company_name(ticker)
+    company      = p.get("company_name") or ticker
     outcome_icon = "🟢" if outcome == "WIN" else "🔴"
     dir_icon     = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
     pos_tag      = f"  ·  {position}" if position not in ("HOLD", "") else ""

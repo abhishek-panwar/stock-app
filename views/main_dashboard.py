@@ -12,14 +12,6 @@ DIR_COLORS = {
 }
 
 
-@st.cache_data(ttl=3600)
-def _get_company_name(ticker: str) -> str:
-    try:
-        from services.yfinance_service import get_ticker_info
-        return get_ticker_info(ticker).get("name", ticker)
-    except Exception:
-        return ticker
-
 
 def _age_info(predicted_on: str):
     try:
@@ -270,7 +262,7 @@ def render():
                 direction  = p.get("direction", "NEUTRAL")
                 profit_pct = _calc_profit_pct(p)
                 days       = p.get("days_to_target", "?")
-                company   = p.get("company_name") or _get_company_name(ticker)
+                company   = p.get("company_name") or ticker
                 _, age_badge = _age_info(p.get("predicted_on", ""))
                 tf_label  = {"short": "⚡ Short", "medium": "📈 Mid", "long": "🌱 Long"}.get(p.get("timeframe", ""), "")
                 conf      = p.get("confidence", 0)
@@ -584,7 +576,7 @@ def _chart_panel():
 
     col_title, col_close = st.columns([9, 1])
     with col_title:
-        company = pred.get("company_name") or _get_company_name(ticker) if pred else ticker
+        company = pred.get("company_name") or ticker if pred else ticker
         st.markdown(f"### 📈 {ticker} — {company}")
         st.caption("MA20 (orange) · MA50 (blue) · Bollinger Bands · Volume · RSI(14)  |  Scroll to zoom · Drag to pan")
     with col_close:
@@ -617,7 +609,7 @@ def _prediction_card(p: dict, _unused: set = None):
     timeframe    = p.get("timeframe", "short")
     predicted_on = p.get("predicted_on", "")
 
-    company = p.get("company_name") or _get_company_name(ticker)
+    company = p.get("company_name") or ticker
 
     entry      = _calc_entry(p)
     tgt_low    = p.get("target_low") or 0
