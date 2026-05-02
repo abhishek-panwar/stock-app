@@ -188,15 +188,17 @@ def get_earnings_history(ticker: str, run_date: str = "", log_api: bool = False)
         if not earnings:
             return {"beats": 0, "consecutive_beats": 0}
         beats = 0
-        consecutive = 0
-        for e in earnings:
+        streak = 0
+        # Iterate oldest→most-recent so streak resets correctly on any miss
+        for e in reversed(earnings):
             actual = e.get("actual")
             estimate = e.get("estimate")
             if actual is not None and estimate is not None and actual > estimate:
                 beats += 1
-                if consecutive == beats - 1:
-                    consecutive = beats
-        return {"beats": beats, "consecutive_beats": consecutive}
+                streak += 1
+            else:
+                streak = 0
+        return {"beats": beats, "consecutive_beats": streak}
     except Exception as e:
         if log_api and run_date:
             from database.db import log_api_call
