@@ -12,6 +12,12 @@ DIR_COLORS = {
 }
 
 
+@st.cache_data(ttl=60)
+def _fetch_open_predictions() -> list:
+    from database.db import get_predictions
+    return get_predictions({"outcome": "PENDING"}, limit=200)
+
+
 
 def _age_info(predicted_on: str):
     try:
@@ -152,12 +158,17 @@ def render():
 
     try:
         from database.db import get_predictions, get_scan_logs
-        predictions = get_predictions({"outcome": "PENDING"}, limit=200)
+        predictions = _fetch_open_predictions()
         scan_logs   = get_scan_logs(limit=1)
     except Exception as e:
         st.error(f"Database connection error: {e}")
         _show_empty_state()
         return
+
+    # Apply in-session deletes so removed predictions disappear instantly
+    deleted = st.session_state.get("_open_deleted", set())
+    if deleted:
+        predictions = [p for p in predictions if p.get("id") not in deleted]
 
 
     if not predictions:
@@ -554,6 +565,7 @@ def _run_manual_prediction(ticker: str):
             state="complete", expanded=True
         )
         status.write(f"**Reasoning:** {ai.get('reasoning', '')}")
+        _fetch_open_predictions.clear()
         st.rerun()
 
     except Exception as e:
@@ -692,6 +704,10 @@ def _prediction_card(p: dict, _unused: set = None):
                 try:
                     from database.db import soft_delete_prediction
                     soft_delete_prediction(pred_id)
+                    if "_open_deleted" not in st.session_state:
+                        st.session_state["_open_deleted"] = set()
+                    st.session_state["_open_deleted"].add(pred_id)
+                    _fetch_open_predictions.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
@@ -765,6 +781,7 @@ def _prediction_card(p: dict, _unused: set = None):
                         "closed_reason": "MANUAL",
                         "verified_on": datetime.now(PT).isoformat(),
                     })
+                    _fetch_open_predictions.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Failed: {e}")
@@ -777,6 +794,7 @@ def _prediction_card(p: dict, _unused: set = None):
                         "closed_reason": "MANUAL",
                         "verified_on": datetime.now(PT).isoformat(),
                     })
+                    _fetch_open_predictions.clear()
                     st.rerun()
                 except Exception as e:
                     st.error(f"Failed: {e}")
@@ -898,6 +916,8 @@ def _clear_open_predictions():
         status.update(label=f"✅ Cleared {count} predictions!", state="complete", expanded=False)
         st.success(f"Removed {count} open predictions.")
         st.session_state["confirm_clear"] = False
+        st.session_state["_open_deleted"] = set()
+        _fetch_open_predictions.clear()
         st.rerun()
     except Exception as e:
         status.update(label="❌ Failed", state="error", expanded=True)
@@ -925,6 +945,8 @@ def _trigger_scanner(debug: bool = False):
 
         _save_debug_log(stats.get("claude_raw_log", []))
 
+        _fetch_open_predictions.clear()
+        st.session_state["_open_deleted"] = set()
         st.rerun()
     except Exception as e:
         status.update(label="❌ Failed", state="error", expanded=True)
