@@ -70,20 +70,7 @@ def feedback_engine():
 
 # Health Monitor moved to GitHub Actions (health_check.yml) to free up Modal slot.
 # Opportunity Analyzer moved to GitHub Actions (Modal free tier limit is 5 crons)
-
-
-# ── Failure Analyzer ──────────────────────────────────────────────────────────
-@app.function(
-    image=image,
-    secrets=secrets,
-    timeout=300,
-    schedule=modal.Cron(to_cron(get_job("failure_analyzer"))),
-)
-def failure_analyzer():
-    import sys
-    sys.path.insert(0, "/root/app")
-    import scripts.failure_analyzer as s
-    s.run()
+# Failure Analyzer moved to GitHub Actions (failure_analyzer.yml)
 
 
 # ── Fundamentals Fetcher — Fri/Sat/Sun 8 AM PT ────────────────────────────────
@@ -101,4 +88,16 @@ def fundamentals_fetcher():
     s.run()
 
 
-# Price Watcher stays on GitHub Actions (free tier cron limit is 5)
+# ── Price Watcher — every 5 min during market hours Mon–Fri ───────────────────
+# Modal Cron takes a single string; use the full UTC window 13-20 UTC = 6 AM-1 PM PT
+@app.function(
+    image=image,
+    secrets=secrets,
+    timeout=60,
+    schedule=modal.Cron("*/5 13-20 * * 1-5"),  # 6:00 AM – 1:00 PM PT  Mon–Fri
+)
+def price_watcher():
+    import sys
+    sys.path.insert(0, "/root/app")
+    import scripts.price_watcher as s
+    s.run()

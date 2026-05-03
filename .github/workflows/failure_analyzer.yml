@@ -1,15 +1,12 @@
-name: Price Watcher
+name: Failure Analyzer
 
 on:
   schedule:
-    # Every 5 min Mon–Fri, 6:00 AM – 1:00 PM PT
-    - cron: '*/5 14-19 * * 1-5'
-    - cron: '*/5 13 * * 1-5'
-    - cron: '*/5 20 * * 1-5'
+    - cron: '0 1 * * 2'  # 6:00 PM PT  Mon
   workflow_dispatch:
 
 jobs:
-  watch:
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,8 +15,9 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - run: pip install -r requirements.txt
-      - run: python scripts/price_watcher.py
+      - run: python scripts/failure_analyzer.py
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

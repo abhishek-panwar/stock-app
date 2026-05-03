@@ -46,7 +46,7 @@ JOBS = [
     {
         "id":          "failure_analyzer",
         "label":       "Failure Analyzer",
-        "platform":    "modal",
+        "platform":    "gha",
         "time_pt":     (18, 0),         # 6:00 PM PT
         "days":        [0],             # Mondays only
         "description": "Send wins/losses to Claude, save scoring improvement suggestions",
@@ -88,7 +88,7 @@ JOBS = [
     {
         "id":          "price_watcher",
         "label":       "Price Watcher",
-        "platform":    "gha",
+        "platform":    "modal",
         "time_pt":     None,            # interval-based, not a fixed time
         "days":        "interval_min",
         "interval_min": 5,
