@@ -15,7 +15,10 @@ app = modal.App("stock-app")
 project_dir = Path(__file__).parent
 
 # Import schedule config to read cron strings
-sys.path.insert(0, str(project_dir))
+# On Modal: modal_jobs.py sits at /root/ but project files land at /root/app/
+# Locally: project_dir is the repo root, config/ is directly inside it
+sys.path.insert(0, str(project_dir / "app"))  # Modal: /root/app
+sys.path.insert(0, str(project_dir))           # local: repo root
 from config.schedule import to_cron, get_job
 
 image = (
