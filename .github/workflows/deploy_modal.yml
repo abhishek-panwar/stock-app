@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'modal_jobs.py'
+      - 'config/**'
       - 'scripts/**'
       - 'services/**'
       - 'indicators/**'
       - 'database/**'
       - 'requirements.txt'
+      - '.github/workflows/deploy_modal.yml'
   workflow_dispatch:
 
 jobs:
