@@ -23,7 +23,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - run: pip install modal
+      - run: pip install modal pytz
 
       - name: Deploy to Modal
         run: modal deploy modal_jobs.py
