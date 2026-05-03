@@ -108,15 +108,18 @@ def pt_to_utc(hour_pt: int, minute_pt: int) -> tuple[int, int]:
     return utc.hour, utc.minute
 
 
-def cron_days(days) -> str:
-    """Convert days spec to cron day-of-week field."""
+def cron_days(days, day_offset: int = 0) -> str:
+    """Convert days spec to cron day-of-week field.
+    day_offset=1 when the UTC time rolls into the next calendar day vs PT."""
     if days == "daily":
         return "*"
-    if days == "weekdays":
-        return "1-5"
     # list of ints (0=Mon…6=Sun) → cron uses 0=Sun…6=Sat
     CRON_MAP = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 0}
-    return ",".join(str(CRON_MAP[d]) for d in sorted(days))
+    if days == "weekdays":
+        if day_offset == 0:
+            return "1-5"
+        return "2-6"  # weekdays shifted +1 day: Tue–Sat UTC = Mon–Fri PT
+    return ",".join(str((CRON_MAP[d] + day_offset) % 7) for d in sorted(days))
 
 
 def to_cron(job: dict) -> str | list[str]:
@@ -140,7 +143,9 @@ def to_cron(job: dict) -> str | list[str]:
 
     h, m = job["time_pt"]
     uh, um = pt_to_utc(h, m)
-    dow = cron_days(job["days"])
+    # If the UTC hour is earlier than the PT hour, the day rolled over
+    day_offset = 1 if uh < h else 0
+    dow = cron_days(job["days"], day_offset)
     return f"{um} {uh} * * {dow}"
 
 
