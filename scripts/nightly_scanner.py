@@ -293,6 +293,7 @@ def run(debug: bool = False):
                     source=item["source"], earnings_calendar=data["earnings_calendar"],
                     rel_strength_vs_spy=data.get("rel_strength_vs_spy"),
                     sector_return_5d=data.get("sector_return_5d"),
+                    short_interest_pct=data.get("short_interest_pct"),
                 )
 
             total = score_data["total"]

@@ -399,15 +399,23 @@ PRICE & EXTENSION:
 
 EXHAUSTION SIGNALS:
 - RSI(14): {indicators.get('rsi', 50):.1f}  {'← OVERBOUGHT' if indicators.get('rsi', 50) > 70 else '← APPROACHING OVERBOUGHT' if indicators.get('rsi', 50) > 65 else ''}
-- Bearish RSI divergence (price up, RSI down): {'YES — distribution signal' if indicators.get('rsi_bearish_divergence') else 'No'}
+- Bearish RSI divergence (price up 10d, RSI down 10d): {'YES — momentum genuinely fading' if indicators.get('rsi_bearish_divergence') else 'No'}
 - MACD bearish crossover (line < signal): {'YES — momentum confirmed reverting' if indicators.get('macd_crossover_bearish') else 'No'}
-- MACD histogram vs prior bar: {indicators.get('macd_hist', 0):.3f} vs {indicators.get('macd_hist_prev', 0):.3f} {'(SHRINKING — momentum fading)' if indicators.get('macd_hist', 0) < indicators.get('macd_hist_prev', 0) else '(growing)'}
-- BB position: {'ABOVE upper band — extended' if indicators.get('bb_breakout_up') else 'Below upper band — rejected from resistance'}
+- MACD histogram vs prior bar: {indicators.get('macd_hist', 0):.3f} vs {indicators.get('macd_hist_prev', 0):.3f} {'(SHRINKING — early reversal warning)' if indicators.get('macd_hist', 0) < indicators.get('macd_hist_prev', 0) else '(growing)'}
+- BB rejection (touched upper band, closed back inside): {'YES — sellers at resistance' if indicators.get('bb_touched_upper') and not indicators.get('bb_breakout_up') else 'No'}
+- ATR extension (price > 2× ATR above MA20): {'YES — parabolic, high reversion probability' if indicators.get('atr') and (price - (indicators.get('ma20') or price)) >= 2 * indicators.get('atr', price * 0.02) else 'No'}
 - Price above VWAP: {'YES' if indicators.get('price_above_vwap') else 'No'}
+
+CANDLESTICK TRIGGERS (reversing NOW):
+- Bearish engulfing: {'YES ← strongest reversal candle' if indicators.get('bearish_engulfing') else 'No'}
+- Shooting star: {'YES ← sellers rejected at high' if indicators.get('shooting_star') else 'No'}
+- Upper wick rejection: {'YES ← buyers losing control intraday' if indicators.get('upper_wick_rejection') else 'No'}
 
 DISTRIBUTION SIGNALS:
 - OBV trend: {indicators.get('obv_trend', 'NEUTRAL')}  {'← SMART MONEY SELLING' if indicators.get('obv_trend') == 'DIVERGING_BEARISH' else ''}
+- Distribution days (close down on high vol, last 10 bars): {indicators.get('distribution_days', 0)}  {'← INSTITUTIONAL SELLING' if indicators.get('distribution_days', 0) >= 3 else ''}
 - Volume surge ratio: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
+- MA50 slope rising: {'YES — strong uptrend, reversal harder' if indicators.get('ma50_slope_rising') else 'No'}
 
 EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
@@ -431,13 +439,14 @@ STOP PRICE: The level that invalidates the short — a new high, or the price le
 DAYS TO TARGET: Short-term reversals play out in 3–10 days. Divide pullback distance by ATR.
 
 CONFIDENCE — derived from signal count:
-- Core signals (5): RSI >70, bearish RSI divergence, MACD fading/crossing, OBV distributing, price >8% above MA20
-- Confirmation signals: sector ETF negative (confirms weakness), underperforming SPY (stock-specific exhaustion)
-- 5 core signals → 85–92. Confirmation signals can push to 93–97 if both present.
+- Core signals (5): RSI >70, MACD histogram shrinking or crossover, OBV distributing or distribution days ≥3, price >8% above MA20 or ATR-extended, candlestick trigger (engulfing/shooting star/upper wick)
+- Confirmation signals: bearish RSI divergence, sector ETF negative, underperforming SPY
+- 5 core signals → 85–92. Confirmation signals push to 93–97 if 2+ present.
 - 4 core signals → 72–84
 - 3 core signals → 58–71
 - 2 or fewer → below 58, strongly consider NEUTRAL
-- If you cannot name at least 3 exhaustion signals, do NOT go above 60.
+- MA50 slope rising is a major headwind — reduce confidence by 5–8 if present.
+- If you cannot name at least 3 exhaustion OR trigger signals, do NOT go above 60.
 
 Respond in this exact JSON:
 {{

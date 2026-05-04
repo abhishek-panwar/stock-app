@@ -32,9 +32,16 @@ def compute_all(df: pd.DataFrame) -> dict:
         rsi_net_up     = float(rsi_5.iloc[-1])   > float(rsi_5.iloc[0])
         rsi_net_down   = float(rsi_5.iloc[-1])   < float(rsi_5.iloc[0])
         # Bullish divergence: price net lower but RSI net higher (hidden demand)
-        rsi_divergence         = bool(price_net_down and rsi_net_up)
-        # Bearish divergence: price net higher but RSI net lower (momentum fading)
-        rsi_bearish_divergence = bool(price_net_up and rsi_net_down)
+        rsi_divergence = bool(price_net_down and rsi_net_up)
+
+    # Bearish divergence over 10 bars: price made a higher high but RSI made a lower high
+    # 10-bar window matches the run detection window and reduces noise vs 5 bars
+    if len(close) >= 10:
+        price_10 = close.iloc[-10:]
+        rsi_10   = rsi_series.iloc[-10:]
+        price_net_up_10 = float(price_10.iloc[-1]) > float(price_10.iloc[0])
+        rsi_net_down_10 = float(rsi_10.iloc[-1])   < float(rsi_10.iloc[0])
+        rsi_bearish_divergence = bool(price_net_up_10 and rsi_net_down_10)
 
     # ── MACD ─────────────────────────────────────────────────────────────────
     macd_ind = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
@@ -132,6 +139,50 @@ def compute_all(df: pd.DataFrame) -> dict:
         else:
             obv_trend = "DECLINING"
 
+    # ── Distribution days (bearish) ───────────────────────────────────────────
+    # A distribution day = price closed DOWN on volume > 20-day avg
+    # Count over last 10 bars — 3+ = institutional selling pattern
+    distribution_days = 0
+    if len(close) >= 10 and avg_vol > 0:
+        for i in range(-10, 0):
+            if float(close.iloc[i]) < float(close.iloc[i - 1]) and float(volume.iloc[i]) > avg_vol:
+                distribution_days += 1
+
+    # ── MA50 slope ────────────────────────────────────────────────────────────
+    # Rising MA50 = strong uptrend — mean reversion thesis is weaker
+    ma50_slope_rising = False
+    if ma50_series is not None and len(ma50_series) >= 10:
+        ma50_10ago = ma50_series.iloc[-10]
+        if not pd.isna(ma50_10ago) and ma50_val is not None:
+            ma50_slope_rising = float(ma50_val) > float(ma50_10ago)
+
+    # ── Candlestick reversal signals ─────────────────────────────────────────
+    # Require at least 2 bars of OHLC data
+    bearish_engulfing  = False
+    shooting_star      = False
+    upper_wick_rejection = False
+
+    if len(df) >= 2:
+        o1, h1, l1, c1 = float(df["open"].iloc[-2]), float(high.iloc[-2]), float(low.iloc[-2]), float(close.iloc[-2])
+        o0, h0, l0, c0 = float(df["open"].iloc[-1]), float(high.iloc[-1]), float(low.iloc[-1]), float(close.iloc[-1])
+        body1 = abs(c1 - o1)
+        body0 = abs(c0 - o0)
+        candle_range0 = h0 - l0 if h0 > l0 else 1e-9
+
+        # Bearish engulfing: yesterday bullish, today bearish body fully covers yesterday's body
+        if c1 > o1 and c0 < o0 and o0 >= c1 and c0 <= o1:
+            bearish_engulfing = True
+
+        # Shooting star: small body in lower third, long upper wick ≥ 2× body, tiny lower wick
+        upper_wick0 = h0 - max(o0, c0)
+        lower_wick0 = min(o0, c0) - l0
+        if body0 > 0 and upper_wick0 >= 2 * body0 and lower_wick0 <= body0 * 0.3:
+            shooting_star = True
+
+        # Upper wick rejection: upper wick > 40% of candle range = sellers pushing price back down
+        if upper_wick0 / candle_range0 > 0.40:
+            upper_wick_rejection = True
+
     # ── VWAP (approximate) ────────────────────────────────────────────────────
     typical_price = (high + low + close) / 3
     vwap_val = float((typical_price * volume).iloc[-20:].sum() / volume.iloc[-20:].sum()) if len(df) >= 20 else price
@@ -175,6 +226,11 @@ def compute_all(df: pd.DataFrame) -> dict:
         "atr_rising": atr_rising,
         "volume_surge_ratio": volume_surge_ratio,
         "obv_trend": obv_trend,
+        "distribution_days": distribution_days,
+        "ma50_slope_rising": ma50_slope_rising,
+        "bearish_engulfing": bearish_engulfing,
+        "shooting_star": shooting_star,
+        "upper_wick_rejection": upper_wick_rejection,
         "vwap": vwap_val,
         "price_above_vwap": price_above_vwap,
         "high_52w": high_52w,
