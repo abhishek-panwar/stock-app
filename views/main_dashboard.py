@@ -453,10 +453,7 @@ def _prediction_card(p: dict, _unused: set = None):
 
     css_class = "card-bullish" if direction == "BULLISH" else "card-bearish" if direction == "BEARISH" else "card-neutral"
 
-    bl_val  = p.get("buy_range_low") or 0
-    bh_val  = p.get("buy_range_high") or 0
-    buy_mid = (bl_val + bh_val) / 2 if bl_val > 0 and bh_val > 0 else entry
-    buy_str = f"${buy_mid:.2f}" if buy_mid > 0 else "—"
+    buy_str = f"${entry:.2f}" if entry > 0 else "—"
     tgt_str = f"${tgt_mid:.2f}" if tgt_mid > 0 else "—"
 
     arrow  = "▼" if is_open else "▶"
