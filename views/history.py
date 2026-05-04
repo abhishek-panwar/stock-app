@@ -541,8 +541,8 @@ def _prediction_card(p: dict):
     is_open   = st.session_state.get(exp_key, False)
     css_class = "card-win" if outcome == "WIN" else "card-loss"
 
-    buy_str = f"${entry:.2f}" if entry > 0 else "—"
-    tgt_str = f"${tgt_mid:.2f}" if tgt_mid > 0 else "—"
+    buy_str = f"\\${entry:.2f}" if entry > 0 else "—"
+    tgt_str = f"\\${tgt_mid:.2f}" if tgt_mid > 0 else "—"
 
     arrow  = "▼" if is_open else "▶"
     header = (
