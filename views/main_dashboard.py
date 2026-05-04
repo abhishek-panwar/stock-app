@@ -513,17 +513,18 @@ def _prediction_card(p: dict, _unused: set = None):
         with c1:
             st.markdown("**Entry**")
             st.write(f"Price at signal: ${entry:.2f}")
-            st.write(f"Buy range: ${bl:.2f} – ${bh:.2f}")
+            st.markdown(f"Buy range: \${bl:.2f} – \${bh:.2f}")
             st.write(f"Stop loss: ${stop:.2f}")
             mcap   = p.get("market_cap")
             avgvol = p.get("avg_volume")
             if mcap:
-                st.write(f"Market cap: {'${:.1f}B'.format(mcap/1e9) if mcap >= 1e9 else '${:.0f}M'.format(mcap/1e6)}")
+                mcap_str = "${:.1f}B".format(mcap/1e9) if mcap >= 1e9 else "${:.0f}M".format(mcap/1e6)
+                st.write(f"Market cap: {mcap_str}")
             if avgvol:
                 st.write(f"Avg volume: {'{:.1f}M'.format(avgvol/1e6) if avgvol >= 1e6 else '{:.0f}K'.format(avgvol/1e3)}")
         with c2:
             st.markdown("**Target**")
-            st.write(f"Range: ${tl:.2f} – ${th:.2f}")
+            st.markdown(f"Range: \${tl:.2f} – \${th:.2f}")
             st.write(f"Profit potential: {profit_str}")
             st.write(f"Risk/Reward: 1 : {rr:.1f}")
             st.write(f"Score: {score}/100")

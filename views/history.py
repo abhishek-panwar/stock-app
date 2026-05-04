@@ -600,12 +600,12 @@ def _prediction_card(p: dict):
         with c1:
             st.markdown("**Entry**")
             st.write(f"Price at signal: ${entry:.2f}")
-            st.write(f"Buy range: ${bl:.2f} – ${bh:.2f}")
+            st.markdown(f"Buy range: \${bl:.2f} – \${bh:.2f}")
             st.write(f"Confidence: {confidence}%  ·  Score: {score}/100")
             mcap = p.get("market_cap")
             avgvol = p.get("avg_volume")
             if mcap:
-                mcap_str = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
+                mcap_str = "${:.1f}B".format(mcap/1e9) if mcap >= 1e9 else "${:.0f}M".format(mcap/1e6)
                 st.write(f"Market cap: {mcap_str}")
             if avgvol:
                 vol_str = f"{avgvol/1e6:.1f}M" if avgvol >= 1e6 else f"{avgvol/1e3:.0f}K"
@@ -614,7 +614,7 @@ def _prediction_card(p: dict):
             st.markdown("**Exit**")
             close_price = p.get("price_at_close")
             st.write(f"Close price: ${close_price:.2f}" if close_price else "Not closed yet")
-            st.write(f"Target: ${tl:.2f} – ${th:.2f}")
+            st.markdown(f"Target: \${tl:.2f} – \${th:.2f}")
             st.write(f"Stop loss: ${stop:.2f}")
             if closed_reason:
                 st.write(f"Closed by: {closed_reason}")
