@@ -541,10 +541,16 @@ def _prediction_card(p: dict):
     is_open   = st.session_state.get(exp_key, False)
     css_class = "card-win" if outcome == "WIN" else "card-loss"
 
+    bl_val  = p.get("buy_range_low") or 0
+    bh_val  = p.get("buy_range_high") or 0
+    buy_mid = (bl_val + bh_val) / 2 if bl_val > 0 and bh_val > 0 else entry
+    buy_str = f"${buy_mid:.2f}" if buy_mid > 0 else "—"
+    tgt_str = f"${tgt_mid:.2f}" if tgt_mid > 0 else "—"
+
     arrow  = "▼" if is_open else "▶"
     header = (
         f"{arrow}  {outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
-        f"{confidence}% conf  ·  {profit_str} potential  ·  {tenure_str}"
+        f"{confidence}% conf  ·  buy {buy_str}  ·  tgt {tgt_str}  ·  {profit_str} potential  ·  {tenure_str}"
         f"{pos_tag}  ·  {ret_str}{reason_tag}"
     )
 
