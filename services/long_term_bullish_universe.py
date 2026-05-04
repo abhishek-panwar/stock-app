@@ -4,6 +4,9 @@ Long-term bullish universe builder — Friday scan.
 get_long_bullish_hot_tickers()  — HTTP only, returns raw candidate ticker list
 filter_long_bullish_universe()  — pure computation from pre-fetched ticker_data
 
+Primary pool: Nasdaq 100 (fundamentals-first — liquid, well-covered large-caps).
+Supplement: Yahoo trending / most_actives for dynamic names not in Nasdaq 100.
+
 Selection criteria (from pre-fetched data):
   - Market cap >= $2B
   - Price above MA50 (above intermediate-term trend)
@@ -12,10 +15,10 @@ Selection criteria (from pre-fetched data):
   - Crypto excluded (no fundamental signals)
 
 Universe sources:
-  - Nasdaq 100 stocks with upcoming earnings (passed in from caller)
-  - Yahoo most_actives + trending (broad liquid names)
+  - Full Nasdaq 100 (primary — already pre-cached by midweek_prefetch)
+  - Nasdaq 100 stocks with upcoming earnings (high-priority sub-pool)
+  - Yahoo most_actives + trending (supplement for non-Nasdaq dynamic names only)
   - Alpha Vantage most_actively_traded (institutional flow)
-  - S&P 500 proxy: large-cap ETF holdings (SPY top components via screener)
 """
 
 import os
@@ -31,23 +34,31 @@ _EXCLUDE_TICKERS = {
 def get_long_bullish_hot_tickers(av_gainers: set[str] | None = None) -> list[str]:
     """
     Returns raw long-term bullish candidate tickers.
-    Targets liquid, large-cap names — the kind that re-rate over 60-180 days.
+    Nasdaq 100 is the primary pool — already pre-fetched Wed/Thu.
+    Yahoo + AV supplement for any liquid names outside Nasdaq 100.
     HTTP only — no yfinance, no Finnhub.
 
     av_gainers: pass result of fetch_alpha_vantage_gainers() to avoid double-calling AV.
     """
     import requests
+    from services.screener_service import load_watchlist
 
     raw: set[str] = set()
-    headers = {"User-Agent": "Mozilla/5.0"}
 
+    # Primary: full Nasdaq 100 — liquid, large-cap, fundamentals pre-cached
+    try:
+        data = load_watchlist()
+        nasdaq100 = set(data.get("nasdaq100", []))
+        raw |= nasdaq100
+        print(f"  Long bullish Nasdaq 100 base: {len(nasdaq100)} tickers")
+    except Exception as e:
+        print(f"  Warning: could not load Nasdaq 100 for long bullish pool: {e}")
+
+    # Supplement: Yahoo most_actives + trending (dynamic names not in Nasdaq 100)
+    headers = {"User-Agent": "Mozilla/5.0"}
     yahoo_sources = [
-        # Most actively traded = institutional flow, good long-term candidates
         "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=25",
-        # Trending = broad market attention
         "https://query1.finance.yahoo.com/v1/finance/trending/US",
-        # Large-cap gainers with volume = re-rating in progress
-        "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=20",
     ]
     for url in yahoo_sources:
         try:
@@ -63,12 +74,9 @@ def get_long_bullish_hot_tickers(av_gainers: set[str] | None = None) -> list[str
     if av_gainers:
         raw |= av_gainers
 
-    # Add commodity/macro plays for long-term (valid fundamental assets)
-    raw.update(["GLD", "USO", "TLT", "XLE", "XLF", "XLK", "XLV"])
-
     raw -= _EXCLUDE_TICKERS
     tickers = sorted(raw)
-    print(f"  Long bullish candidate pool: {len(tickers)} raw tickers")
+    print(f"  Long bullish candidate pool: {len(tickers)} raw tickers (Nasdaq 100 + supplements)")
     return tickers
 
 
@@ -81,6 +89,7 @@ def filter_long_bullish_universe(
 ) -> tuple[list[dict], int, int, int]:
     """
     Filters raw candidates down to genuine long-term bullish setups.
+    Nasdaq 100 tickers are scored by fundamentals quality (EPS trend, margins).
     Uses pre-fetched data — zero live API calls.
 
     Returns:
@@ -106,12 +115,16 @@ def filter_long_bullish_universe(
 
     universe = []
     seen: set[str] = set()
-    filtered_mcap       = 0
-    filtered_trend      = 0
-    filtered_fundament  = 0
-    filtered_bearish    = 0
+    filtered_mcap      = 0
+    filtered_trend     = 0
+    filtered_fundament = 0
+    filtered_bearish   = 0
 
-    all_candidates = list(hot) + [t for t in nasdaq_with_earnings if t not in hot]
+    # Nasdaq 100 first — already fundamentals-cached; Yahoo supplement added after
+    nasdaq_in_pool = [t for t in hot if t in nasdaq100]
+    supplement     = [t for t in hot if t not in nasdaq100]
+    nasdaq_earnings_extra = [t for t in nasdaq_with_earnings if t not in hot]
+    all_candidates = nasdaq_in_pool + supplement + nasdaq_earnings_extra
 
     for t in all_candidates:
         if t in seen:
@@ -143,7 +156,16 @@ def filter_long_bullish_universe(
             print(f"  {t} excluded from long bullish — {fail}: {detail}")
             continue
 
-        source = "both" if t in overlap else ("nasdaq_earnings" if t in nasdaq_with_earnings else "hot_stock")
+        # Source tagging: earnings overlap > nasdaq100 > hot_stock
+        if t in overlap:
+            source = "both"
+        elif t in nasdaq_with_earnings:
+            source = "nasdaq_earnings"
+        elif t in nasdaq100:
+            source = "nasdaq100"
+        else:
+            source = "hot_stock"
+
         universe.append({"ticker": t, "source": source})
         seen.add(t)
 
@@ -181,13 +203,15 @@ def _check_long_bullish_setup(ind: dict, fundamentals: dict, df) -> tuple[str | 
             rev_growth  = fundamentals.get("revenue_growth_pct")
             earn_growth = fundamentals.get("earnings_growth_pct")
             fcf         = fundamentals.get("free_cashflow")
+            eps_trend   = fundamentals.get("eps_revision_trend")
             has_signal  = (
                 (rev_growth  is not None and rev_growth  > 0) or
                 (earn_growth is not None and earn_growth > 0) or
-                (fcf         is not None and fcf         > 0)
+                (fcf         is not None and fcf         > 0) or
+                eps_trend == "RISING"  # EPS estimates rising = forward-looking positive signal
             )
             if not has_signal:
-                return "fundamentals", "no positive revenue/earnings/FCF signal"
+                return "fundamentals", "no positive revenue/earnings/FCF/EPS-trend signal"
 
         return None, "passes all checks"
     except Exception:

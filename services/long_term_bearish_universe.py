@@ -4,18 +4,17 @@ Long-term bearish universe builder — Friday scan.
 get_long_bearish_hot_tickers()  — HTTP only, returns raw candidate ticker list
 filter_long_bearish_universe()  — pure computation from pre-fetched ticker_data
 
+Primary pool: Nasdaq 100 with deteriorating fundamentals — best shorts are expensive
+  names still trading at premium multiples despite worsening business metrics.
+Supplement: Yahoo day_losers + 52wk_low for names showing structural breakdown.
+
 Selection criteria (from pre-fetched data):
   - Market cap >= $2B (only liquid, shortable names)
   - Price below MA50 OR below MA200 (intermediate-term downtrend)
   - At least one fundamental red flag: negative revenue/earnings growth, negative FCF,
-    or PEG > 3 (significantly overvalued with declining fundamentals)
+    falling EPS estimates, or high D/E with declining earnings
   - 5-day return < 5% (not currently bouncing sharply — don't short into oversold bounces)
   - Crypto and commodities excluded (no fundamental basis for long-term bearish thesis)
-
-Universe sources:
-  - Yahoo day_losers (stocks in sustained downtrends)
-  - Yahoo 52-week lows screener (structural breakdown candidates)
-  - Yahoo most_actives that failed fundamental filters from bullish side
 """
 
 MIN_MARKET_CAP = 2_000_000_000  # $2B
@@ -31,18 +30,28 @@ _EXCLUDE_TICKERS = {
 def get_long_bearish_hot_tickers() -> list[str]:
     """
     Returns raw long-term bearish candidate tickers.
-    Targets liquid names showing sustained price weakness.
+    Nasdaq 100 with deteriorating fundamentals is the primary source.
+    Yahoo day_losers + 52wk_low supplement for non-Nasdaq structural breakdowns.
     HTTP only — no yfinance, no Finnhub.
     """
     import requests
+    from services.screener_service import load_watchlist
 
     raw: set[str] = set()
-    headers = {"User-Agent": "Mozilla/5.0"}
 
+    # Primary: Nasdaq 100 — we'll filter by deteriorating fundamentals in filter step
+    try:
+        data = load_watchlist()
+        nasdaq100 = set(data.get("nasdaq100", []))
+        raw |= nasdaq100
+        print(f"  Long bearish Nasdaq 100 base: {len(nasdaq100)} tickers (filter step removes healthy ones)")
+    except Exception as e:
+        print(f"  Warning: could not load Nasdaq 100 for long bearish pool: {e}")
+
+    # Supplement: Yahoo losers / 52wk-low for names outside Nasdaq 100
+    headers = {"User-Agent": "Mozilla/5.0"}
     yahoo_sources = [
-        # Day losers = stocks failing today, often part of a longer downtrend
         "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=day_losers&count=25",
-        # Underperformers over 52 weeks = structural breakdown
         "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=52wk_low&count=20",
     ]
     for url in yahoo_sources:
@@ -58,7 +67,7 @@ def get_long_bearish_hot_tickers() -> list[str]:
 
     raw -= _EXCLUDE_TICKERS
     tickers = sorted(raw)
-    print(f"  Long bearish candidate pool: {len(tickers)} raw tickers")
+    print(f"  Long bearish candidate pool: {len(tickers)} raw tickers (Nasdaq 100 + losers/52wk-low)")
     return tickers
 
 
@@ -67,7 +76,7 @@ def filter_long_bearish_universe(
     ticker_data: dict,
 ) -> tuple[list[dict], set[str]]:
     """
-    Filters raw losers/52wk-low names down to genuine long-term bearish setups.
+    Filters raw candidates down to genuine long-term bearish setups.
     Requires fundamental deterioration — not just price weakness.
     Uses pre-fetched data — zero live API calls.
 
@@ -136,7 +145,7 @@ def _check_long_bearish_setup(
         if not below_ma50 and not below_ma200:
             return "trend", f"price ${price:.2f} above both MA50 ${ma50:.2f} and MA200 ${ma200:.2f} — no structural downtrend"
 
-        # 3. Not in a sharp bounce — don't short stocks already -5%+ on the day
+        # 3. Not in a sharp bounce — don't short stocks already recovering strongly
         if df is not None:
             close = df["close"] if "close" in df.columns else df.get("Close")
             if close is not None and len(close) >= 5:
@@ -150,15 +159,19 @@ def _check_long_bearish_setup(
             earn_growth = fundamentals.get("earnings_growth_pct")
             fcf         = fundamentals.get("free_cashflow")
             peg         = fundamentals.get("peg_ratio")
+            eps_trend   = fundamentals.get("eps_revision_trend")
+            dte         = fundamentals.get("debt_to_equity")
 
             has_red_flag = (
                 (rev_growth  is not None and rev_growth  < 0) or
                 (earn_growth is not None and earn_growth < 0) or
                 (fcf         is not None and fcf         < 0) or
-                (peg         is not None and peg         > 3)
+                (peg         is not None and peg         > 3) or
+                eps_trend == "FALLING" or  # forward-looking: analysts cutting estimates
+                (dte is not None and dte > 2.0 and (earn_growth or 0) < 0)  # leveraged + declining
             )
             if not has_red_flag:
-                return "fundamentals", "no fundamental red flags (negative growth/FCF or PEG>3)"
+                return "fundamentals", "no fundamental red flags (negative growth/FCF, PEG>3, falling EPS, or high D/E+declining)"
         else:
             return "fundamentals", "no fundamentals data available"
 

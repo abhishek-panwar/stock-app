@@ -32,6 +32,8 @@ def compute_long_term_bullish_score(
     analyst_target: dict = None,
     insider_buying: dict = None,
     fundamentals: dict = None,
+    sector: str = None,
+    sector_pe_ratios: dict = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -94,6 +96,16 @@ def compute_long_term_bullish_score(
             fund_score += 4
             bonus_reasons.append("Positive FCF (+4)")
 
+        # Debt/leverage — low debt = resilience, high debt = rate sensitivity headwind
+        debt_to_equity = fundamentals.get("debt_to_equity")
+        if debt_to_equity is not None:
+            if debt_to_equity < 0.3:
+                fund_score += 3
+                bonus_reasons.append(f"Low leverage D/E {debt_to_equity:.2f} — balance sheet strength (+3)")
+            elif debt_to_equity > 2.0:
+                fund_score -= 3
+                bonus_reasons.append(f"High leverage D/E {debt_to_equity:.2f} — rate sensitivity risk (-3)")
+
         # EPS revision trend — leading indicator of institutional repricing
         eps_trend = fundamentals.get("eps_revision_trend")
         if eps_trend == "RISING":
@@ -139,6 +151,21 @@ def compute_long_term_bullish_score(
                 val_score += 3
             elif trailing_pe > 60:
                 val_score -= 2
+
+        # Sector-relative PE — stock cheap vs sector average = multiple expansion room
+        pe_for_comparison = fwd_pe or trailing_pe
+        sector_avg_pe = (sector_pe_ratios or {}).get(sector) if sector else None
+        if pe_for_comparison and sector_avg_pe and sector_avg_pe > 0:
+            discount_pct = (sector_avg_pe - pe_for_comparison) / sector_avg_pe * 100
+            if discount_pct >= 20:
+                val_score += 5
+                bonus_reasons.append(f"PE {pe_for_comparison:.0f} is {discount_pct:.0f}% below sector avg {sector_avg_pe:.0f} — deep discount to peers (+5)")
+            elif discount_pct >= 10:
+                val_score += 3
+                bonus_reasons.append(f"PE {pe_for_comparison:.0f} below sector avg {sector_avg_pe:.0f} — room to re-rate (+3)")
+            elif discount_pct <= -25:
+                val_score -= 3
+                bonus_reasons.append(f"PE {pe_for_comparison:.0f} is {abs(discount_pct):.0f}% above sector avg {sector_avg_pe:.0f} — premium multiple, less room to expand (-3)")
 
     scores["valuation"] = round(min(max(val_score, -6), 15), 1)
 

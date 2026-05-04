@@ -80,8 +80,9 @@ def run(debug: bool = False):
     is_friday = datetime.now(PT).weekday() == 4
     scan_mode = "long" if (is_friday and not debug) else "short"
 
-    # Fetch macro regime once — used in both long-term Claude prompts
-    macro_regime = None
+    # Fetch macro regime + sector PE ratios once — used in both long-term Claude prompts
+    macro_regime    = None
+    sector_pe_ratios = None
     if scan_mode == "long":
         try:
             from services.fred_service import get_macro_regime
@@ -90,6 +91,13 @@ def run(debug: bool = False):
         except Exception as e:
             log_error("scanner", f"FRED macro regime fetch failed: {e}", level="WARNING")
             macro_regime = None
+        try:
+            from services.fmp_service import get_sector_pe
+            sector_pe_ratios = get_sector_pe()
+            print(f"  Sector PE ratios loaded: {len(sector_pe_ratios)} sectors")
+        except Exception as e:
+            log_error("scanner", f"Sector PE fetch failed: {e}", level="WARNING")
+            sector_pe_ratios = None
 
     # ── Step 1: Collect raw ticker lists (HTTP only) ──────────────────────────
     # Alpha Vantage called ONCE here, result shared with both builders (Issue #4 fix)
@@ -239,6 +247,7 @@ def run(debug: bool = False):
                     source=source, earnings_calendar=data["earnings_calendar"],
                     analyst_target=data["analyst_target"],
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
+                    sector=data.get("sector"), sector_pe_ratios=sector_pe_ratios,
                 )
             else:
                 score_data = compute_short_term_bullish_score(
@@ -298,6 +307,7 @@ def run(debug: bool = False):
                     analyst_target=data["analyst_target"],
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                     narrative_risk=data.get("narrative_risk"),
+                    sector=data.get("sector"), sector_pe_ratios=sector_pe_ratios,
                 )
             else:
                 score_data = compute_short_term_bearish_score(

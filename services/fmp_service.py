@@ -121,6 +121,7 @@ def get_fundamentals(ticker: str) -> dict:
         "revenue_declining_years": None,   # int: how many consecutive years of decline
         "gross_margin_prev_pct":   None,   # prior year gross margin for compression check
         "operating_margin_prev_pct": None, # prior year op margin for compression check
+        "debt_to_equity":          None,   # D/E ratio from key-metrics-ttm
         "fetched_at":              datetime.now(timezone.utc).isoformat(),
         "source":                  "fmp",
     }
@@ -133,10 +134,12 @@ def get_fundamentals(ticker: str) -> dict:
         pe_ttm = m.get("peRatioTTM") or m.get("priceEarningsRatioTTM")
         peg    = m.get("pegRatioTTM")
         pb     = m.get("pbRatioTTM") or m.get("priceToBookRatioTTM")
+        dte    = m.get("debtToEquityTTM")
 
-        result["trailing_pe"]   = round(float(pe_ttm), 1) if pe_ttm else None
-        result["peg_ratio"]     = round(float(peg), 2) if peg and float(peg) > 0 else None
-        result["price_to_book"] = round(float(pb), 2) if pb else None
+        result["trailing_pe"]    = round(float(pe_ttm), 1) if pe_ttm else None
+        result["peg_ratio"]      = round(float(peg), 2) if peg and float(peg) > 0 else None
+        result["price_to_book"]  = round(float(pb), 2) if pb else None
+        result["debt_to_equity"] = round(float(dte), 2) if dte else None
 
     # ── Call 2: income-statement — 3 years for growth + narrative risk trend ──
     time.sleep(_REQUEST_DELAY)
@@ -196,6 +199,47 @@ def get_fundamentals(ticker: str) -> dict:
     if estimates and isinstance(estimates, list):
         result["eps_revision_trend"] = _derive_eps_revision_trend(estimates)
 
+    return result
+
+
+def get_sector_pe() -> dict[str, float]:
+    """
+    Fetches average P/E ratio for all 11 GICS sectors from FMP.
+    Uses 11 API calls total — cached weekly.
+    Returns: {"Technology": 28.5, "Healthcare": 22.1, ...}
+    """
+    from database.db import get_cache, set_cache
+    cached = get_cache("sector_pe_ratios")
+    if cached:
+        return cached
+
+    SECTORS = [
+        "Technology", "Healthcare", "Financials", "Consumer Cyclical",
+        "Consumer Defensive", "Industrials", "Communication Services",
+        "Energy", "Utilities", "Real Estate", "Basic Materials",
+    ]
+    result = {}
+    for sector in SECTORS:
+        time.sleep(_REQUEST_DELAY)
+        data = _get(f"/sector_price_earning_ratio", {"date": "", "exchange": "NYSE,NASDAQ", "sector": sector})
+        if data and isinstance(data, list) and data:
+            try:
+                pe = float(data[0].get("pe", 0))
+                if pe > 0:
+                    result[sector] = round(pe, 1)
+            except Exception:
+                pass
+        elif data and isinstance(data, dict):
+            try:
+                pe = float(data.get("pe", 0))
+                if pe > 0:
+                    result[sector] = round(pe, 1)
+            except Exception:
+                pass
+
+    if result:
+        set_cache("sector_pe_ratios", result, ttl_hours=168)  # 1-week TTL
+        print(f"  Sector PE fetched for {len(result)} sectors")
     return result
 
 

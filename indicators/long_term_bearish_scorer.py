@@ -41,6 +41,8 @@ def compute_long_term_bearish_score(
     insider_buying: dict = None,
     fundamentals: dict = None,
     narrative_risk: dict = None,
+    sector: str = None,
+    sector_pe_ratios: dict = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -107,6 +109,19 @@ def compute_long_term_bearish_score(
             deteri_score += 4
             bonus_reasons.append(f"Fwd P/E {fwd_pe:.0f} while earnings collapsing — compression risk (+4)")
 
+        # Debt/leverage — high debt + deteriorating earnings = distress amplifier
+        debt_to_equity = fundamentals.get("debt_to_equity")
+        if debt_to_equity is not None:
+            if debt_to_equity > 2.0 and (earn_growth or 0) <= 0:
+                deteri_score += 5
+                bonus_reasons.append(f"High leverage D/E {debt_to_equity:.2f} with declining earnings — distress risk (+5)")
+            elif debt_to_equity > 3.0:
+                deteri_score += 3
+                bonus_reasons.append(f"Excessive leverage D/E {debt_to_equity:.2f} — balance sheet risk (+3)")
+            elif debt_to_equity < 0.3:
+                deteri_score -= 3
+                bonus_reasons.append(f"Low leverage D/E {debt_to_equity:.2f} — resilient balance sheet, limits downside (-3)")
+
         # EPS revision trend — forward-looking analyst conviction signal
         eps_trend = fundamentals.get("eps_revision_trend")
         if eps_trend == "FALLING":
@@ -115,6 +130,21 @@ def compute_long_term_bearish_score(
         elif eps_trend == "RISING":
             deteri_score -= 5
             bonus_reasons.append("EPS estimates rising — contradicts bearish thesis (-5)")
+
+        # Sector-relative PE — stock expensive vs sector = compression candidate
+        pe_for_comparison = fundamentals.get("forward_pe") or fundamentals.get("trailing_pe")
+        sector_avg_pe = (sector_pe_ratios or {}).get(sector) if sector else None
+        if pe_for_comparison and sector_avg_pe and sector_avg_pe > 0:
+            premium_pct = (pe_for_comparison - sector_avg_pe) / sector_avg_pe * 100
+            if premium_pct >= 30:
+                deteri_score += 6
+                bonus_reasons.append(f"PE {pe_for_comparison:.0f} is {premium_pct:.0f}% above sector avg {sector_avg_pe:.0f} — expensive vs peers, compression candidate (+6)")
+            elif premium_pct >= 15:
+                deteri_score += 3
+                bonus_reasons.append(f"PE {pe_for_comparison:.0f} above sector avg {sector_avg_pe:.0f} — valuation stretched (+3)")
+            elif premium_pct <= -20:
+                deteri_score -= 3
+                bonus_reasons.append(f"PE {pe_for_comparison:.0f} below sector avg {sector_avg_pe:.0f} — already cheap, limits compression (-3)")
 
     scores["fundamental_deterioration"] = round(min(max(deteri_score, 0), 30), 1)
 

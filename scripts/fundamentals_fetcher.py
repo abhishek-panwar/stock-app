@@ -26,7 +26,7 @@ from datetime import datetime, timezone, timedelta
 import pytz
 
 from database.db import get_hot_tickers_from_db, get_cache, set_cache
-from services.fmp_service import get_fundamentals as get_fundamentals_from_fmp
+from services.fmp_service import get_fundamentals as get_fundamentals_from_fmp, get_sector_pe
 
 PT = pytz.timezone("America/Los_Angeles")
 
@@ -146,6 +146,14 @@ def run():
     print(f"Fundamentals fetcher — {now_pt.strftime('%A %b %d %Y %I:%M %p PT')}")
     print(f"  AV budget today: {av_limit} calls  |  Refresh threshold: {REFRESH_AFTER_DAYS} days")
 
+    # Fetch sector PE ratios on Friday (11 FMP calls, cached 1 week)
+    if weekday == 4 and os.environ.get("FMP_API_KEY", ""):
+        try:
+            sector_pe = get_sector_pe()
+            print(f"  Sector PE refreshed for {len(sector_pe)} sectors")
+        except Exception as e:
+            print(f"  Sector PE fetch failed: {e}")
+
     rows = get_hot_tickers_from_db()
     if not rows:
         print("  No hot tickers in DB — nothing to fetch.")
@@ -184,12 +192,12 @@ def run():
 
         # FMP primary — better data quality than yfinance for long-term fundamentals
         data = None
-        if fmp_key and fmp_calls < 200:  # conservative daily budget cap
+        if fmp_key and fmp_calls < 180:  # conservative daily budget cap (leaves room for sector PE + dynamic)
             try:
                 fmp_data = get_fundamentals_from_fmp(ticker)
                 if fmp_data and not fmp_data.get("error"):
                     data = fmp_data
-                    fmp_calls += 2  # key-metrics + income-statement
+                    fmp_calls += 4  # key-metrics + income-statement + ratios + analyst-estimates
             except Exception as e:
                 print(f"  FMP error {ticker}: {e}")
 
