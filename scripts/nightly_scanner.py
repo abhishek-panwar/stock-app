@@ -42,7 +42,7 @@ BULLISH_SCORE_THRESHOLD      = 45
 BEARISH_SCORE_THRESHOLD      = 45
 # Long-term thresholds (Friday) — raised from 35: filter out "meh but not terrible" names
 LONG_BULLISH_SCORE_THRESHOLD = 50
-LONG_BEARISH_SCORE_THRESHOLD = 30
+LONG_BEARISH_SCORE_THRESHOLD = 40
 MAX_BULLISH_STOCKS           = 30   # top N bullish stocks sent to Claude
 MAX_BEARISH_STOCKS           = 20   # top N bearish stocks sent to Claude
 MIN_PROFIT_PCT               = 4.0  # minimum absolute profit % to save a prediction
@@ -388,6 +388,9 @@ def run(debug: bool = False):
                     analyst_upside_pct=item.get("analyst_upside_pct"),
                     insider_buying=item.get("insider_buying"),
                     fundamentals=item.get("fundamentals"),
+                    rel_strength_vs_spy=item.get("rel_strength_vs_spy"),
+                    sector_return_5d=item.get("sector_return_5d"),
+                    sector_etf=item.get("sector_etf"),
                 )
             elif pipeline == "bearish":
                 ai = analyze_stock_bearish(

@@ -698,7 +698,10 @@ def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, a
                                earnings_calendar: dict = None,
                                analyst_upside_pct: float = None,
                                insider_buying: dict = None,
-                               fundamentals: dict = None) -> dict:
+                               fundamentals: dict = None,
+                               rel_strength_vs_spy: float = None,
+                               sector_return_5d: float = None,
+                               sector_etf: str = None) -> dict:
     """
     Long-term bearish Claude prediction — Friday scan only.
     Focuses on fundamental deterioration and institutional re-rating downward over 60-180 days.
@@ -707,6 +710,16 @@ def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, a
     price  = indicators.get("price", 0)
     ma50   = indicators.get("ma50") or price
     ma200  = indicators.get("ma200") or price
+    _fwd_pe      = (fundamentals or {}).get("forward_pe")
+    _trailing_pe = (fundamentals or {}).get("trailing_pe")
+    _earn_growth = (fundamentals or {}).get("earnings_growth_pct")
+
+    _sector_line = ""
+    if sector_return_5d is not None and sector_etf:
+        _sector_line = f"- Sector ETF ({sector_etf}) 5d return: {sector_return_5d:+.1f}% ({'WEAK — confirms bearish backdrop' if sector_return_5d <= -2 else 'STRONG — sector fights the short thesis' if sector_return_5d >= 3 else 'NEUTRAL'})\n"
+    _spy_line = ""
+    if rel_strength_vs_spy is not None:
+        _spy_line = f"- Relative strength vs SPY (5d): {rel_strength_vs_spy:+.1f}% ({'outperforming — stock-specific strength, caution on short' if rel_strength_vs_spy >= 2 else 'underperforming — stock-specific weakness, confirms short thesis'})\n"
 
     prompt = f"""You are a long-term stock analyst. Analyze {ticker} for a SHORT position over 60–180 days.
 IGNORE short-term noise (RSI, MACD, volume spikes). Focus on fundamental deterioration and structural breakdown.
@@ -718,48 +731,85 @@ PRICE & TREND:
 - ADX (trend strength): {indicators.get('adx', 20):.1f}
 - Death cross (MA50 < MA200): {'YES — confirmed downtrend' if ma50 < ma200 else 'No'}
 
+VALUATION VS DETERIORATION:
+- Forward P/E: {f"{_fwd_pe:.1f}" if _fwd_pe else "UNKNOWN"}  {'← elevated multiple with declining earnings = compression risk' if _fwd_pe and _fwd_pe > 35 and (_earn_growth or 0) <= 0 else ''}
+- Trailing P/E: {f"{_trailing_pe:.1f}" if _trailing_pe else "UNKNOWN"}
+
 FUNDAMENTAL DETERIORATION:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')} {'← SELL SIGNAL' if analyst.get('consensus') in ('SELL', 'STRONG_SELL') else ''}
-- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  (misses = {4 - (earnings or {}).get('beats', 0)})
+- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  (misses = {4 - (earnings or {}).get('beats', 0)})  consecutive beats: {(earnings or {}).get('consecutive_beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
-BEARISH SIGNAL SCORE: {score_data.get('total', 0)}/100
+MACRO & SECTOR CONTEXT:
+{_sector_line}{_spy_line}- Weak company in WEAK sector = strong short. Weak company in STRONG sector = poor timing.
+
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-TASK: Make a single long-term BEARISH prediction (60–180 trading days). Every field must derive from the data above.
+TASK: Make a single long-term BEARISH prediction. Every field must derive from the data above.
 
-DO NOT output BULLISH. If there is no clear fundamental deterioration thesis, output NEUTRAL.
+DO NOT output BULLISH. If there is no clear deterioration thesis or the macro backdrop fights the short, output NEUTRAL.
 
-DIRECTION: Only BEARISH if there is a concrete fundamental deterioration catalyst (revenue declining, earnings misses, analyst downgrades, negative FCF, margin compression). NEUTRAL if fundamentals are mixed or no clear catalyst exists.
+DIRECTION: Only BEARISH if: (a) concrete fundamental deterioration is present AND (b) you can identify a "why now" forward catalyst that will force a re-rating in the next 1–3 quarters. NEUTRAL if fundamentals are mixed, no forward catalyst exists, or the sector is strongly bullish.
 
-TARGET PRICE: Must reflect a specific re-rating thesis — e.g. compression to a lower P/E, reversion to a prior support level, or a deterioration-driven repricing. Minimum 15% downside required — if you cannot justify 15%, output NEUTRAL.
+"WHY NOW" CATALYST — must identify at least one:
+  - Upcoming earnings risk (guidance cut likely, estimates too high)
+  - Analyst downgrade cycle in progress
+  - Margin compression becoming visible to market
+  - Competitive/structural disruption accelerating
+  - Regulatory / legal event approaching
+If none present → output NEUTRAL regardless of deterioration score.
 
-STOP PRICE: Wide enough to survive short-term bounces. Anchor to a meaningful structural level (e.g. MA200, prior resistance). Typically 10–15% above entry for BEARISH.
+TARGET PRICE: Anchored to one of these mechanisms:
+  (1) Multiple compression: elevated P/E reprices lower as earnings decline (state before/after multiple)
+  (2) Support reversion: price falls to prior base / MA200 support
+  (3) Analyst target convergence: price moves toward mean analyst target
+  (4) Structural deterioration: business model repricing over 2–3 quarters
+Minimum 15% downside required.
 
-DAYS TO TARGET: Base on the deterioration timeline — next earnings cycle = ~60d, full re-rating = 120–180d.
+STOP PRICE: Wide enough to survive short-term bounces. Anchor to MA200 or prior resistance. Typically 10–15% above entry. Higher for volatile names — note if ATR suggests wider stop.
 
-CONFIDENCE — derive from strength of fundamental evidence:
-- Count: (1) Revenue/earnings decline confirmed, (2) Analyst SELL/downgrade, (3) Negative FCF or margin collapse, (4) Consecutive earnings misses
-- 4/4 → 80–90
-- 3/4 → 65–79
-- 2/4 → 50–64
-- 1/4 or fewer → below 50, strongly consider NEUTRAL
-- If you cannot name at least 2 concrete deterioration factors, do NOT output confidence above 55.
+DAYS TO TARGET — map to catalyst type (allow ±15% flexibility):
+  - Earnings-driven disappointment → 25–75 days (base 30–60)
+  - Multiple compression → 55–125 days (base 60–120)
+  - Structural / narrative deterioration → 100–240 days (base 120–180)
+State which category applies. Do not pick outside the range without explicit justification.
+
+CONFIDENCE — derive strictly from factor count:
+  D1: Revenue or earnings decline confirmed (not just slowing — actually declining)
+  D2: Analyst SELL/downgrade with target below current price
+  D3: Negative FCF or severe margin collapse (<5% operating margin)
+  D4: Consecutive earnings misses (2+ quarters in a row)
+  D5: Narrative/structural breakdown (competitive disruption, secular decline, model risk)
+
+Hard rules (non-negotiable):
+  - Fewer than 2 factors → confidence MUST be ≤ 55, output NEUTRAL
+  - No "why now" catalyst identified → output NEUTRAL regardless of score
+  - Insider buying STRONG → subtract 8 from confidence (management conviction against thesis)
+  - Sector strongly bullish (sector ETF up ≥3%) → subtract 5 from confidence
+  - ≥2 of D1–D5 are UNKNOWN → cap confidence at 60, prefer NEUTRAL
+
+Score ranges after applying rules:
+  - 5 factors → 75–85
+  - 4 factors → 65–77 (was 80-90; compressed — shorts fail often even with good setups)
+  - 3 factors → 55–64
+  - ≤2 factors → <55, NEUTRAL recommended
+  - Hard cap: 85 max regardless of factor count (shorts have upward-bias headwind)
 
 Respond in this exact JSON:
 {{
   "direction": "BEARISH" | "NEUTRAL",
   "position": "SHORT" | "HOLD",
-  "confidence": <integer derived from factor count above>,
-  "target_price": <float — anchored to a specific re-rating basis>,
-  "stop_price": <float — structural level 10-15% above entry>,
-  "days_to_target": <integer — 60 to 180, based on deterioration timeline>,
-  "timing_rationale": "<1 sentence: name the specific deterioration catalyst and when it is expected to force a re-rating>",
-  "reasoning": "<3-4 sentences: name each deterioration factor present and what is missing>",
+  "confidence": <integer — must obey hard rules above>,
+  "core_signals_count": <integer 0–5: how many of D1–D5 are clearly present>,
+  "target_price": <float — anchored to named mechanism>,
+  "stop_price": <float — structural level 10-15% above entry, adjusted for volatility>,
+  "days_to_target": <integer — within allowed range for named catalyst category>,
+  "timing_rationale": "<1 sentence: name the 'why now' catalyst and which timeline category applies>",
+  "reasoning": "<3-4 sentences: name each deterioration factor, the forward catalyst, macro context, what is missing>",
   "key_signals": ["signal1", "signal2", "signal3"],
-  "buy_window": "Any time — long-term position, entry timing less critical"
+  "buy_window": "Any time — long-term position, but prefer entry on bounce to resistance"
 }}
 
 Only output the JSON."""
@@ -784,6 +834,7 @@ Only output the JSON."""
             "direction": "NEUTRAL",
             "position": "HOLD",
             "confidence": 0,
+            "core_signals_count": 0,
             "target_price": None,
             "stop_price": None,
             "days_to_target": None,
