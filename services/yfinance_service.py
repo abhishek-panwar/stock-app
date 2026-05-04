@@ -1,3 +1,4 @@
+import time
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
@@ -8,19 +9,24 @@ PT = pytz.timezone("America/Los_Angeles")
 
 def get_price_history(ticker: str, period: str = "6mo") -> pd.DataFrame:
     """Returns OHLCV daily data. period: 1mo, 3mo, 6mo, 1y, 2y"""
-    try:
-        df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
-        if df.empty:
+    for attempt in range(3):
+        try:
+            df = yf.download(ticker, period=period, interval="1d", progress=False, auto_adjust=True)
+            if df.empty:
+                return pd.DataFrame()
+            # Flatten MultiIndex columns from newer yfinance versions
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0].lower() for col in df.columns]
+            else:
+                df.columns = [c.lower() for c in df.columns]
+            df.index = pd.to_datetime(df.index)
+            return df
+        except Exception as e:
+            if "401" in str(e) or "Unauthorized" in str(e) or "Invalid Crumb" in str(e):
+                time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                continue
             return pd.DataFrame()
-        # Flatten MultiIndex columns from newer yfinance versions
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0].lower() for col in df.columns]
-        else:
-            df.columns = [c.lower() for c in df.columns]
-        df.index = pd.to_datetime(df.index)
-        return df
-    except Exception:
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 
 def get_current_price(ticker: str) -> float | None:
