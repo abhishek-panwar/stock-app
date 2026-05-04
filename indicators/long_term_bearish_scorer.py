@@ -107,6 +107,15 @@ def compute_long_term_bearish_score(
             deteri_score += 4
             bonus_reasons.append(f"Fwd P/E {fwd_pe:.0f} while earnings collapsing — compression risk (+4)")
 
+        # EPS revision trend — forward-looking analyst conviction signal
+        eps_trend = fundamentals.get("eps_revision_trend")
+        if eps_trend == "FALLING":
+            deteri_score += 6
+            bonus_reasons.append("EPS estimates being cut — institutional conviction on deterioration (+6)")
+        elif eps_trend == "RISING":
+            deteri_score -= 5
+            bonus_reasons.append("EPS estimates rising — contradicts bearish thesis (-5)")
+
     scores["fundamental_deterioration"] = round(min(max(deteri_score, 0), 30), 1)
 
     # ── Group 2: Analyst Bearishness (20 pts) — reduced from 25; analysts lag ──

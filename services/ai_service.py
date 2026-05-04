@@ -125,15 +125,29 @@ def _fundamentals_context(fundamentals: dict) -> str:
     if fundamentals.get("earnings_growth_pct") is not None:
         lines.append(f"Earnings growth (YoY): {fundamentals['earnings_growth_pct']:+.0f}%")
     if fundamentals.get("operating_margin_pct") is not None:
-        lines.append(f"Operating margin: {fundamentals['operating_margin_pct']:.0f}%")
+        op = fundamentals["operating_margin_pct"]
+        op_prev = fundamentals.get("operating_margin_prev_pct")
+        margin_note = f" (was {op_prev:.0f}% prior year {'↓ compressing' if op_prev and op < op_prev else '↑ expanding'})" if op_prev else ""
+        lines.append(f"Operating margin: {op:.0f}%{margin_note}")
     if fundamentals.get("free_cashflow") is not None:
         fcf = fundamentals["free_cashflow"]
         fcf_str = f"${fcf/1e9:.1f}B" if abs(fcf) >= 1e9 else f"${fcf/1e6:.0f}M"
-        lines.append(f"Free cash flow: {fcf_str} ({'positive' if fcf > 0 else 'negative'})")
+        lines.append(f"Free cash flow: {fcf_str} ({'positive' if fcf > 0 else 'NEGATIVE — cash burn'})")
     if fundamentals.get("peg_ratio") is not None:
         lines.append(f"PEG ratio: {fundamentals['peg_ratio']:.2f} ({'undervalued' if fundamentals['peg_ratio'] < 1 else 'fair/expensive'})")
     if fundamentals.get("trailing_pe") is not None:
         lines.append(f"Trailing P/E: {fundamentals['trailing_pe']:.1f}")
+    # EPS revision trend — leading indicator of institutional repricing
+    eps_trend = fundamentals.get("eps_revision_trend")
+    if eps_trend:
+        emoji = "📈" if eps_trend == "RISING" else "📉" if eps_trend == "FALLING" else "➡️"
+        note = ("analyst estimates rising — institutions repricing higher" if eps_trend == "RISING"
+                else "analyst estimates cut — institutions repricing lower" if eps_trend == "FALLING"
+                else "analyst estimates stable")
+        lines.append(f"EPS revision trend: {emoji} {eps_trend} ({note})")
+    if fundamentals.get("revenue_declining_years"):
+        yrs = fundamentals["revenue_declining_years"]
+        lines.append(f"Revenue declining: {yrs} consecutive year{'s' if yrs > 1 else ''} ← secular trend")
     if not lines:
         return ""
     return "- 📊 FUNDAMENTALS:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"

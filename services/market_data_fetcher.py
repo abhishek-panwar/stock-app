@@ -15,6 +15,70 @@ from indicators.technicals import compute_all
 from services.yfinance_service import get_market_context, get_sector_etf
 
 
+_REGULATORY_KEYWORDS = {
+    "antitrust", "investigation", "fine", "penalty", "lawsuit", "litigation",
+    "regulatory", "probe", "doj", "ftc", "sec", "subpoena", "class action",
+    "settlement", "ban", "sanction",
+}
+
+
+def _derive_narrative_risk(fundamentals: dict, sentiment: dict) -> dict:
+    """
+    Derives narrative_risk signals from already-fetched FMP fundamentals + news sentiment.
+    Zero API calls — pure computation from data we already have.
+
+    Fields mapped to long_term_bearish_scorer Group 4:
+      competitive_disruption — revenue declining + margin declining simultaneously
+      secular_decline        — 2+ consecutive years of revenue decline
+      regulatory_risk        — regulatory keywords in recent news headlines
+      pricing_compression    — gross margin declining YoY by ≥2 pts
+      business_model_risk    — negative FCF + declining revenue (cash burning while shrinking)
+    """
+    if not fundamentals:
+        return {}
+
+    rev_growth   = fundamentals.get("revenue_growth_pct")
+    earn_growth  = fundamentals.get("earnings_growth_pct")
+    op_margin    = fundamentals.get("operating_margin_pct")
+    op_margin_p  = fundamentals.get("operating_margin_prev_pct")
+    gm           = fundamentals.get("gross_margin_pct")
+    gm_prev      = fundamentals.get("gross_margin_prev_pct")
+    fcf          = fundamentals.get("free_cashflow")
+    rev_yrs      = fundamentals.get("revenue_declining_years") or 0
+
+    risk = {}
+
+    # competitive_disruption: revenue AND operating margin both declining
+    if (rev_growth is not None and rev_growth < 0 and
+            op_margin is not None and op_margin_p is not None and
+            op_margin < op_margin_p):
+        risk["competitive_disruption"] = True
+
+    # secular_decline: 2+ consecutive years of revenue decline
+    if rev_yrs >= 2:
+        risk["secular_decline"] = True
+
+    # regulatory_risk: keyword match in recent news headlines
+    articles = (sentiment or {}).get("articles", [])
+    if articles:
+        text = " ".join(
+            (a.get("headline", "") + " " + a.get("summary", "")).lower()
+            for a in articles
+        )
+        if any(kw in text for kw in _REGULATORY_KEYWORDS):
+            risk["regulatory_risk"] = True
+
+    # pricing_compression: gross margin declining ≥2 pts YoY
+    if gm is not None and gm_prev is not None and (gm_prev - gm) >= 2:
+        risk["pricing_compression"] = True
+
+    # business_model_risk: burning cash while revenue is shrinking
+    if fcf is not None and fcf < 0 and rev_growth is not None and rev_growth < 0:
+        risk["business_model_risk"] = True
+
+    return risk
+
+
 def fetch_all(
     tickers: list[str],
     run_date: str,
@@ -67,6 +131,9 @@ def fetch_all(
             social_vel     = get_social_velocity(ticker)
             info           = get_ticker_info(ticker, run_date=run_date, log_api=log_api)
 
+            # Derive narrative_risk from fundamentals — no API calls, pure computation
+            narrative_risk = _derive_narrative_risk(fundamentals, sentiment)
+
             ec_data = earnings_universe.get(ticker.upper())
             earnings_calendar = (
                 {"has_upcoming": True,
@@ -114,6 +181,7 @@ def fetch_all(
                     "ticker_return_5d": ticker_5d,
                     "rel_strength_vs_spy": rel_strength_vs_spy,
                     "short_interest_pct": info.get("short_interest_pct"),
+                "narrative_risk":     narrative_risk,
                 }
                 stats["rows_fetched"] += len(df)
                 stats["news_fetched"] += sentiment.get("volume", 0)

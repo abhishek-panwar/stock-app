@@ -91,18 +91,20 @@ def fundamentals_fetcher():
     s.run()
 
 
-# ── Thursday FMP Pre-fetch — Thu 9:00 PM PT ───────────────────────────────────
-# Pre-caches Nasdaq 100 fundamentals via FMP so Friday long-term scanner hits cache
+# ── Midweek FMP Pre-fetch — Wed + Thu 9:00 PM PT ──────────────────────────────
+# Wed: first 50 Nasdaq tickers (A-M) × 4 calls = 200 calls
+# Thu: last  50 Nasdaq tickers (N-Z) × 4 calls = 200 calls
+# Both within FMP free tier (250/day). Script detects weekday and picks the right half.
 @app.function(
     image=image,
     secrets=secrets,
     timeout=600,
-    schedule=modal.Cron("0 4 * * 5"),  # 9:00 PM PT Thu = 4:00 AM UTC Fri
+    schedule=modal.Cron("0 4 * * 4,5"),  # 9:00 PM PT Wed+Thu = 4:00 AM UTC Thu+Fri
 )
-def thursday_prefetch():
+def midweek_prefetch():
     import sys
     sys.path.insert(0, "/root/app")
-    import scripts.thursday_prefetch as s
+    import scripts.midweek_prefetch as s
     s.run()
 
 

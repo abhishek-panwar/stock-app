@@ -94,6 +94,15 @@ def compute_long_term_bullish_score(
             fund_score += 4
             bonus_reasons.append("Positive FCF (+4)")
 
+        # EPS revision trend — leading indicator of institutional repricing
+        eps_trend = fundamentals.get("eps_revision_trend")
+        if eps_trend == "RISING":
+            fund_score += 5
+            bonus_reasons.append("EPS estimates rising — analyst upgrades in progress (+5)")
+        elif eps_trend == "FALLING":
+            fund_score -= 4
+            bonus_reasons.append("EPS estimates cut — analyst downgrades headwind (-4)")
+
     scores["fundamentals"] = round(min(max(fund_score, -10), 25), 1)
 
     # ── Group 2: Valuation Context (15 pts) ───────────────────────────────────
