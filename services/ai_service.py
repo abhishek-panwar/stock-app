@@ -405,6 +405,17 @@ def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analys
     roc_5  = indicators.get("roc_5", 0) or 0
     roc_10 = indicators.get("roc_10", 0) or 0
     ext_pct = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
+    ext_from_ma50 = (price - ma50) / ma50 * 100 if ma50 > 0 else 0
+    atr_extended = atr > 0 and (price - ma20) >= 2 * atr
+
+    # Tiered target: ext 8-12% → MA20, ext 12-20% → midpoint MA20-MA50, ext >20% → MA50
+    if ext_pct >= 20:
+        tier_label = f"Tier 3 — extreme extension ({ext_pct:.1f}% above MA20, {ext_from_ma50:.1f}% above MA50): target MA50 = ${ma50:.2f}"
+    elif ext_pct >= 12:
+        mid_target = (ma20 + ma50) / 2
+        tier_label = f"Tier 2 — strong extension ({ext_pct:.1f}% above MA20): first target MA20 = ${ma20:.2f}, stretch target midpoint MA20-MA50 = ${mid_target:.2f}"
+    else:
+        tier_label = f"Tier 1 — normal extension ({ext_pct:.1f}% above MA20): target MA20 = ${ma20:.2f}"
 
     prompt = f"""You are a short-term stock analyst specializing in overbought reversals.
 {ticker} has had a strong recent run and is showing exhaustion signals. Analyze whether a pullback is likely.
@@ -413,69 +424,87 @@ PRICE & EXTENSION:
 - Current price: ${price:.2f}
 - ATR(14): ${atr:.2f}/day  (~{atr/price*100:.1f}% daily range)
 - MA20: ${ma20:.2f}  MA50: ${ma50:.2f}
-- Extension above MA20: {ext_pct:.1f}%  (>8% = significantly extended)
+- Extension above MA20: {ext_pct:.1f}%  |  Extension above MA50: {ext_from_ma50:.1f}%
+- ATR extension (price > 2× ATR above MA20): {'YES — parabolic exhaustion' if atr_extended else 'No'}
 - 5-day return: {roc_5:+.1f}%   10-day return: {roc_10:+.1f}%
 
-EXHAUSTION SIGNALS:
+MOMENTUM ROLLOVER:
 - RSI(14): {indicators.get('rsi', 50):.1f}  {'← OVERBOUGHT' if indicators.get('rsi', 50) > 70 else '← APPROACHING OVERBOUGHT' if indicators.get('rsi', 50) > 65 else ''}
-- Bearish RSI divergence (price up 10d, RSI down 10d): {'YES — momentum genuinely fading' if indicators.get('rsi_bearish_divergence') else 'No'}
-- MACD bearish crossover (line < signal): {'YES — momentum confirmed reverting' if indicators.get('macd_crossover_bearish') else 'No'}
-- MACD histogram vs prior bar: {indicators.get('macd_hist', 0):.3f} vs {indicators.get('macd_hist_prev', 0):.3f} {'(SHRINKING — early reversal warning)' if indicators.get('macd_hist', 0) < indicators.get('macd_hist_prev', 0) else '(growing)'}
+- Bearish RSI divergence (price up 10d, RSI down 10d): {'YES — stronger signal, momentum fading despite higher price' if indicators.get('rsi_bearish_divergence') else 'No'}
+- MACD histogram vs prior bar: {indicators.get('macd_hist', 0):.3f} vs {indicators.get('macd_hist_prev', 0):.3f}  {'← SHRINKING — earliest reversal warning' if indicators.get('macd_hist', 0) < indicators.get('macd_hist_prev', 0) else '(growing — no rollover yet)'}
+- MACD bearish crossover (line < signal): {'YES — confirmed momentum reversal' if indicators.get('macd_crossover_bearish') else 'No'}
 - BB rejection (touched upper band, closed back inside): {'YES — sellers at resistance' if indicators.get('bb_touched_upper') and not indicators.get('bb_breakout_up') else 'No'}
-- ATR extension (price > 2× ATR above MA20): {'YES — parabolic, high reversion probability' if indicators.get('atr') and (price - (indicators.get('ma20') or price)) >= 2 * indicators.get('atr', price * 0.02) else 'No'}
-- Price above VWAP: {'YES' if indicators.get('price_above_vwap') else 'No'}
 
-CANDLESTICK TRIGGERS (reversing NOW):
-- Bearish engulfing: {'YES ← strongest reversal candle' if indicators.get('bearish_engulfing') else 'No'}
-- Shooting star: {'YES ← sellers rejected at high' if indicators.get('shooting_star') else 'No'}
-- Upper wick rejection: {'YES ← buyers losing control intraday' if indicators.get('upper_wick_rejection') else 'No'}
+CANDLESTICK TRIGGERS (reversing NOW — weighted by strength):
+- Bearish engulfing: {'YES ← STRONGEST: body fully covers prior bullish candle' if indicators.get('bearish_engulfing') else 'No'}
+- Shooting star: {'YES ← MEDIUM: long upper wick, sellers rejected at high' if indicators.get('shooting_star') else 'No'}
+- Upper wick rejection: {'YES ← WEAK: partial intraday rejection only' if indicators.get('upper_wick_rejection') else 'No'}
+- Blow-off top: {'YES ← STRONGEST: 3 accelerating candles + volume spike = parabolic exhaustion' if indicators.get('blowoff_top') else 'No'}
 
 DISTRIBUTION SIGNALS:
-- OBV trend: {indicators.get('obv_trend', 'NEUTRAL')}  {'← SMART MONEY SELLING' if indicators.get('obv_trend') == 'DIVERGING_BEARISH' else ''}
-- Distribution days (close down on high vol, last 10 bars): {indicators.get('distribution_days', 0)}  {'← INSTITUTIONAL SELLING' if indicators.get('distribution_days', 0) >= 3 else ''}
+- OBV trend: {indicators.get('obv_trend', 'NEUTRAL')}  {'← SMART MONEY SELLING — price/volume divergence' if indicators.get('obv_trend') == 'DIVERGING_BEARISH' else ''}
+- Distribution days (close down on high vol, last 10 bars): {indicators.get('distribution_days', 0)}  {'← INSTITUTIONAL SELLING PATTERN' if indicators.get('distribution_days', 0) >= 3 else ''}
 - Volume surge ratio: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
-- MA50 slope rising: {'YES — strong uptrend, reversal harder' if indicators.get('ma50_slope_rising') else 'No'}
+
+TREND RESISTANCE:
+- MA50 slope rising: {'YES — strong uptrend, mean reversion much harder' if indicators.get('ma50_slope_rising') else 'No'}
+- Extension above MA50: {ext_from_ma50:.1f}%  {'← far from mean, deep reversal candidate' if ext_from_ma50 >= 15 else ''}
 
 EXTERNAL:
 - News sentiment (48h): {sentiment.get('score', 0):.2f}  ({sentiment.get('volume', 0)} articles)
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
-{'- ⚠️ EARNINGS IN ' + str(earnings_calendar.get("days_to_earnings")) + ' DAYS — gap risk, be cautious' if earnings_calendar and earnings_calendar.get("has_upcoming") else '- No upcoming earnings'}
+{'- ⚠️ EARNINGS IN ' + str(earnings_calendar.get("days_to_earnings")) + ' DAYS — gap risk, avoid short' if earnings_calendar and earnings_calendar.get("has_upcoming") else '- No upcoming earnings'}
 
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {_market_context_bearish(rel_strength_vs_spy, sector_return_5d, sector_etf)}{f"ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-TASK: This is a SHORT-TERM BEARISH (SHORT) analysis only. The question is: has this stock run too far, too fast, and is a pullback imminent?
+TASK: This is a SHORT-TERM BEARISH (SHORT) analysis only. Has this stock run too far, too fast, and is a pullback imminent?
 
 DO NOT output BULLISH. If the setup is not clearly bearish, output NEUTRAL.
 
-TARGET PRICE: The pullback target. Anchor to MA20 (natural mean reversion level), the nearest support level, or a prior consolidation zone. A typical mean reversion from 8% above MA20 returns to MA20 = ${ma20:.2f}.
+TREND FILTER — output NEUTRAL if: MA50 slope is rising AND no distribution signals AND no candlestick trigger. Strong trends persist far longer than they should.
 
-STOP PRICE: The level that invalidates the short — a new high, or the price level where the run clearly resumes. Typically 1–2× ATR above entry.
+TARGET PRICE — use this tier system:
+{tier_label}
+Do not invent a round number. Use the tier appropriate to the extension level.
 
-DAYS TO TARGET: Short-term reversals play out in 3–10 days. Divide pullback distance by ATR.
+STOP PRICE: The level that invalidates the short — a new high, or where the run clearly resumes. Typically 1–2× ATR above entry.
 
-CONFIDENCE — derived from signal count:
-- Core signals (5): RSI >70, MACD histogram shrinking or crossover, OBV distributing or distribution days ≥3, price >8% above MA20 or ATR-extended, candlestick trigger (engulfing/shooting star/upper wick)
-- Confirmation signals: bearish RSI divergence, sector ETF negative, underperforming SPY
-- 5 core signals → 85–92. Confirmation signals push to 93–97 if 2+ present.
-- 4 core signals → 72–84
-- 3 core signals → 58–71
-- 2 or fewer → below 58, strongly consider NEUTRAL
-- MA50 slope rising is a major headwind — reduce confidence by 5–8 if present.
-- If you cannot name at least 3 exhaustion OR trigger signals, do NOT go above 60.
+DAYS TO TARGET: Raw formula: (pullback distance / ATR) × 1.3. Minimum 3 days, maximum 10 days.
+Shorts chop and stall before breaking — the 1.3× multiplier accounts for this.
+
+CONFIDENCE — derived strictly from signal count. Count each core bucket that clearly applies:
+  B1: Extension (price >8% above MA20 OR ATR-extended — pick ONE, not both)
+  B2: Momentum rollover (MACD histogram shrinking OR bearish RSI divergence — divergence is stronger)
+  B3: Distribution (OBV diverging bearish OR distribution days ≥3)
+  B4: Trigger (bearish engulfing=strong, shooting star=medium, upper wick=weak, blow-off top=strongest)
+  B5: Trend resistance (extension >15% above MA50 OR price below rising MA50 — confirms shorts have room)
+
+Hard confidence rules (non-negotiable):
+  - Fewer than 3 buckets → confidence MUST be ≤ 60, strongly consider NEUTRAL
+  - MA50 slope rising → subtract 5–8 from confidence (trend fights the thesis)
+  - Global cap: 85 max UNLESS bearish RSI divergence + distribution confirmed + rejection candle + weak sector ALL present (then up to 88)
+  - Shorts have upward-bias headwind — never go above 88 regardless
+
+Score ranges after applying rules:
+  - 5 buckets → 78–85
+  - 4 buckets → 65–77
+  - 3 buckets → 55–64
+  - ≤2 buckets → <55, NEUTRAL recommended
 
 Respond in this exact JSON:
 {{
   "direction": "BEARISH" | "NEUTRAL",
   "position": "SHORT" | "HOLD",
-  "confidence": <integer derived from signal count>,
-  "target_price": <float — anchored to MA20 or support level>,
+  "confidence": <integer — must obey hard rules above>,
+  "core_signals_count": <integer 0–5: how many of B1–B5 buckets are clearly present>,
+  "target_price": <float — use tier system above, anchored to MA20 or MA50>,
   "stop_price": <float — level that invalidates the short>,
-  "days_to_target": <integer 3–10>,
-  "timing_rationale": "<1 sentence: which exhaustion signals are firing and expected reversion distance>",
-  "reasoning": "<2-3 sentences: name each signal present and any that conflict>",
+  "days_to_target": <integer — (distance/ATR)×1.3, min 3, max 10>,
+  "timing_rationale": "<1 sentence: which exhaustion signals are firing and which tier target applies>",
+  "reasoning": "<2-3 sentences: name each signal present, note any that conflict with bearish thesis>",
   "key_signals": ["signal1", "signal2", "signal3"],
   "buy_window": "<time range in PT to enter short, e.g. 7:15 AM – 8:30 AM PT>"
 }}
@@ -502,6 +531,7 @@ Only output the JSON."""
             "direction": "NEUTRAL",
             "position": "HOLD",
             "confidence": 0,
+            "core_signals_count": 0,
             "target_price": None,
             "stop_price": None,
             "days_to_target": None,

@@ -194,16 +194,31 @@ def compute_all(df: pd.DataFrame) -> dict:
         nr7 = ranges[-1] == min(ranges) and ranges[-1] > 0
 
     # ── Pullback quality signals ──────────────────────────────────────────────
-    # near_ma20_bounce: price pulled back to MA20 (within 3% above it) = continuation entry
-    near_ma20_bounce = (
-        ma20_val is not None and
-        0 <= (price - ma20_val) / ma20_val * 100 <= 3
-    )
-
-    # higher_low: current bar's low is higher than the low 5 bars ago = uptrend structure
+    # higher_low must be computed before near_ma20_bounce which depends on it
     higher_low = False
     if len(low) >= 6:
         higher_low = float(low.iloc[-1]) > float(low.iloc[-6])
+
+    # near_ma20_bounce: tight pullback to MA20 (within 1.5% above it) + candle confirmation
+    # 3% was too loose — weak drift qualified. Require structure confirmation.
+    _ma20_ext = (price - ma20_val) / ma20_val * 100 if ma20_val else 999
+    near_ma20_bounce = (
+        ma20_val is not None and
+        0 <= _ma20_ext <= 1.5 and
+        (bullish_engulfing or higher_low)
+    )
+
+    # ── Blow-off top ──────────────────────────────────────────────────────────
+    # 3 consecutive candles with accelerating bodies + volume spike + upper wick on last bar
+    blowoff_top = False
+    if len(df) >= 4 and "open" in df.columns:
+        bodies = [abs(float(close.iloc[i]) - float(df["open"].iloc[i])) for i in range(-4, 0)]
+        bodies_accelerating = bodies[1] > bodies[0] and bodies[2] > bodies[1] and bodies[3] > bodies[2]
+        vol_spike = float(volume.iloc[-1]) > avg_vol * 1.5
+        last_upper_wick = float(high.iloc[-1]) - max(float(close.iloc[-1]), float(df["open"].iloc[-1]))
+        last_body = bodies[-1]
+        wick_rejection = last_body > 0 and last_upper_wick >= last_body * 0.5
+        blowoff_top = bool(bodies_accelerating and vol_spike and wick_rejection)
 
     # ── Gap up + holds ────────────────────────────────────────────────────────
     # Gap up: today's open > yesterday's close by >1%, and price held above open
@@ -269,6 +284,7 @@ def compute_all(df: pd.DataFrame) -> dict:
         "nr7": nr7,
         "near_ma20_bounce": near_ma20_bounce,
         "higher_low": higher_low,
+        "blowoff_top": blowoff_top,
         "gap_up_holds": gap_up_holds,
         "avg_dollar_volume": avg_dollar_volume,
         "vwap": vwap_val,

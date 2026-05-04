@@ -127,17 +127,20 @@ def compute_short_term_bearish_score(
     scores["extension"] = round(min(ext_score + atr_ext_score + bb_score + vwap_score, 20), 1)
 
     # ── Group 5: Candlestick Triggers (10 pts) ────────────────────────────────
-    # These are the "reversing NOW" signals — price action confirming the thesis
+    # Weighted by strength: blow-off top > engulfing > shooting star > upper wick
     candle_score = 0
     candle_reasons = []
+    if ind.get("blowoff_top"):
+        candle_score += 8
+        candle_reasons.append("blow-off top")
     if ind.get("bearish_engulfing"):
         candle_score += 7
         candle_reasons.append("bearish engulfing")
     if ind.get("shooting_star"):
-        candle_score += 6
+        candle_score += 5
         candle_reasons.append("shooting star")
     if ind.get("upper_wick_rejection"):
-        candle_score += 4
+        candle_score += 3
         candle_reasons.append("upper wick rejection")
 
     scores["candle_trigger"] = round(min(candle_score, 10), 1)
@@ -224,6 +227,7 @@ def compute_short_term_bearish_score(
         "MACD histogram shrinking (+20)" if (macd_line > macd_signal and macd_hist < macd_hist_prev and macd_hist_prev > 0) else None,
         "OBV distribution" if obv == "DIVERGING_BEARISH" else None,
         f"Candlestick: {', '.join(candle_reasons)}" if candle_reasons else None,
+        "Blow-off top detected (+8)" if ind.get("blowoff_top") else None,
         f"Distribution days: {dist_days}" if dist_days >= 2 else None,
         "ATR parabolic extension" if atr_ext_score > 0 else None,
     ] if r]
