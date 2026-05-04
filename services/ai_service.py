@@ -278,18 +278,24 @@ MOMENTUM:
 - RSI(14): {indicators.get('rsi', 50):.1f} {'← OVERBOUGHT — watch for exhaustion' if indicators.get('rsi', 50) > 70 else '← HEALTHY MOMENTUM' if 50 <= indicators.get('rsi', 50) <= 70 else '← OVERSOLD' if indicators.get('rsi', 50) < 30 else ''}
 - MACD crossover (bullish): {'YES — momentum confirmed' if indicators.get('macd_crossover') else 'No'}
 - MACD recent crossover (last 3 bars): {'YES' if indicators.get('macd_crossover_recent') else 'No'}
-- MACD line vs signal: {indicators.get('macd_line', 0):.3f} vs {indicators.get('macd_signal', 0):.3f}
+- MACD line vs signal: {indicators.get('macd_line', 0):.3f} vs {indicators.get('macd_signal', 0):.3f}  {'(histogram expanding)' if indicators.get('macd_hist', 0) > indicators.get('macd_hist_prev', 0) > 0 else ''}
 - RSI divergence (hidden bullish): {'YES — accumulation signal' if indicators.get('rsi_divergence') else 'No'}
 
-TREND:
+TREND & STRUCTURE:
 - ADX: {indicators.get('adx', 20):.1f} {'(STRONG TREND)' if indicators.get('adx', 0) > 30 else '(WEAK/RANGING)' if indicators.get('adx', 0) < 20 else '(MODERATE)'}
 - Golden cross (MA20>MA50): {'YES' if indicators.get('golden_cross') else 'No'}
 - 52-week high: {'JUST BROKE OUT' if indicators.get('broke_52w_high') else 'Near high' if indicators.get('near_52w_high') else 'Not near'}
+- MA20 bounce (price within 3% above MA20): {'YES — clean continuation entry' if indicators.get('near_ma20_bounce') else 'No'}
+- Higher low (vs 5 bars ago): {'YES — uptrend structure intact' if indicators.get('higher_low') else 'No'}
+- Bullish engulfing candle: {'YES — demand confirmation' if indicators.get('bullish_engulfing') else 'No'}
+- Extension above MA20: {((indicators.get('price', 0) - (indicators.get('ma20') or indicators.get('price', 1))) / (indicators.get('ma20') or indicators.get('price', 1)) * 100):.1f}%  {'← LATE MOMENTUM, higher reversal risk' if ((indicators.get('price', 0) - (indicators.get('ma20') or indicators.get('price', 1))) / (indicators.get('ma20') or indicators.get('price', 1)) * 100) >= 8 else ''}
 
-VOLUME & STRUCTURE:
+VOLUME & VOLATILITY:
 - Volume surge: {indicators.get('volume_surge_ratio', 1.0):.1f}x average
 - OBV trend: {indicators.get('obv_trend', 'NEUTRAL')} {'← SMART MONEY BUYING' if indicators.get('obv_trend') == 'CONFIRMING' else '← SMART MONEY SELLING — caution' if indicators.get('obv_trend') == 'DIVERGING_BEARISH' else ''}
-- Bollinger squeeze: {'YES — breakout imminent' if indicators.get('bb_squeeze') else 'No'}
+- BB squeeze (compression): {'YES — breakout imminent' if indicators.get('bb_squeeze') else 'No'}
+- NR7 (narrowest range in 7 bars): {'YES — volatility compression' if indicators.get('nr7') else 'No'}
+- Gap up + holds: {'YES — institutional buying' if indicators.get('gap_up_holds') else 'No'}
 - Price above VWAP: {'YES' if indicators.get('price_above_vwap') else 'No'}
 
 EXTERNAL:
@@ -314,12 +320,13 @@ STOP PRICE: Set just below the nearest support (MA20, prior consolidation). Use 
 DAYS TO TARGET: Divide distance from price to target by ATR. Multiply by 1.5 if ADX < 20 (ranging market).
 
 CONFIDENCE — derived from signal count:
-- Core signals (5): RSI 50-70 (healthy), MACD bullish crossover, OBV confirming, price above MA20+MA50, volume surge ≥1.5x
-- Bonus signals: outperforming SPY by ≥5%, sector ETF positive, short interest ≥15% (squeeze)
-- 5 core aligned → 85–92. Bonus signals can push to 93–97 if 2+ present.
-- 4 core aligned → 72–84
-- 3 core aligned → 58–71
-- 2 or fewer → below 58, strongly consider NEUTRAL
+- Core signals (5): RSI 50-70, MACD crossover or expanding histogram, OBV confirming, price above MA20+MA50 with ADX>25, volume surge ≥1.5x
+- Quality signals: MA20 bounce + higher low (pre-breakout entry), NR7/BB squeeze (compression), bullish engulfing, gap up holds
+- Penalty signals: extension >8% above MA20 (late momentum, -5 confidence), RSI >72 without volume (-3)
+- 5 core aligned → 82–90. Quality signals push to 91–96 if 2+ present.
+- 4 core aligned → 68–81
+- 3 core aligned → 55–67
+- 2 or fewer → below 55, strongly consider NEUTRAL
 - If you cannot name at least 3 clear bullish signals, do NOT go above 60.
 
 Respond in this exact JSON:

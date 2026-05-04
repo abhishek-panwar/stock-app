@@ -156,16 +156,15 @@ def compute_all(df: pd.DataFrame) -> dict:
         if not pd.isna(ma50_10ago) and ma50_val is not None:
             ma50_slope_rising = float(ma50_val) > float(ma50_10ago)
 
-    # ── Candlestick reversal signals ─────────────────────────────────────────
-    # Require at least 2 bars of OHLC data
-    bearish_engulfing  = False
-    shooting_star      = False
+    # ── Candlestick signals ───────────────────────────────────────────────────
+    bearish_engulfing    = False
+    shooting_star        = False
     upper_wick_rejection = False
+    bullish_engulfing    = False
 
     if len(df) >= 2:
         o1, h1, l1, c1 = float(df["open"].iloc[-2]), float(high.iloc[-2]), float(low.iloc[-2]), float(close.iloc[-2])
         o0, h0, l0, c0 = float(df["open"].iloc[-1]), float(high.iloc[-1]), float(low.iloc[-1]), float(close.iloc[-1])
-        body1 = abs(c1 - o1)
         body0 = abs(c0 - o0)
         candle_range0 = h0 - l0 if h0 > l0 else 1e-9
 
@@ -173,15 +172,50 @@ def compute_all(df: pd.DataFrame) -> dict:
         if c1 > o1 and c0 < o0 and o0 >= c1 and c0 <= o1:
             bearish_engulfing = True
 
-        # Shooting star: small body in lower third, long upper wick ≥ 2× body, tiny lower wick
+        # Bullish engulfing: yesterday bearish, today bullish body fully covers yesterday's body
+        if c1 < o1 and c0 > o0 and c0 >= o1 and o0 <= c1:
+            bullish_engulfing = True
+
+        # Shooting star: long upper wick ≥ 2× body, tiny lower wick
         upper_wick0 = h0 - max(o0, c0)
         lower_wick0 = min(o0, c0) - l0
         if body0 > 0 and upper_wick0 >= 2 * body0 and lower_wick0 <= body0 * 0.3:
             shooting_star = True
 
-        # Upper wick rejection: upper wick > 40% of candle range = sellers pushing price back down
+        # Upper wick rejection: upper wick > 40% of candle range
         if upper_wick0 / candle_range0 > 0.40:
             upper_wick_rejection = True
+
+    # ── Volatility compression (NR7) ─────────────────────────────────────────
+    # NR7: today's high-low range is the narrowest of the last 7 bars
+    nr7 = False
+    if len(df) >= 7:
+        ranges = [float(high.iloc[i]) - float(low.iloc[i]) for i in range(-7, 0)]
+        nr7 = ranges[-1] == min(ranges) and ranges[-1] > 0
+
+    # ── Pullback quality signals ──────────────────────────────────────────────
+    # near_ma20_bounce: price pulled back to MA20 (within 3% above it) = continuation entry
+    near_ma20_bounce = (
+        ma20_val is not None and
+        0 <= (price - ma20_val) / ma20_val * 100 <= 3
+    )
+
+    # higher_low: current bar's low is higher than the low 5 bars ago = uptrend structure
+    higher_low = False
+    if len(low) >= 6:
+        higher_low = float(low.iloc[-1]) > float(low.iloc[-6])
+
+    # ── Gap up + holds ────────────────────────────────────────────────────────
+    # Gap up: today's open > yesterday's close by >1%, and price held above open
+    gap_up_holds = False
+    if len(df) >= 2 and "open" in df.columns:
+        prev_close = float(close.iloc[-2])
+        today_open = float(df["open"].iloc[-1])
+        if prev_close > 0 and today_open > prev_close * 1.01 and price >= today_open:
+            gap_up_holds = True
+
+    # ── Dollar volume (liquidity) ─────────────────────────────────────────────
+    avg_dollar_volume = avg_vol * price if avg_vol > 0 and price > 0 else 0
 
     # ── VWAP (approximate) ────────────────────────────────────────────────────
     typical_price = (high + low + close) / 3
@@ -229,8 +263,14 @@ def compute_all(df: pd.DataFrame) -> dict:
         "distribution_days": distribution_days,
         "ma50_slope_rising": ma50_slope_rising,
         "bearish_engulfing": bearish_engulfing,
+        "bullish_engulfing": bullish_engulfing,
         "shooting_star": shooting_star,
         "upper_wick_rejection": upper_wick_rejection,
+        "nr7": nr7,
+        "near_ma20_bounce": near_ma20_bounce,
+        "higher_low": higher_low,
+        "gap_up_holds": gap_up_holds,
+        "avg_dollar_volume": avg_dollar_volume,
         "vwap": vwap_val,
         "price_above_vwap": price_above_vwap,
         "high_52w": high_52w,
