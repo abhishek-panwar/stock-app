@@ -297,6 +297,7 @@ def run(debug: bool = False):
                     source=item["source"], earnings_calendar=data["earnings_calendar"],
                     analyst_target=data["analyst_target"],
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
+                    narrative_risk=data.get("narrative_risk"),
                 )
             else:
                 score_data = compute_short_term_bearish_score(

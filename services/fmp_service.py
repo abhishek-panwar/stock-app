@@ -80,17 +80,17 @@ def get_fundamentals(ticker: str) -> dict:
     metrics = _get(f"/key-metrics-ttm/{ticker}")
     if metrics and isinstance(metrics, list) and metrics:
         m = metrics[0]
-        pe_ttm = m.get("peRatioTTM")
-        fwd_pe = m.get("forwardPE") or m.get("priceEarningsToGrowthRatioTTM")
-        peg    = m.get("pegRatioTTM") or m.get("priceEarningsToGrowthRatioTTM")
+        # FMP key-metrics-ttm actual field names (verified against FMP docs)
+        pe_ttm = m.get("peRatioTTM") or m.get("priceEarningsRatioTTM")
+        peg    = m.get("pegRatioTTM")
         pb     = m.get("pbRatioTTM") or m.get("priceToBookRatioTTM")
         fcf    = m.get("freeCashFlowPerShareTTM")
+        # forward PE is not available on key-metrics-ttm; fetched via ratios endpoint below
 
-        result["trailing_pe"]  = round(float(pe_ttm), 1) if pe_ttm else None
-        result["peg_ratio"]    = round(float(peg), 2) if peg and float(peg) > 0 else None
+        result["trailing_pe"]   = round(float(pe_ttm), 1) if pe_ttm else None
+        result["peg_ratio"]     = round(float(peg), 2) if peg and float(peg) > 0 else None
         result["price_to_book"] = round(float(pb), 2) if pb else None
-        # FCF per share → scale to approximate total (less accurate but still directional)
-        # We'll get absolute FCF from income statement call below
+        # FCF per share → absolute FCF fetched from income statement call below
 
     # ── Call 2: income-statement (annual, last 2 years for YoY growth) ────────
     time.sleep(_REQUEST_DELAY)
@@ -120,15 +120,18 @@ def get_fundamentals(ticker: str) -> dict:
             if prev_earn != 0 and curr_earn is not None:
                 result["earnings_growth_pct"] = round((curr_earn - prev_earn) / abs(prev_earn) * 100, 1)
 
-    # ── Forward PE: try ratios endpoint as fallback ────────────────────────────
-    if result["forward_pe"] is None:
-        time.sleep(_REQUEST_DELAY)
-        ratios = _get(f"/ratios-ttm/{ticker}")
-        if ratios and isinstance(ratios, list) and ratios:
-            r = ratios[0]
-            fwd = r.get("priceEarningsRatioTTM") or r.get("peRatioTTM")
-            if fwd and float(fwd) > 0:
-                result["forward_pe"] = round(float(fwd), 1)
+    # ── Forward PE: FMP /ratios/{ticker} (not TTM) has forwardPE ─────────────
+    # key-metrics-ttm does not carry forwardPE; annual ratios endpoint does
+    time.sleep(_REQUEST_DELAY)
+    ratios = _get(f"/ratios/{ticker}", {"limit": 1})
+    if ratios and isinstance(ratios, list) and ratios:
+        r = ratios[0]
+        fwd = r.get("priceEarningsRatio")  # most recent annual forward-looking P/E
+        if fwd and float(fwd) > 0:
+            result["forward_pe"] = round(float(fwd), 1)
+    # Final fallback: use trailing PE as forward PE proxy if still None
+    if result["forward_pe"] is None and result["trailing_pe"] is not None:
+        result["forward_pe"] = result["trailing_pe"]
 
     return result
 
