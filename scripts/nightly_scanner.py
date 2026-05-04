@@ -236,6 +236,9 @@ def run(debug: bool = False):
                     analyst_target=data["analyst_target"],
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                     social_velocity=data["social_velocity"],
+                    rel_strength_vs_spy=data.get("rel_strength_vs_spy"),
+                    sector_return_5d=data.get("sector_return_5d"),
+                    short_interest_pct=data.get("short_interest_pct"),
                 )
 
             total = score_data["total"]
@@ -260,6 +263,11 @@ def run(debug: bool = False):
                 "analyst_upside_pct": score_data.get("analyst_upside_pct"),
                 "insider_buying": data["insider_buying"], "fundamentals": data["fundamentals"],
                 "social_velocity": data["social_velocity"],
+                "rel_strength_vs_spy": data.get("rel_strength_vs_spy"),
+                "sector_return_5d": data.get("sector_return_5d"),
+                "sector_etf": data.get("sector_etf"),
+                "sector": data.get("sector"),
+                "short_interest_pct": data.get("short_interest_pct"),
             })
         except Exception as e:
             scan_stats["errors_encountered"] += 1
@@ -283,6 +291,8 @@ def run(debug: bool = False):
                 score_data = compute_short_term_bearish_score(
                     ind, data["sentiment"], data["analyst"], data["earnings"],
                     source=item["source"], earnings_calendar=data["earnings_calendar"],
+                    rel_strength_vs_spy=data.get("rel_strength_vs_spy"),
+                    sector_return_5d=data.get("sector_return_5d"),
                 )
 
             total = score_data["total"]
@@ -307,6 +317,10 @@ def run(debug: bool = False):
                 "analyst_upside_pct": score_data.get("analyst_upside_pct"),
                 "insider_buying": data["insider_buying"], "fundamentals": data["fundamentals"],
                 "social_velocity": None,
+                "rel_strength_vs_spy": data.get("rel_strength_vs_spy"),
+                "sector_return_5d": data.get("sector_return_5d"),
+                "sector_etf": data.get("sector_etf"),
+                "sector": data.get("sector"),
             })
         except Exception as e:
             scan_stats["errors_encountered"] += 1
@@ -382,6 +396,9 @@ def run(debug: bool = False):
                     ticker_history=ticker_history,
                     earnings=item["earnings"],
                     earnings_calendar=item.get("earnings_calendar"),
+                    rel_strength_vs_spy=item.get("rel_strength_vs_spy"),
+                    sector_return_5d=item.get("sector_return_5d"),
+                    sector_etf=item.get("sector_etf"),
                 )
             elif scan_mode == "long":
                 ai = analyze_stock_long(
@@ -407,6 +424,10 @@ def run(debug: bool = False):
                     insider_buying=item.get("insider_buying"),
                     fundamentals=item.get("fundamentals"),
                     social_velocity=item.get("social_velocity"),
+                    rel_strength_vs_spy=item.get("rel_strength_vs_spy"),
+                    sector_return_5d=item.get("sector_return_5d"),
+                    sector_etf=item.get("sector_etf"),
+                    short_interest_pct=item.get("short_interest_pct"),
                 )
             scan_stats["claude_calls_made"] += 1
 

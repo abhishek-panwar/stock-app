@@ -12,6 +12,7 @@ Failure policy:
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from indicators.technicals import compute_all
+from services.yfinance_service import get_market_context, get_sector_etf
 
 
 def fetch_all(
@@ -30,6 +31,9 @@ def fetch_all(
     ticker_data: dict = {}
     stats = {"rows_fetched": 0, "news_fetched": 0, "errors": 0}
     _lock = threading.Lock()
+
+    # Fetch market context once — SPY + sector ETFs, shared across all tickers
+    market_ctx = get_market_context()
 
     def _fetch_one(ticker: str) -> None:
         try:
@@ -72,6 +76,21 @@ def fetch_all(
                 else {"has_upcoming": False, "days_to_earnings": None, "earnings_date": None}
             )
 
+            # Compute relative strength vs SPY and sector ETF
+            sector      = info.get("sector", "Unknown")
+            sector_etf  = get_sector_etf(sector)
+            spy_return  = market_ctx.get("SPY")
+            sector_return = market_ctx.get(sector_etf) if sector_etf else None
+
+            # Ticker's own 5d return for relative strength calc
+            try:
+                close_series = df["close"] if "close" in df.columns else df["Close"]
+                ticker_5d = (float(close_series.iloc[-1]) - float(close_series.iloc[-5])) / float(close_series.iloc[-5]) * 100 if len(close_series) >= 5 else None
+            except Exception:
+                ticker_5d = None
+
+            rel_strength_vs_spy = round(ticker_5d - spy_return, 1) if ticker_5d is not None and spy_return is not None else None
+
             with _lock:
                 ticker_data[ticker] = {
                     "df":               df,
@@ -88,6 +107,13 @@ def fetch_all(
                     "company_name":     info.get("name", ticker),
                     "market_cap":       info.get("market_cap"),
                     "avg_volume":       info.get("avg_volume"),
+                    "sector":           sector,
+                    "sector_etf":       sector_etf,
+                    "spy_return_5d":    spy_return,
+                    "sector_return_5d": sector_return,
+                    "ticker_return_5d": ticker_5d,
+                    "rel_strength_vs_spy": rel_strength_vs_spy,
+                    "short_interest_pct": info.get("short_interest_pct"),
                 }
                 stats["rows_fetched"] += len(df)
                 stats["news_fetched"] += sentiment.get("volume", 0)

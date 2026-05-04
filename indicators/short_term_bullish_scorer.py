@@ -24,6 +24,9 @@ def compute_short_term_bullish_score(
     insider_buying: dict = None,
     fundamentals: dict = None,
     social_velocity: dict = None,
+    rel_strength_vs_spy: float = None,
+    sector_return_5d: float = None,
+    short_interest_pct: float = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -229,6 +232,36 @@ def compute_short_term_bullish_score(
         if upside_pct >= 20:
             bonus += 5
             bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% (+5)")
+
+    # Relative strength vs SPY — stock outperforming market = own catalyst, not just tide
+    if rel_strength_vs_spy is not None:
+        if rel_strength_vs_spy >= 5:
+            bonus += 6
+            bonus_reasons.append(f"Outperforming SPY by {rel_strength_vs_spy:.1f}% — stock-specific catalyst (+6)")
+        elif rel_strength_vs_spy >= 2:
+            bonus += 3
+            bonus_reasons.append(f"Outperforming SPY by {rel_strength_vs_spy:.1f}% (+3)")
+        elif rel_strength_vs_spy <= -3:
+            bonus -= 4
+            bonus_reasons.append(f"Underperforming SPY by {abs(rel_strength_vs_spy):.1f}% — rising with tide only (-4)")
+
+    # Sector momentum — sector ETF confirming the move strengthens thesis
+    if sector_return_5d is not None:
+        if sector_return_5d >= 3:
+            bonus += 4
+            bonus_reasons.append(f"Sector up {sector_return_5d:.1f}% (tailwind) (+4)")
+        elif sector_return_5d <= -2:
+            bonus -= 3
+            bonus_reasons.append(f"Sector down {sector_return_5d:.1f}% (headwind) (-3)")
+
+    # Short interest — high SI + bullish setup = squeeze potential
+    if short_interest_pct is not None:
+        if short_interest_pct >= 20:
+            bonus += 6
+            bonus_reasons.append(f"Short interest {short_interest_pct:.0f}% of float — squeeze potential (+6)")
+        elif short_interest_pct >= 10:
+            bonus += 3
+            bonus_reasons.append(f"Short interest {short_interest_pct:.0f}% of float (+3)")
 
     if insider_buying and insider_buying.get("has_insider_buying"):
         strength  = insider_buying.get("signal_strength", "NONE")

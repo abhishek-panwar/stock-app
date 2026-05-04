@@ -67,6 +67,7 @@ def get_ticker_info(ticker: str, run_date: str = "", log_api: bool = False) -> d
         if log_api and run_date:
             from database.db import log_api_call
             log_api_call(run_date, "yfinance_info", ticker, True)
+        short_pct = info.get("shortPercentOfFloat")
         return {
             "name": info.get("longName", ticker),
             "sector": info.get("sector", "Unknown"),
@@ -75,6 +76,7 @@ def get_ticker_info(ticker: str, run_date: str = "", log_api: bool = False) -> d
             "avg_volume": info.get("averageVolume") or info.get("averageDailyVolume10Day"),
             "52w_high": info.get("fiftyTwoWeekHigh"),
             "52w_low": info.get("fiftyTwoWeekLow"),
+            "short_interest_pct": round(short_pct * 100, 1) if short_pct is not None else None,
         }
     except Exception as e:
         if log_api and run_date:
@@ -138,6 +140,58 @@ def get_fundamentals(ticker: str, run_date: str = "", log_api: bool = False) -> 
             from database.db import log_api_call
             log_api_call(run_date, "yfinance_fundamentals", ticker, False, str(e))
         return {}
+
+
+# Sector ETF map: GICS sector name → ETF ticker
+_SECTOR_ETF_MAP = {
+    "Technology":             "XLK",
+    "Communication Services": "XLC",
+    "Consumer Cyclical":      "XLY",
+    "Consumer Defensive":     "XLP",
+    "Healthcare":             "XLV",
+    "Financials":             "XLF",
+    "Industrials":            "XLI",
+    "Energy":                 "XLE",
+    "Utilities":              "XLU",
+    "Real Estate":            "XLRE",
+    "Basic Materials":        "XLB",
+}
+_ALL_ETFS = ["SPY"] + list(_SECTOR_ETF_MAP.values())
+
+
+def get_market_context() -> dict:
+    """
+    Fetches 5-day returns for SPY and all 11 sector ETFs in one download call.
+    Cached 4h — called once per scanner run, shared across all tickers.
+    Returns: {"SPY": 1.2, "XLK": 0.8, ...}
+    """
+    from database.db import get_cache, set_cache
+    cached = get_cache("market_context")
+    if cached:
+        return cached
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            df = yf.download(_ALL_ETFS, period="10d", interval="1d", progress=False, auto_adjust=True)
+        close = df["Close"] if isinstance(df.columns, pd.MultiIndex) else df
+        result = {}
+        for etf in _ALL_ETFS:
+            try:
+                series = close[etf].dropna()
+                if len(series) >= 5:
+                    result[etf] = round((float(series.iloc[-1]) - float(series.iloc[-5])) / float(series.iloc[-5]) * 100, 2)
+            except Exception:
+                pass
+        set_cache("market_context", result, ttl_hours=4)
+        return result
+    except Exception:
+        return {}
+
+
+def get_sector_etf(sector: str) -> str | None:
+    """Returns the ETF ticker for a given sector name, or None."""
+    return _SECTOR_ETF_MAP.get(sector)
 
 
 def get_price_momentum(ticker: str, days: int = 3) -> float | None:

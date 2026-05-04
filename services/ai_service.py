@@ -73,6 +73,33 @@ def _social_velocity_context(social_velocity: dict) -> str:
     return ""
 
 
+def _market_context_bullish(rel_strength_vs_spy: float, sector_return_5d: float, sector_etf: str, short_interest_pct: float) -> str:
+    lines = []
+    if rel_strength_vs_spy is not None:
+        direction = "outperforming" if rel_strength_vs_spy >= 0 else "underperforming"
+        lines.append(f"Relative strength vs SPY (5d): {rel_strength_vs_spy:+.1f}% ({direction} market)")
+    if sector_return_5d is not None and sector_etf:
+        lines.append(f"Sector ETF ({sector_etf}) 5d return: {sector_return_5d:+.1f}% ({'tailwind' if sector_return_5d >= 1 else 'headwind' if sector_return_5d <= -1 else 'neutral'})")
+    if short_interest_pct is not None and short_interest_pct >= 5:
+        squeeze = " — SQUEEZE POTENTIAL" if short_interest_pct >= 15 else ""
+        lines.append(f"Short interest: {short_interest_pct:.0f}% of float{squeeze}")
+    if not lines:
+        return ""
+    return "- 📊 MARKET CONTEXT:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+
+
+def _market_context_bearish(rel_strength_vs_spy: float, sector_return_5d: float, sector_etf: str) -> str:
+    lines = []
+    if rel_strength_vs_spy is not None:
+        direction = "outperforming" if rel_strength_vs_spy >= 0 else "underperforming"
+        lines.append(f"Relative strength vs SPY (5d): {rel_strength_vs_spy:+.1f}% ({direction} market)")
+    if sector_return_5d is not None and sector_etf:
+        lines.append(f"Sector ETF ({sector_etf}) 5d return: {sector_return_5d:+.1f}% ({'confirms weakness' if sector_return_5d <= -1 else 'sector still strong — fights reversal' if sector_return_5d >= 2 else 'neutral'})")
+    if not lines:
+        return ""
+    return "- 📊 MARKET CONTEXT:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+
+
 def _fundamentals_context(fundamentals: dict) -> str:
     if not fundamentals:
         return ""
@@ -224,7 +251,9 @@ def analyze_stock_bullish(ticker: str, indicators: dict, sentiment: dict, analys
                           accuracy_context: str = "", ticker_history: str = "",
                           earnings_calendar: dict = None, analyst_upside_pct: float = None,
                           insider_buying: dict = None, fundamentals: dict = None,
-                          social_velocity: dict = None) -> dict:
+                          social_velocity: dict = None, rel_strength_vs_spy: float = None,
+                          sector_return_5d: float = None, sector_etf: str = None,
+                          short_interest_pct: float = None) -> dict:
     """
     Short-term bullish Claude prediction — momentum continuation setups only.
     Focused on: how far and how fast will this stock continue its move up?
@@ -271,7 +300,7 @@ EXTERNAL:
 BULLISH SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
-{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{_market_context_bullish(rel_strength_vs_spy, sector_return_5d, sector_etf, short_interest_pct)}{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
 TASK: This is a SHORT-TERM BULLISH (LONG) analysis only. The question is: does this stock have enough momentum to continue higher in the near term?
@@ -285,10 +314,11 @@ STOP PRICE: Set just below the nearest support (MA20, prior consolidation). Use 
 DAYS TO TARGET: Divide distance from price to target by ATR. Multiply by 1.5 if ADX < 20 (ranging market).
 
 CONFIDENCE — derived from signal count:
-- Count: RSI 50-70 (healthy), MACD bullish crossover, OBV confirming, price above MA20+MA50, volume surge ≥1.5x
-- 5/5 aligned → 85–92
-- 4/5 aligned → 72–84
-- 3/5 aligned → 58–71
+- Core signals (5): RSI 50-70 (healthy), MACD bullish crossover, OBV confirming, price above MA20+MA50, volume surge ≥1.5x
+- Bonus signals: outperforming SPY by ≥5%, sector ETF positive, short interest ≥15% (squeeze)
+- 5 core aligned → 85–92. Bonus signals can push to 93–97 if 2+ present.
+- 4 core aligned → 72–84
+- 3 core aligned → 58–71
 - 2 or fewer → below 58, strongly consider NEUTRAL
 - If you cannot name at least 3 clear bullish signals, do NOT go above 60.
 
@@ -342,7 +372,8 @@ Only output the JSON."""
 def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analyst: dict,
                           earnings: dict = None, score_data: dict = None,
                           accuracy_context: str = "", ticker_history: str = "",
-                          earnings_calendar: dict = None) -> dict:
+                          earnings_calendar: dict = None, rel_strength_vs_spy: float = None,
+                          sector_return_5d: float = None, sector_etf: str = None) -> dict:
     """
     Short-term bearish Claude prediction — overbought reversal setups only.
     Focused on: how far and how fast will this extended stock pull back?
@@ -386,7 +417,7 @@ EXTERNAL:
 REVERSAL SCORE: {score_data.get('total', 0)}/100
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
-{f"ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
+{_market_context_bearish(rel_strength_vs_spy, sector_return_5d, sector_etf)}{f"ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
 TASK: This is a SHORT-TERM BEARISH (SHORT) analysis only. The question is: has this stock run too far, too fast, and is a pullback imminent?
@@ -400,10 +431,11 @@ STOP PRICE: The level that invalidates the short — a new high, or the price le
 DAYS TO TARGET: Short-term reversals play out in 3–10 days. Divide pullback distance by ATR.
 
 CONFIDENCE — derived from signal count:
-- Count: RSI >70, bearish RSI divergence, MACD fading/crossing, OBV distributing, price >8% above MA20
-- 5 signals → 85–92
-- 4 signals → 72–84
-- 3 signals → 58–71
+- Core signals (5): RSI >70, bearish RSI divergence, MACD fading/crossing, OBV distributing, price >8% above MA20
+- Confirmation signals: sector ETF negative (confirms weakness), underperforming SPY (stock-specific exhaustion)
+- 5 core signals → 85–92. Confirmation signals can push to 93–97 if both present.
+- 4 core signals → 72–84
+- 3 core signals → 58–71
 - 2 or fewer → below 58, strongly consider NEUTRAL
 - If you cannot name at least 3 exhaustion signals, do NOT go above 60.
 

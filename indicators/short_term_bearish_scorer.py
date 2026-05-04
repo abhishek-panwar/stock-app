@@ -24,6 +24,8 @@ def compute_short_term_bearish_score(
     earnings: dict,
     source: str = "hot_stock",
     earnings_calendar: dict = None,
+    rel_strength_vs_spy: float = None,
+    sector_return_5d: float = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -142,10 +144,32 @@ def compute_short_term_bearish_score(
 
     scores["external"] = round(min(news_score + analyst_score, 10), 1)
 
+    # ── Market context adjustment ──────────────────────────────────────────────
+    # For reversals, sector weakness confirms; sector strength is a headwind
+    market_adj = 0
+    market_reasons = []
+
+    if sector_return_5d is not None:
+        if sector_return_5d <= -2:
+            market_adj += 5
+            market_reasons.append(f"Sector down {sector_return_5d:.1f}% — sector headwind confirms reversal (+5)")
+        elif sector_return_5d >= 4:
+            market_adj -= 4
+            market_reasons.append(f"Sector up {sector_return_5d:.1f}% — sector tailwind fights reversal (-4)")
+
+    # Stock underperforming SPY on the way up = stock-specific weakness = stronger reversal signal
+    if rel_strength_vs_spy is not None:
+        if rel_strength_vs_spy >= 5:
+            market_adj -= 4
+            market_reasons.append(f"Outperforming SPY by {rel_strength_vs_spy:.1f}% — run has real momentum, reversal less likely (-4)")
+        elif rel_strength_vs_spy <= -2:
+            market_adj += 3
+            market_reasons.append(f"Underperforming SPY by {abs(rel_strength_vs_spy):.1f}% — stock-specific weakness (+3)")
+
     # ── Hard penalties ─────────────────────────────────────────────────────────
-    base = sum(scores.values())
+    base = sum(scores.values()) + market_adj
     penalty = 0
-    penalty_reasons = []
+    penalty_reasons = market_reasons[:]
 
     # Earnings within 5 days = gap risk — avoid shorting into earnings
     if earnings_calendar and earnings_calendar.get("has_upcoming"):
