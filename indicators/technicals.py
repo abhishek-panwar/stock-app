@@ -102,6 +102,9 @@ def compute_all(df: pd.DataFrame) -> dict:
     bb_squeeze = bb_width_pct <= 0.20
     bb_breakout_up = price > bb_upper
     bb_breakout_down = price < bb_lower
+    # True if price touched or exceeded BB upper in any of the last 5 bars
+    bb_upper_series = bb_ind.bollinger_hband()
+    bb_touched_upper = bool((high.iloc[-5:].values >= bb_upper_series.iloc[-5:].values).any()) if len(high) >= 5 else False
 
     # ── ATR ───────────────────────────────────────────────────────────────────
     atr_series = ta.volatility.AverageTrueRange(high, low, close, window=14).average_true_range()
@@ -166,6 +169,7 @@ def compute_all(df: pd.DataFrame) -> dict:
         "bb_squeeze": bb_squeeze,
         "bb_breakout_up": bb_breakout_up,
         "bb_breakout_down": bb_breakout_down,
+        "bb_touched_upper": bb_touched_upper,
         "bb_width_pct": bb_width_pct,
         "atr": atr_val,
         "atr_rising": atr_rising,

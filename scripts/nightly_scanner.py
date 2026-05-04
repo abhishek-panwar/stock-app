@@ -39,7 +39,7 @@ from database.db import insert_prediction, insert_scan_log, insert_shadow_price,
 
 # Short-term thresholds (Mon–Thu)
 BULLISH_SCORE_THRESHOLD      = 45
-BEARISH_SCORE_THRESHOLD      = 40
+BEARISH_SCORE_THRESHOLD      = 45
 # Long-term thresholds (Friday) — lower bar, fundamentals need time to play out
 LONG_BULLISH_SCORE_THRESHOLD = 35
 LONG_BEARISH_SCORE_THRESHOLD = 30

@@ -61,27 +61,19 @@ def compute_short_term_bearish_score(
     macd_hist_prev = ind.get("macd_hist_prev", 0)
 
     if ind.get("macd_crossover_bearish"):
-        macd_score = 15   # line just crossed below signal = confirmed reversal
+        macd_score = 25   # line just crossed below signal = confirmed reversal
     elif macd_line > macd_signal and macd_hist < macd_hist_prev and macd_hist_prev > 0:
-        macd_score = 12   # histogram shrinking from positive = momentum fading, early warning
+        macd_score = 15   # histogram shrinking from positive = momentum fading, early warning
     elif macd_line < macd_signal:
-        macd_score = 8    # already bearish
+        macd_score = 10   # already bearish MACD
     else:
         macd_score = 2
 
-    # ROC: high positive ROC = stock is extended = strengthens reversal thesis
-    roc_5 = ind.get("roc_5", 0) or 0
-    roc_10 = ind.get("roc_10", 0) or 0
-    if roc_5 >= 10 or roc_10 >= 15:
-        roc_score = 10   # very extended run — high reversion probability
-    elif roc_5 >= 5 or roc_10 >= 8:
-        roc_score = 6
-    elif roc_5 >= 2:
-        roc_score = 3
-    else:
-        roc_score = 0   # no run = not a reversal setup
+    # ROC removed: high ROC = stock ran hard, NOT that it's reversing.
+    # ROC is already enforced as a universe filter (8%+ run required to enter).
+    # Rewarding it here inflated scores on stocks still mid-run.
 
-    scores["momentum_fading"] = round(min(macd_score + roc_score, 25), 1)
+    scores["momentum_fading"] = round(min(macd_score, 25), 1)
 
     # ── Group 3: Distribution / Volume (20 pts) ───────────────────────────────
     obv = ind.get("obv_trend", "NEUTRAL")
@@ -118,11 +110,12 @@ def compute_short_term_bearish_score(
     else:
         ext_score = 1
 
-    # BB upper band rejection: touched/exceeded upper band = natural resistance
-    if not ind.get("bb_breakout_up"):
-        bb_score = 3   # price below upper band after run = rejected
+    # BB upper band rejection: must have actually touched the upper band recently,
+    # then closed back inside — that's a real rejection. Not just "below the upper band".
+    if ind.get("bb_touched_upper") and not ind.get("bb_breakout_up"):
+        bb_score = 5   # touched upper band in last 5 bars, now closed back inside = rejection
     else:
-        bb_score = 0   # still breaking out = no rejection yet
+        bb_score = 0
 
     # Price above VWAP but severely extended = sign of exhaustion
     vwap_score = 2 if ind.get("price_above_vwap") and ext_pct >= 8 else 0
