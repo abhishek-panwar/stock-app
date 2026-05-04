@@ -49,10 +49,13 @@ def get_long_bullish_hot_tickers(av_gainers: set[str] | None = None) -> list[str
     try:
         data = load_watchlist()
         nasdaq100 = set(data.get("nasdaq100", []))
-        raw |= nasdaq100
-        print(f"  Long bullish Nasdaq 100 base: {len(nasdaq100)} tickers")
+        if nasdaq100:
+            raw |= nasdaq100
+            print(f"  Long bullish Nasdaq 100 base: {len(nasdaq100)} tickers")
+        else:
+            print("  WARNING: nasdaq100 key empty in watchlist.json — falling back to Yahoo-only pool")
     except Exception as e:
-        print(f"  Warning: could not load Nasdaq 100 for long bullish pool: {e}")
+        print(f"  WARNING: could not load Nasdaq 100 ({e}) — falling back to Yahoo-only pool")
 
     # Supplement: Yahoo most_actives + trending (dynamic names not in Nasdaq 100)
     headers = {"User-Agent": "Mozilla/5.0"}

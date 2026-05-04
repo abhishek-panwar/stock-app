@@ -287,7 +287,7 @@ def compute_long_term_bearish_score(
     return {
         "total": total,
         "base": round(base),
-        "bonus": -penalty,
+        "penalty": penalty,
         "bonus_reasons": bonus_reasons,
         "breakdown": scores,
         "formula_version": FORMULA_VERSION,

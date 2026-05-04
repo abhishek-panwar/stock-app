@@ -43,10 +43,13 @@ def get_long_bearish_hot_tickers() -> list[str]:
     try:
         data = load_watchlist()
         nasdaq100 = set(data.get("nasdaq100", []))
-        raw |= nasdaq100
-        print(f"  Long bearish Nasdaq 100 base: {len(nasdaq100)} tickers (filter step removes healthy ones)")
+        if nasdaq100:
+            raw |= nasdaq100
+            print(f"  Long bearish Nasdaq 100 base: {len(nasdaq100)} tickers (filter step removes healthy ones)")
+        else:
+            print("  WARNING: nasdaq100 key empty in watchlist.json — falling back to Yahoo-only pool")
     except Exception as e:
-        print(f"  Warning: could not load Nasdaq 100 for long bearish pool: {e}")
+        print(f"  WARNING: could not load Nasdaq 100 ({e}) — falling back to Yahoo-only pool")
 
     # Supplement: Yahoo losers / 52wk-low for names outside Nasdaq 100
     headers = {"User-Agent": "Mozilla/5.0"}

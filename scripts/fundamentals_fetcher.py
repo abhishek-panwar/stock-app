@@ -60,6 +60,10 @@ def get_fundamentals_from_yfinance(ticker: str) -> dict:
         if mean_target and price and price > 0:
             analyst_upside = round((mean_target - price) / price * 100, 1)
 
+        # yfinance debtToEquity is in percentage form (e.g. 79.5 = 0.795 D/E ratio)
+        dte_raw = info.get("debtToEquity")
+        debt_to_equity = round(dte_raw / 100, 2) if dte_raw is not None else None
+
         return {
             "ticker":               ticker,
             "price":                price,
@@ -73,6 +77,8 @@ def get_fundamentals_from_yfinance(ticker: str) -> dict:
             "forward_pe":           round(forward_pe, 1) if forward_pe else None,
             "peg_ratio":            round(peg, 2) if peg else None,
             "price_to_book":        round(pb, 2) if pb else None,
+            "debt_to_equity":       debt_to_equity,
+            "eps_revision_trend":   None,  # not available from yfinance — requires FMP analyst-estimates
             "analyst_mean_target":  mean_target,
             "analyst_upside_pct":   analyst_upside,
             "analyst_count":        analyst_count,
@@ -180,11 +186,13 @@ def run():
 
         is_refresh = cached is not None  # True = update, False = first fetch
 
-        # Check if Thursday pre-fetch already populated FMP cache for this ticker
+        # Check if midweek pre-fetch already populated FMP cache for this ticker
         fmp_cached = get_cache(f"fundamentals_fmp_{ticker}")
         if fmp_cached and not _needs_refresh(fmp_cached):
-            # Promote FMP cache → main fundamentals cache key
-            set_cache(f"fundamentals_{ticker}", fmp_cached, ttl_hours=FUNDAMENTALS_TTL_H)
+            # Merge FMP data into any existing main cache (avoids overwriting AV overlay fields)
+            existing = get_cache(f"fundamentals_{ticker}") or {}
+            merged = {**existing, **fmp_cached}  # FMP wins on conflict (better quality)
+            set_cache(f"fundamentals_{ticker}", merged, ttl_hours=FUNDAMENTALS_TTL_H)
             fetched += 1
             if is_refresh:
                 refreshed += 1

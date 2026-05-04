@@ -94,7 +94,11 @@ def run(debug: bool = False):
         try:
             from services.fmp_service import get_sector_pe
             sector_pe_ratios = get_sector_pe()
-            print(f"  Sector PE ratios loaded: {len(sector_pe_ratios)} sectors")
+            if sector_pe_ratios:
+                print(f"  Sector PE ratios loaded: {len(sector_pe_ratios)} sectors")
+            else:
+                log_error("scanner", "Sector PE returned empty — sector comparison scoring disabled this run", level="WARNING")
+                sector_pe_ratios = None
         except Exception as e:
             log_error("scanner", f"Sector PE fetch failed: {e}", level="WARNING")
             sector_pe_ratios = None

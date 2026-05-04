@@ -208,10 +208,13 @@ def get_sector_pe() -> dict[str, float]:
     Uses 11 API calls total — cached weekly.
     Returns: {"Technology": 28.5, "Healthcare": 22.1, ...}
     """
-    from database.db import get_cache, set_cache
-    cached = get_cache("sector_pe_ratios")
-    if cached:
-        return cached
+    try:
+        from database.db import get_cache, set_cache
+        cached = get_cache("sector_pe_ratios")
+        if cached:
+            return cached
+    except Exception:
+        set_cache = lambda *a, **kw: None  # cache write becomes a no-op if DB is down
 
     SECTORS = [
         "Technology", "Healthcare", "Financials", "Consumer Cyclical",
@@ -240,6 +243,8 @@ def get_sector_pe() -> dict[str, float]:
     if result:
         set_cache("sector_pe_ratios", result, ttl_hours=168)  # 1-week TTL
         print(f"  Sector PE fetched for {len(result)} sectors")
+    else:
+        print("  WARNING: all 11 sector PE calls failed — sector comparison scoring disabled this run")
     return result
 
 
