@@ -557,6 +557,10 @@ def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: 
     ma50   = indicators.get("ma50") or price
     ma200  = indicators.get("ma200") or price
 
+    _fwd_pe = (fundamentals or {}).get("forward_pe")
+    _trailing_pe = (fundamentals or {}).get("trailing_pe")
+    _peg = (fundamentals or {}).get("peg_ratio")
+
     prompt = f"""You are a long-term stock analyst. Analyze {ticker} for a 60–180 day position.
 IGNORE short-term noise (RSI, MACD, volume spikes). Focus on fundamental re-rating catalysts and institutional conviction.
 
@@ -565,12 +569,17 @@ PRICE & TREND:
 - MA50: ${ma50:.2f}  MA200: ${ma200:.2f}
 - Price vs MA50: {'ABOVE' if price > ma50 else 'BELOW'}  |  vs MA200: {'ABOVE' if price > ma200 else 'BELOW'}
 - ADX (trend strength): {indicators.get('adx', 20):.1f}
+- Higher low structure (vs 5 bars ago): {'YES — institutional accumulation pattern' if indicators.get('higher_low') else 'No'}
+
+VALUATION:
+- Forward P/E: {f"{_fwd_pe:.1f}" if _fwd_pe else "UNKNOWN"}  {'← room for multiple expansion' if _fwd_pe and _fwd_pe <= 20 else '← already at elevated multiple, less expansion room' if _fwd_pe and _fwd_pe > 40 else ''}
+- Trailing P/E: {f"{_trailing_pe:.1f}" if _trailing_pe else "UNKNOWN"}
+- PEG ratio: {f"{_peg:.2f}" if _peg else "UNKNOWN"}  {'← undervalued vs growth rate' if _peg and _peg < 1 else '← fairly valued' if _peg and _peg < 2 else '← expensive relative to growth' if _peg and _peg >= 3 else ''}
 
 FUNDAMENTALS & CATALYST:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
-- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}
+- Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  consecutive: {(earnings or {}).get('consecutive_beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
-LONG-TERM SIGNAL SCORE: {score_data.get('total', 0)}/100
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
@@ -580,34 +589,52 @@ TASK: Make a single long-term prediction (60–180 trading days). Every field mu
 
 DO NOT output BEARISH. If setup is unclear, output NEUTRAL.
 
-DIRECTION: Only BULLISH if there is a concrete fundamental catalyst (earnings acceleration, analyst re-rating, insider accumulation, expanding margins). NEUTRAL if there is no identifiable catalyst.
+DIRECTION: Only BULLISH if there is a concrete fundamental catalyst. NEUTRAL if there is no identifiable catalyst or valuation is already stretched.
 
-TARGET PRICE: Must reflect a specific re-rating thesis — e.g. expansion to a higher P/E, mean reversion to analyst target, or a catalyst-driven repricing. State the basis. Minimum 15% move required — if you cannot justify 15%, output NEUTRAL.
+TARGET PRICE: Must be anchored to one of these mechanisms — state which you are using:
+  (1) Analyst convergence: price moves toward mean analyst target
+  (2) Multiple expansion: e.g. current 18x P/E reprices to 22x as earnings accelerate
+  (3) Earnings revision cycle: EPS estimate upgrades drive price higher
+  (4) Sector re-rating: sector multiple expansion carries the name
+Minimum 15% move required — if you cannot justify 15% via one of these, output NEUTRAL.
 
-STOP PRICE: Wide enough to survive normal long-term volatility. Anchor to a meaningful structural level (e.g. MA200, prior consolidation base). Typically 10–15% below entry for BULLISH, above for BEARISH.
+STOP PRICE: Wide enough to survive normal long-term volatility. Anchor to MA200 or prior consolidation base. Typically 10–15% below entry.
 
-DAYS TO TARGET: Base on the catalyst timeline — e.g. next earnings cycle = ~60d, full re-rating = 120–180d. Be specific about what event drives the timing.
+DAYS TO TARGET: Map to the named catalyst type:
+  - Earnings-driven re-rating (next cycle) → 60–90 days
+  - Multiple expansion / sentiment shift → 90–150 days
+  - Full fundamental re-rating → 120–180 days
+State which category applies and use the corresponding range. Do not pick a number outside the range for the category.
 
-CONFIDENCE — derive it from the strength of fundamental evidence, not a gut feel:
-- Count how many of these 4 factors clearly support your direction:
-  (1) Earnings quality (beats + growth), (2) Analyst conviction (consensus + upside %), (3) Insider activity, (4) Fundamental metrics (margins, FCF, PEG)
-- 4/4 factors present → 80–92
-- 3/4 factors present → 65–79
-- 2/4 factors present → 50–64
-- 1/4 or fewer → below 50, strongly consider NEUTRAL
-- If you cannot name at least 2 concrete fundamental factors, do NOT output confidence above 55.
-- Never output a round default number — it must reflect the actual count and quality of evidence.
+CONFIDENCE — derive from the strength of fundamental evidence:
+  F1: Earnings quality (consecutive beats + growth rate)
+  F2: Analyst conviction (strong consensus + ≥20% mean target upside)
+  F3: Insider activity (meaningful cluster buying)
+  F4: Valuation setup (PEG < 1.5 or forward P/E with expansion room)
+  F5: Fundamental momentum (revenue + earnings growth both accelerating)
+
+Hard rules:
+  - Fewer than 2 factors → confidence MUST be ≤ 55, output NEUTRAL
+  - If valuation already stretched (PEG ≥3 or fwd P/E >50) → subtract 8 from confidence
+  - If UNKNOWN data for more than 2 factors → treat as not present, do not assume
+
+Score ranges:
+  - 5 factors → 80–90
+  - 4 factors → 68–79
+  - 3 factors → 55–67
+  - ≤2 factors → <55, NEUTRAL recommended
 
 Respond in this exact JSON:
 {{
   "direction": "BULLISH" | "NEUTRAL",
   "position": "LONG" | "HOLD",
-  "confidence": <integer derived from fundamental factor count above>,
-  "target_price": <float — anchored to a specific re-rating basis>,
+  "confidence": <integer — must obey hard rules above>,
+  "core_signals_count": <integer 0–5: how many of F1–F5 are clearly present>,
+  "target_price": <float — state the mechanism in timing_rationale>,
   "stop_price": <float — structural level, 10-15% from entry>,
-  "days_to_target": <integer — 60 to 180, based on specific catalyst timeline>,
-  "timing_rationale": "<1 sentence: name the specific catalyst and when it is expected>",
-  "reasoning": "<3-4 sentences: name each fundamental factor present and what is missing>",
+  "days_to_target": <integer — must match catalyst category: 60-90, 90-150, or 120-180>,
+  "timing_rationale": "<1 sentence: name the specific catalyst mechanism and its timeline>",
+  "reasoning": "<3-4 sentences: name each factor present, note valuation context, and what is missing>",
   "key_signals": ["signal1", "signal2", "signal3"],
   "buy_window": "Any time — long-term position, entry timing less critical"
 }}

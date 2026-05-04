@@ -40,8 +40,8 @@ from database.db import insert_prediction, insert_scan_log, insert_shadow_price,
 # Short-term thresholds (Mon–Thu)
 BULLISH_SCORE_THRESHOLD      = 45
 BEARISH_SCORE_THRESHOLD      = 45
-# Long-term thresholds (Friday) — lower bar, fundamentals need time to play out
-LONG_BULLISH_SCORE_THRESHOLD = 35
+# Long-term thresholds (Friday) — raised from 35: filter out "meh but not terrible" names
+LONG_BULLISH_SCORE_THRESHOLD = 50
 LONG_BEARISH_SCORE_THRESHOLD = 30
 MAX_BULLISH_STOCKS           = 30   # top N bullish stocks sent to Claude
 MAX_BEARISH_STOCKS           = 20   # top N bearish stocks sent to Claude

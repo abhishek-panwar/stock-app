@@ -1,18 +1,25 @@
 """
 Long-term bullish scorer — Friday scan, 60-180 day moves.
 
-Extracted from scoring.py compute_long_score() and promoted to its own file
-to mirror the short_term_bullish_scorer / short_term_bearish_scorer pattern.
-
 Signal philosophy:
   - De-weights short-term technicals entirely
-  - Heavily weights fundamentals + insider accumulation + analyst conviction
+  - Fundamentals split: growth/margins/FCF (Group 1) + valuation multiples (Group 2)
+  - Insider accumulation weighted at 15 pts (was 25 — tightened per ChatGPT review)
+  - Analyst conviction: consensus + mean target upside
   - Earnings beats = proxy for management execution quality
-  - Trend (MA200, golden cross) = institutional position confirmation
-  - Social velocity deliberately excluded — it's a short-term noise signal
+  - Trend (MA200, bull regime) = institutional position confirmation
+  - Social velocity deliberately excluded — short-term noise signal
+
+Changes from v1.0 (ChatGPT structural review):
+  - Add Group 2: Valuation Context (15 pts) — forward P/E, PEG vs peers, multiple contraction
+  - Reduce insider weight 25 → 15 pts (powerful but rare; was overriding weak fundamentals)
+  - Raise conviction threshold 35 → 50 (35 let in "meh but not terrible" names)
+  - Conviction logic: require 2 drivers + 1 confirmation (mirrors real re-rating mechanics)
+  - PEG moved from fundamentals to valuation group
+  - Trend: add higher-lows structure signal (institutional accumulation pattern)
 """
 
-FORMULA_VERSION = "long_bullish_v1.0"
+FORMULA_VERSION = "long_bullish_v2.0"
 
 
 def compute_long_term_bullish_score(
@@ -31,11 +38,12 @@ def compute_long_term_bullish_score(
     Higher score = stronger long-term bullish re-rating thesis.
 
     Groups (100 pts total):
-      Fundamentals  30 pts  — revenue/earnings growth, margins, FCF, PEG
-      Insider       25 pts  — strongest long-term signal; executives buying own stock
+      Fundamentals  25 pts  — revenue/earnings growth, margins, FCF
+      Valuation     15 pts  — PEG, forward P/E vs sector, multiple expansion room
+      Insider       15 pts  — executives buying own stock (powerful but rare)
       Analyst       20 pts  — consensus + mean target upside %
-      Earnings      15 pts  — consecutive beats = quality of execution
-      Trend         10 pts  — MA200 position, golden cross on long MAs
+      Earnings      15 pts  — consecutive beats = management execution quality
+      Trend         10 pts  — MA200 position, bull regime, higher-lows structure
     """
     scores = {}
     bonus = 0
@@ -43,14 +51,13 @@ def compute_long_term_bullish_score(
 
     price = ind.get("price", 0)
 
-    # ── Group 1: Fundamentals (30 pts) ────────────────────────────────────────
+    # ── Group 1: Fundamentals — growth, margins, FCF (25 pts) ────────────────
     fund_score = 0
     if fundamentals:
         rev_growth  = fundamentals.get("revenue_growth_pct")
         earn_growth = fundamentals.get("earnings_growth_pct")
         op_margin   = fundamentals.get("operating_margin_pct")
         fcf         = fundamentals.get("free_cashflow")
-        peg         = fundamentals.get("peg_ratio")
 
         if rev_growth is not None:
             if rev_growth >= 25:
@@ -62,7 +69,7 @@ def compute_long_term_bullish_score(
             elif rev_growth >= 8:
                 fund_score += 4
             elif rev_growth < 0:
-                fund_score -= 3  # declining revenue is a structural headwind
+                fund_score -= 3
 
         if earn_growth is not None:
             if earn_growth >= 25:
@@ -76,26 +83,58 @@ def compute_long_term_bullish_score(
 
         if op_margin is not None:
             if op_margin >= 25:
-                fund_score += 6
-                bonus_reasons.append(f"Strong operating margin {op_margin:.0f}% (+6)")
+                fund_score += 5
+                bonus_reasons.append(f"Strong operating margin {op_margin:.0f}% (+5)")
             elif op_margin >= 15:
-                fund_score += 4
+                fund_score += 3
             elif op_margin >= 5:
-                fund_score += 2
+                fund_score += 1
 
         if fcf is not None and fcf > 0:
             fund_score += 4
             bonus_reasons.append("Positive FCF (+4)")
 
-        if peg is not None and 0 < peg < 1:
-            fund_score += 6
-            bonus_reasons.append(f"PEG {peg:.2f} — undervalued growth (+6)")
-        elif peg is not None and 1 <= peg < 2:
-            fund_score += 2
+    scores["fundamentals"] = round(min(max(fund_score, -10), 25), 1)
 
-    scores["fundamentals"] = round(min(max(fund_score, -10), 30), 1)
+    # ── Group 2: Valuation Context (15 pts) ───────────────────────────────────
+    # Core question: is the growth priced in, or is there multiple expansion room?
+    val_score = 0
+    if fundamentals:
+        peg         = fundamentals.get("peg_ratio")
+        trailing_pe = fundamentals.get("trailing_pe")
+        fwd_pe      = fundamentals.get("forward_pe")
 
-    # ── Group 2: Insider Buying (25 pts) ──────────────────────────────────────
+        if peg is not None:
+            if 0 < peg < 1:
+                val_score += 8
+                bonus_reasons.append(f"PEG {peg:.2f} — growth underpriced vs peers (+8)")
+            elif 1 <= peg < 1.5:
+                val_score += 4
+                bonus_reasons.append(f"PEG {peg:.2f} — reasonable valuation (+4)")
+            elif peg >= 3:
+                val_score -= 4  # already priced for perfection
+
+        # Forward P/E reasonable (not already at peak multiple)
+        if fwd_pe is not None:
+            if 0 < fwd_pe <= 20:
+                val_score += 5
+                bonus_reasons.append(f"Forward P/E {fwd_pe:.1f} — room for multiple expansion (+5)")
+            elif 20 < fwd_pe <= 30:
+                val_score += 2
+            elif fwd_pe > 50:
+                val_score -= 3  # priced for perfection, no expansion room
+
+        # Trailing P/E fallback if no forward P/E
+        elif trailing_pe is not None and fwd_pe is None:
+            if 0 < trailing_pe <= 20:
+                val_score += 3
+            elif trailing_pe > 60:
+                val_score -= 2
+
+    scores["valuation"] = round(min(max(val_score, -6), 15), 1)
+
+    # ── Group 3: Insider Buying (15 pts) ──────────────────────────────────────
+    # Reduced from 25 pts — powerful when present but rare; was overriding weak fundamentals
     insider_score = 0
     if insider_buying and insider_buying.get("has_insider_buying"):
         strength  = insider_buying.get("signal_strength", "NONE")
@@ -103,17 +142,17 @@ def compute_long_term_bullish_score(
         n         = insider_buying.get("num_insiders", 1)
         total_str = f"${total_usd/1e6:.1f}M" if total_usd >= 1e6 else f"${total_usd/1e3:.0f}K"
         if strength == "STRONG":
-            insider_score = 25
-            bonus_reasons.append(f"Insider buying STRONG — {total_str} by {n} insider(s) (+25)")
-        elif strength == "MODERATE":
             insider_score = 15
-            bonus_reasons.append(f"Insider buying MODERATE — {total_str} by {n} insider(s) (+15)")
+            bonus_reasons.append(f"Insider buying STRONG — {total_str} by {n} insider(s) (+15)")
+        elif strength == "MODERATE":
+            insider_score = 10
+            bonus_reasons.append(f"Insider buying MODERATE — {total_str} by {n} insider(s) (+10)")
         else:
-            insider_score = 8
+            insider_score = 5
 
     scores["insider"] = insider_score
 
-    # ── Group 3: Analyst Conviction (20 pts) ──────────────────────────────────
+    # ── Group 4: Analyst Conviction (20 pts) ──────────────────────────────────
     analyst_score = 0
     consensus = analyst.get("consensus", "HOLD")
     analyst_score += {"STRONG_BUY": 10, "BUY": 7, "HOLD": 3, "SELL": 0, "STRONG_SELL": 0}.get(consensus, 3)
@@ -124,7 +163,7 @@ def compute_long_term_bullish_score(
         analyst_upside_pct = round(upside_pct, 1)
         if upside_pct >= 30:
             analyst_score += 10
-            bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% — strong conviction (+10)")
+            bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% — strong institutional conviction (+10)")
         elif upside_pct >= 20:
             analyst_score += 7
             bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% (+7)")
@@ -133,7 +172,7 @@ def compute_long_term_bullish_score(
 
     scores["analyst"] = round(min(analyst_score, 20), 1)
 
-    # ── Group 4: Earnings Quality (15 pts) ────────────────────────────────────
+    # ── Group 5: Earnings Quality (15 pts) ────────────────────────────────────
     earnings_score = 0
     consecutive = earnings.get("consecutive_beats", 0)
     total_beats  = earnings.get("beats", 0)
@@ -148,27 +187,29 @@ def compute_long_term_bullish_score(
     elif consecutive >= 1:
         earnings_score = 4
 
-    # Consistent beaters with a broken streak still show execution quality
     if total_beats >= 4 and consecutive < 2:
         earnings_score = max(earnings_score, 8)
-        bonus_reasons.append(f"4/4 earnings beats (streak broken) — consistent execution (+8 floor)")
+        bonus_reasons.append("4/4 earnings beats (streak broken) — consistent execution (+8 floor)")
     elif total_beats >= 3 and consecutive == 0:
         earnings_score = max(earnings_score, 5)
 
     scores["earnings"] = earnings_score
 
-    # ── Group 5: Trend (10 pts) — only long-term trend signals ───────────────
+    # ── Group 6: Trend (10 pts) — long-term structure only ────────────────────
     trend_score = 0
     ma50  = ind.get("ma50") or price
     ma200 = ind.get("ma200") or price
 
     if price > ma200:
-        trend_score += 5   # above 200-day = institutional trend intact
+        trend_score += 5
     if price > ma50 and ma50 > ma200:
-        trend_score += 3   # golden cross on longer MAs = bull regime
+        trend_score += 3
         bonus_reasons.append("Price above MA50 > MA200 — bull regime (+3)")
     if ind.get("adx", 0) > 25:
-        trend_score += 2
+        trend_score += 1
+    # Higher low = institutional accumulation pattern (not a short-term signal)
+    if ind.get("higher_low"):
+        trend_score += 1
 
     scores["trend"] = round(min(trend_score, 10), 1)
 
@@ -180,13 +221,16 @@ def compute_long_term_bullish_score(
     base  = sum(scores.values())
     total = min(round(base + bonus), 100)
 
-    # Conviction: need at least 2 of the 3 core fundamental groups to have meaningful scores
+    # Conviction: require 2 drivers (fundamentals/insider/analyst) + 1 confirmation (earnings/trend)
+    drivers = 0
+    if scores.get("fundamentals", 0) >= 10: drivers += 1
+    if scores.get("valuation", 0) >= 5:     drivers += 1
+    if scores.get("insider", 0) >= 10:      drivers += 1
+    if scores.get("analyst", 0) >= 10:      drivers += 1
     confirmations = 0
-    if scores.get("fundamentals", 0) >= 10:  confirmations += 1
-    if scores.get("insider", 0) >= 15:       confirmations += 1
-    if scores.get("analyst", 0) >= 10:       confirmations += 1
-    if scores.get("earnings", 0) >= 7:       confirmations += 1
-    conviction_pass = total >= 35 and confirmations >= 2
+    if scores.get("earnings", 0) >= 7:      confirmations += 1
+    if scores.get("trend", 0) >= 5:         confirmations += 1
+    conviction_pass = total >= 50 and drivers >= 2 and confirmations >= 1
 
     return {
         "total": total,
