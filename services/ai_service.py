@@ -732,8 +732,8 @@ PRICE & TREND:
 - Death cross (MA50 < MA200): {'YES — confirmed downtrend' if ma50 < ma200 else 'No'}
 
 VALUATION VS DETERIORATION:
-- Forward P/E: {f"{_fwd_pe:.1f}" if _fwd_pe else "UNKNOWN"}  {'← elevated multiple with declining earnings = compression risk' if _fwd_pe and _fwd_pe > 35 and (_earn_growth or 0) <= 0 else ''}
-- Trailing P/E: {f"{_trailing_pe:.1f}" if _trailing_pe else "UNKNOWN"}
+- Forward P/E: {f"{_fwd_pe:.1f}" if _fwd_pe else "UNKNOWN"}  {'← elevated multiple with declining earnings = compression risk' if _fwd_pe and _fwd_pe > 35 and (_earn_growth or 0) <= 0 else '← valuation may already be compressed, verify before shorting' if _fwd_pe and _fwd_pe < 15 else ''}
+- Trailing P/E: {f"{_trailing_pe:.1f}" if _trailing_pe else "UNKNOWN"}  (shown here only — not repeated in fundamentals below)
 
 FUNDAMENTAL DETERIORATION:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')} {'← SELL SIGNAL' if analyst.get('consensus') in ('SELL', 'STRONG_SELL') else ''}
@@ -751,65 +751,74 @@ TASK: Make a single long-term BEARISH prediction. Every field must derive from t
 
 DO NOT output BULLISH. If there is no clear deterioration thesis or the macro backdrop fights the short, output NEUTRAL.
 
-DIRECTION: Only BEARISH if: (a) concrete fundamental deterioration is present AND (b) you can identify a "why now" forward catalyst that will force a re-rating in the next 1–3 quarters. NEUTRAL if fundamentals are mixed, no forward catalyst exists, or the sector is strongly bullish.
+AVOID "CHEAP BAD" STOCKS — if valuation is already compressed (low P/E, well below peers), the stock may not fall further. Require stronger structural deterioration evidence OR output NEUTRAL. Best shorts still look expensive despite bad fundamentals.
 
-"WHY NOW" CATALYST — must identify at least one:
-  - Upcoming earnings risk (guidance cut likely, estimates too high)
+DIRECTION: Only BEARISH if: (a) concrete fundamental deterioration is present AND (b) a "why now" forward catalyst exists. Exception: if BOTH D1 (confirmed decline) AND D5 (structural breakdown) are strong, ongoing deterioration itself qualifies as catalyst.
+NEUTRAL if: fundamentals are mixed, no forward catalyst, valuation already compressed, or sector is strongly outperforming with no idiosyncratic catalyst.
+
+"WHY NOW" CATALYST — must identify at least one (or use D1+D5 exception above):
+  - Upcoming earnings risk (guidance cut likely, estimates still too high)
   - Analyst downgrade cycle in progress
-  - Margin compression becoming visible to market
+  - Margin compression becoming visible / accelerating
   - Competitive/structural disruption accelerating
   - Regulatory / legal event approaching
-If none present → output NEUTRAL regardless of deterioration score.
+Macro filter: if sector is strongly outperforming (+3%+) AND no idiosyncratic catalyst present → output NEUTRAL (don't fight sector flows).
 
-TARGET PRICE: Anchored to one of these mechanisms:
-  (1) Multiple compression: elevated P/E reprices lower as earnings decline (state before/after multiple)
-  (2) Support reversion: price falls to prior base / MA200 support
+TARGET PRICE: Anchored to one of these mechanisms — name it explicitly:
+  (1) Multiple compression: elevated P/E reprices lower as earnings decline — state before/after multiple (e.g. 45x → 25x)
+  (2) Support reversion: price falls to prior base / MA200 structural support
   (3) Analyst target convergence: price moves toward mean analyst target
-  (4) Structural deterioration: business model repricing over 2–3 quarters
-Minimum 15% downside required.
+  (4a) Margin compression repricing: falling margins → lower valuation multiple (state margin before/after)
+  (4b) Growth deceleration repricing: high-growth → low-growth multiple shift (state growth rate change)
+  (4c) Business model impairment: permanent lower profitability forces structural re-rating
+Minimum 15% downside required. Do not anchor to a round number — use the mechanism math.
 
-STOP PRICE: Wide enough to survive short-term bounces. Anchor to MA200 or prior resistance. Typically 10–15% above entry. Higher for volatile names — note if ATR suggests wider stop.
+STOP PRICE: Anchor to MA200 or clear prior resistance. Typically 10–15% above entry. Widen for high-beta or volatile names. Note if this stop is tight relative to the stock's volatility.
 
 DAYS TO TARGET — map to catalyst type (allow ±15% flexibility):
   - Earnings-driven disappointment → 25–75 days (base 30–60)
-  - Multiple compression → 55–125 days (base 60–120)
-  - Structural / narrative deterioration → 100–240 days (base 120–180)
-State which category applies. Do not pick outside the range without explicit justification.
+  - Multiple / margin compression → 55–125 days (base 60–120)
+  - Structural / narrative deterioration → 100–210 days (base 120–180)
+Note: >180 days requires explicit multi-quarter deterioration thesis — do not use as a default.
 
 CONFIDENCE — derive strictly from factor count:
-  D1: Revenue or earnings decline confirmed (not just slowing — actually declining)
-  D2: Analyst SELL/downgrade with target below current price
+  D1: Revenue or earnings decline confirmed (actually declining YoY, not just slowing)
+  D2: Analyst SELL/downgrade with mean target below current price
   D3: Negative FCF or severe margin collapse (<5% operating margin)
   D4: Consecutive earnings misses (2+ quarters in a row)
   D5: Narrative/structural breakdown (competitive disruption, secular decline, model risk)
+  D6: Valuation disconnect — stock still priced at premium multiple despite deterioration (fwd P/E elevated vs peers or vs growth rate)
+Note: absence of insider buying during active deterioration strengthens the bearish thesis (strong companies attract insider buying; silence is telling).
 
 Hard rules (non-negotiable):
   - Fewer than 2 factors → confidence MUST be ≤ 55, output NEUTRAL
-  - No "why now" catalyst identified → output NEUTRAL regardless of score
-  - Insider buying STRONG → subtract 8 from confidence (management conviction against thesis)
-  - Sector strongly bullish (sector ETF up ≥3%) → subtract 5 from confidence
-  - ≥2 of D1–D5 are UNKNOWN → cap confidence at 60, prefer NEUTRAL
+  - No "why now" catalyst (and D1+D5 exception does not apply) → output NEUTRAL
+  - Valuation already compressed (low P/E, below peers) without D5 → output NEUTRAL
+  - Insider buying STRONG → subtract 8 from confidence
+  - Sector strongly outperforming (+3%+) with no idiosyncratic catalyst → subtract 8, prefer NEUTRAL
+  - ≥2 of D1–D6 are UNKNOWN → cap confidence at 60, prefer NEUTRAL
 
 Score ranges after applying rules:
-  - 5 factors → 75–85
-  - 4 factors → 65–77 (was 80-90; compressed — shorts fail often even with good setups)
-  - 3 factors → 55–64
+  - 6 factors → 78–85
+  - 5 factors → 72–77
+  - 4 factors → 63–71
+  - 3 factors → 55–62
   - ≤2 factors → <55, NEUTRAL recommended
-  - Hard cap: 85 max regardless of factor count (shorts have upward-bias headwind)
+  - Hard cap: 85 max (shorts have permanent upward-bias headwind; most outputs should land 60–75)
 
 Respond in this exact JSON:
 {{
   "direction": "BEARISH" | "NEUTRAL",
   "position": "SHORT" | "HOLD",
   "confidence": <integer — must obey hard rules above>,
-  "core_signals_count": <integer 0–5: how many of D1–D5 are clearly present>,
-  "target_price": <float — anchored to named mechanism>,
-  "stop_price": <float — structural level 10-15% above entry, adjusted for volatility>,
-  "days_to_target": <integer — within allowed range for named catalyst category>,
-  "timing_rationale": "<1 sentence: name the 'why now' catalyst and which timeline category applies>",
-  "reasoning": "<3-4 sentences: name each deterioration factor, the forward catalyst, macro context, what is missing>",
+  "core_signals_count": <integer 0–6: how many of D1–D6 are clearly present>,
+  "target_price": <float — anchored to named mechanism with explicit math>,
+  "stop_price": <float — MA200 or resistance, adjusted for volatility>,
+  "days_to_target": <integer — within allowed range for named catalyst category; >180 requires justification>,
+  "timing_rationale": "<1 sentence: name the 'why now' catalyst (or D1+D5 exception) and timeline category>",
+  "reasoning": "<3-4 sentences: name each factor, the forward catalyst, valuation context, macro backdrop, what is missing>",
   "key_signals": ["signal1", "signal2", "signal3"],
-  "buy_window": "Any time — long-term position, but prefer entry on bounce to resistance"
+  "buy_window": "Prefer entry on: weak bounce to MA50/MA200, failed breakout attempt, or post-earnings relief rally"
 }}
 
 Only output the JSON."""
