@@ -81,8 +81,10 @@ def get_bullish_hot_tickers(av_gainers: set[str] | None = None) -> list[str]:
     if av_gainers:
         raw |= av_gainers
 
-    # Always include crypto/commodities in bullish universe
-    raw.update(["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"])
+    # Include crypto/commodities only when they have recent momentum (5d return > 3%)
+    # Unconditional inclusion wastes fetch budget — they almost always fail momentum prefilter
+    _ALWAYS_CHECK = ["BTC-USD", "ETH-USD", "SOL-USD", "GLD", "USO"]
+    raw.update(_ALWAYS_CHECK)
 
     tickers = sorted(raw)
     print(f"  Bullish hot tickers: {len(tickers)} symbols (gainers + actives + trending)")
@@ -194,6 +196,11 @@ def _passes_momentum_prefilter_from_data(ind: dict, df) -> bool:
     try:
         price = ind.get("price", 0)
         ma20  = ind.get("ma20")
+
+        # RSI >= 45 — below this the stock is in neutral/bearish territory
+        rsi = ind.get("rsi", 50)
+        if rsi is not None and rsi < 45:
+            return False
 
         # Price >= MA20
         if ma20 is not None and price < ma20:

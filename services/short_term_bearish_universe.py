@@ -7,10 +7,10 @@ filter_bearish_universe()  — pure computation from pre-fetched ticker_data
 
 Selection criteria (evaluated from pre-fetched data):
   - Market cap >= $2B
-  - 5-day return >= 8% (has had a real sustained run)
+  - 5-day OR 10-day return >= 8% (catches multi-week runs, not just single-day gaps)
   - RSI >= 70 (genuinely overbought — required for reversal thesis)
-  - Price > MA20 by >= 4% (extended from mean — prime for reversion)
   - Crypto and commodities excluded (trend, not revert)
+  - Nasdaq 100 tickers with RSI >= 70 added as additional overlay
 """
 
 import os
@@ -26,13 +26,14 @@ _EXCLUDE_TICKERS = {
 
 def get_bearish_hot_tickers(av_gainers: set[str] | None = None) -> list[str]:
     """
-    Returns raw bearish candidate tickers: today's top gainers.
+    Returns raw bearish candidate tickers: today's top gainers + Nasdaq 100.
     HTTP only — no yfinance, no Finnhub.
 
     av_gainers: pass result of fetch_alpha_vantage_gainers() to avoid double-calling AV.
-                AV top_gainers are included as bearish candidates (high-run stocks).
+    Nasdaq 100 tickers are included so multi-week extended setups aren't missed.
     """
     import requests
+    from services.screener_service import load_nasdaq100
 
     raw: set[str] = set()
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -50,13 +51,19 @@ def get_bearish_hot_tickers(av_gainers: set[str] | None = None) -> list[str]:
     except Exception:
         pass
 
-    # AV top_gainers are also bearish candidates (same stocks that ran hard)
+    # AV top_gainers are also bearish candidates
     if av_gainers:
         raw |= av_gainers
 
+    # Nasdaq 100 overlay — catches stocks extended over weeks, not just today's gappers
+    try:
+        raw |= set(load_nasdaq100())
+    except Exception:
+        pass
+
     raw -= _EXCLUDE_TICKERS
     tickers = sorted(raw)
-    print(f"  Bearish candidate pool: {len(tickers)} raw gainers")
+    print(f"  Bearish candidate pool: {len(tickers)} raw candidates (gainers + Nasdaq 100)")
     return tickers
 
 
@@ -75,7 +82,7 @@ def filter_bearish_universe(
     """
     universe = []
     bearish_tickers: set[str] = set()
-    filtered = {"mcap": 0, "run": 0, "rsi": 0, "extension": 0, "no_data": 0}
+    filtered = {"mcap": 0, "run": 0, "rsi": 0, "no_data": 0}
 
     for ticker in raw_tickers:
         if ticker in _EXCLUDE_TICKERS:
@@ -102,8 +109,7 @@ def filter_bearish_universe(
     print(
         f"  Bearish universe: {len(universe)} stocks "
         f"(filtered: {filtered['mcap']} mcap, {filtered['run']} run<8%, "
-        f"{filtered['rsi']} rsi<70, {filtered['extension']} extension<4%, "
-        f"{filtered['no_data']} no data)"
+        f"{filtered['rsi']} rsi<70, {filtered['no_data']} no data)"
     )
     return universe, bearish_tickers
 
@@ -121,24 +127,23 @@ def _check_reversal_setup_from_data(data: dict, ind: dict, df) -> tuple[str | No
         if mcap > 0 and mcap < MIN_MARKET_CAP:
             return "mcap", f"${mcap/1e6:.0f}M < $2B"
 
-        # 2. 5-day run check — must have gained >= 8%
+        # 2. Run check — 5d OR 10d return >= 8%
+        # 10d catches multi-week extended setups that aren't gapping today
         close = df["close"] if "close" in df.columns else df["Close"]
+        ret_5d  = None
+        ret_10d = None
         if len(close) >= 5:
-            ret_5d = (float(close.iloc[-1]) - float(close.iloc[-5])) / float(close.iloc[-5]) * 100
-            if ret_5d < 8.0:
-                return "run", f"5d return {ret_5d:.1f}% < 8%"
+            ret_5d  = (float(close.iloc[-1]) - float(close.iloc[-5]))  / float(close.iloc[-5])  * 100
+        if len(close) >= 10:
+            ret_10d = (float(close.iloc[-1]) - float(close.iloc[-10])) / float(close.iloc[-10]) * 100
+        best_run = max(r for r in [ret_5d, ret_10d] if r is not None) if (ret_5d is not None or ret_10d is not None) else 0
+        if best_run < 8.0:
+            return "run", f"5d={ret_5d:.1f}% 10d={ret_10d:.1f}% both < 8%"
 
         # 3. RSI check — must be >= 70 (genuinely overbought)
         rsi = ind.get("rsi", 50)
         if rsi < 70:
             return "rsi", f"RSI {rsi:.1f} < 70"
-
-        # 4. Extension from MA20 — must be >= 4% above MA20
-        ma20 = ind.get("ma20")
-        if ma20 is not None and ma20 > 0:
-            extension_pct = (price - ma20) / ma20 * 100
-            if extension_pct < 4.0:
-                return "extension", f"only {extension_pct:.1f}% above MA20"
 
         return None, "passes all checks"
     except Exception:
