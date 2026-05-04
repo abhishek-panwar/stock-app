@@ -364,7 +364,8 @@ def run(debug: bool = False):
 
             if pipeline == "bearish" and scan_mode == "long":
                 ai = analyze_stock_long_bearish(
-                    ticker, ind, sentiment, analyst, score_data,
+                    ticker, ind, sentiment, analyst,
+                    score_data=score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
                     earnings=item["earnings"],
@@ -375,7 +376,8 @@ def run(debug: bool = False):
                 )
             elif pipeline == "bearish":
                 ai = analyze_stock_bearish(
-                    ticker, ind, sentiment, analyst, score_data,
+                    ticker, ind, sentiment, analyst,
+                    score_data=score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
                     earnings=item["earnings"],
@@ -383,7 +385,8 @@ def run(debug: bool = False):
                 )
             elif scan_mode == "long":
                 ai = analyze_stock_long(
-                    ticker, ind, sentiment, analyst, score_data,
+                    ticker, ind, sentiment, analyst,
+                    score_data=score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
                     earnings=item["earnings"],
@@ -394,7 +397,8 @@ def run(debug: bool = False):
                 )
             else:
                 ai = analyze_stock_bullish(
-                    ticker, ind, sentiment, analyst, score_data,
+                    ticker, ind, sentiment, analyst,
+                    score_data=score_data,
                     accuracy_context=accuracy_context,
                     ticker_history=ticker_history,
                     earnings=item["earnings"],
