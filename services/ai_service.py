@@ -285,7 +285,7 @@ TREND & STRUCTURE:
 - ADX: {indicators.get('adx', 20):.1f} {'(STRONG TREND)' if indicators.get('adx', 0) > 30 else '(WEAK/RANGING)' if indicators.get('adx', 0) < 20 else '(MODERATE)'}
 - Golden cross (MA20>MA50): {'YES' if indicators.get('golden_cross') else 'No'}
 - 52-week high: {'JUST BROKE OUT' if indicators.get('broke_52w_high') else 'Near high' if indicators.get('near_52w_high') else 'Not near'}
-- MA20 bounce (price within 3% above MA20): {'YES — clean continuation entry' if indicators.get('near_ma20_bounce') else 'No'}
+- MA20 bounce (price within 1.5% above MA20): {'YES — clean continuation entry' if indicators.get('near_ma20_bounce') else 'No'}
 - Higher low (vs 5 bars ago): {'YES — uptrend structure intact' if indicators.get('higher_low') else 'No'}
 - Bullish engulfing candle: {'YES — demand confirmation' if indicators.get('bullish_engulfing') else 'No'}
 - Extension above MA20: {((indicators.get('price', 0) - (indicators.get('ma20') or indicators.get('price', 1))) / (indicators.get('ma20') or indicators.get('price', 1)) * 100):.1f}%  {'← LATE MOMENTUM, higher reversal risk' if ((indicators.get('price', 0) - (indicators.get('ma20') or indicators.get('price', 1))) / (indicators.get('ma20') or indicators.get('price', 1)) * 100) >= 8 else ''}
@@ -303,8 +303,7 @@ EXTERNAL:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 - Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}{_social_velocity_context(social_velocity)}
-BULLISH SIGNAL SCORE: {score_data.get('total', 0)}/100
-Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
+Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {_market_context_bullish(rel_strength_vs_spy, sector_return_5d, sector_etf, short_interest_pct)}{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
@@ -313,30 +312,42 @@ TASK: This is a SHORT-TERM BULLISH (LONG) analysis only. The question is: does t
 
 DO NOT output BEARISH. If the setup is not clearly bullish, output NEUTRAL.
 
-TARGET PRICE: Anchor to the nearest meaningful resistance level — prior swing high, Bollinger upper band, or a round ATR multiple above entry. Do not invent a round number.
+TARGET PRICE: Use this priority order — (1) nearest prior swing high, (2) if breakout setup: 1.5–2× ATR above entry, (3) Bollinger upper band ONLY if it is within 3% of price. Do not use a round number or invent a level.
 
 STOP PRICE: Set just below the nearest support (MA20, prior consolidation). Use 1.5–2× ATR from entry as a guide.
 
-DAYS TO TARGET: Divide distance from price to target by ATR. Multiply by 1.5 if ADX < 20 (ranging market).
+DAYS TO TARGET: Divide distance from price to target by ATR to get a raw day count. Minimum 2 days, maximum 10 days. Multiply by 1.5 if ADX < 20 OR volume surge < 1.5x.
 
-CONFIDENCE — derived from signal count:
-- Core signals (5): RSI 50-70, MACD crossover or expanding histogram, OBV confirming, price above MA20+MA50 with ADX>25, volume surge ≥1.5x
-- Quality signals: MA20 bounce + higher low (pre-breakout entry), NR7/BB squeeze (compression), bullish engulfing, gap up holds
-- Penalty signals: extension >8% above MA20 (late momentum, -5 confidence), RSI >72 without volume (-3)
-- 5 core aligned → 82–90. Quality signals push to 91–96 if 2+ present.
-- 4 core aligned → 68–81
-- 3 core aligned → 55–67
-- 2 or fewer → below 55, strongly consider NEUTRAL
-- If you cannot name at least 3 clear bullish signals, do NOT go above 60.
+CONFIDENCE — derived strictly from signal count. Count each core signal that clearly applies:
+  C1: RSI between 50–70 (healthy momentum zone)
+  C2: MACD crossover confirmed OR histogram expanding from positive baseline
+  C3: Volume surge ≥1.5x average (institutional participation)
+  C4: Price above MA20 AND above MA50 (trend alignment)
+  C5: ADX > 25 (trend has real strength, not ranging)
+
+Quality signals (upgrade confidence by 3–5 if present): MA20 bounce + higher low, NR7 or BB squeeze, bullish engulfing candle, gap up holds.
+
+Hard confidence rules (non-negotiable):
+  - Fewer than 3 core signals → confidence MUST be ≤ 60
+  - Extension >8% above MA20 → subtract 10 from confidence, hard cap at 75
+  - RSI >72 without volume surge ≥1.5x → subtract 3 from confidence
+  - Global cap: 85 max UNLESS breakout + volume surge ≥1.5x + ADX > 30 are ALL present
+
+Score ranges after applying rules:
+  - 5 core signals → 75–85 (before quality upgrades)
+  - 4 core signals → 65–74
+  - 3 core signals → 52–64
+  - 2 or fewer → ≤55, strongly consider NEUTRAL
 
 Respond in this exact JSON:
 {{
   "direction": "BULLISH" | "NEUTRAL",
   "position": "LONG" | "HOLD",
-  "confidence": <integer derived from signal count>,
-  "target_price": <float — anchored to resistance level>,
+  "confidence": <integer derived from signal count — must obey hard rules above>,
+  "core_signals_count": <integer 0–5: how many of C1–C5 are clearly present>,
+  "target_price": <float — anchored to swing high, ATR multiple, or BB upper per priority order>,
   "stop_price": <float — anchored to support and ATR>,
-  "days_to_target": <integer>,
+  "days_to_target": <integer — min 2, max 10; ×1.5 if ADX<20 or no volume surge>,
   "timing_rationale": "<1 sentence: which specific signals drive the timing and ATR distance to target>",
   "reasoning": "<2-3 sentences: name the specific signals that agree and any that conflict>",
   "key_signals": ["signal1", "signal2", "signal3"],
@@ -365,6 +376,7 @@ Only output the JSON."""
             "direction": "NEUTRAL",
             "position": "HOLD",
             "confidence": 0,
+            "core_signals_count": 0,
             "target_price": None,
             "stop_price": None,
             "days_to_target": None,
@@ -429,7 +441,6 @@ EXTERNAL:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 {'- ⚠️ EARNINGS IN ' + str(earnings_calendar.get("days_to_earnings")) + ' DAYS — gap risk, be cautious' if earnings_calendar and earnings_calendar.get("has_upcoming") else '- No upcoming earnings'}
 
-REVERSAL SCORE: {score_data.get('total', 0)}/100
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {_market_context_bearish(rel_strength_vs_spy, sector_return_5d, sector_etf)}{f"ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
