@@ -547,7 +547,9 @@ def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: 
                        earnings: dict = None, score_data: dict = None,
                        accuracy_context: str = "", ticker_history: str = "",
                        earnings_calendar: dict = None, analyst_upside_pct: float = None,
-                       insider_buying: dict = None, fundamentals: dict = None) -> dict:
+                       insider_buying: dict = None, fundamentals: dict = None,
+                       rel_strength_vs_spy: float = None, sector_return_5d: float = None,
+                       sector_etf: str = None, short_interest_pct: float = None) -> dict:
     """
     Long-term Claude prediction — Friday scan only.
     Focuses on fundamental re-rating and institutional accumulation over 60-180 days.
@@ -561,6 +563,17 @@ def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: 
     _trailing_pe = (fundamentals or {}).get("trailing_pe")
     _peg = (fundamentals or {}).get("peg_ratio")
 
+    # Sector/macro context line
+    _sector_line = ""
+    if sector_return_5d is not None and sector_etf:
+        _sector_line = f"- Sector ETF ({sector_etf}) 5d return: {sector_return_5d:+.1f}% ({'LEADING — tailwind' if sector_return_5d >= 3 else 'LAGGING — headwind' if sector_return_5d <= -2 else 'NEUTRAL'})\n"
+    _spy_line = ""
+    if rel_strength_vs_spy is not None:
+        _spy_line = f"- Relative strength vs SPY (5d): {rel_strength_vs_spy:+.1f}% ({'outperforming' if rel_strength_vs_spy >= 0 else 'underperforming'})\n"
+    _short_line = ""
+    if short_interest_pct is not None and short_interest_pct >= 5:
+        _short_line = f"- Short interest: {short_interest_pct:.0f}% of float{' — SQUEEZE POTENTIAL as flows shift' if short_interest_pct >= 15 else ''}\n"
+
     prompt = f"""You are a long-term stock analyst. Analyze {ticker} for a 60–180 day position.
 IGNORE short-term noise (RSI, MACD, volume spikes). Focus on fundamental re-rating catalysts and institutional conviction.
 
@@ -569,10 +582,10 @@ PRICE & TREND:
 - MA50: ${ma50:.2f}  MA200: ${ma200:.2f}
 - Price vs MA50: {'ABOVE' if price > ma50 else 'BELOW'}  |  vs MA200: {'ABOVE' if price > ma200 else 'BELOW'}
 - ADX (trend strength): {indicators.get('adx', 20):.1f}
-- Higher low structure (vs 5 bars ago): {'YES — institutional accumulation pattern' if indicators.get('higher_low') else 'No'}
+- Multi-week higher-low structure: {'YES — institutional accumulation pattern' if indicators.get('higher_low') else 'No'}
 
 VALUATION:
-- Forward P/E: {f"{_fwd_pe:.1f}" if _fwd_pe else "UNKNOWN"}  {'← room for multiple expansion' if _fwd_pe and _fwd_pe <= 20 else '← already at elevated multiple, less expansion room' if _fwd_pe and _fwd_pe > 40 else ''}
+- Forward P/E: {f"{_fwd_pe:.1f}" if _fwd_pe else "UNKNOWN"}  {'← room for multiple expansion' if _fwd_pe and _fwd_pe <= 20 else '← elevated multiple, less expansion room' if _fwd_pe and _fwd_pe > 40 else ''}
 - Trailing P/E: {f"{_trailing_pe:.1f}" if _trailing_pe else "UNKNOWN"}
 - PEG ratio: {f"{_peg:.2f}" if _peg else "UNKNOWN"}  {'← undervalued vs growth rate' if _peg and _peg < 1 else '← fairly valued' if _peg and _peg < 2 else '← expensive relative to growth' if _peg and _peg >= 3 else ''}
 
@@ -580,6 +593,10 @@ FUNDAMENTALS & CATALYST:
 - Analyst consensus: {analyst.get('consensus', 'HOLD')}
 - Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  consecutive: {(earnings or {}).get('consecutive_beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
+MACRO & SECTOR CONTEXT:
+{_sector_line}{_spy_line}{_short_line}- If sector is leading and SPY RS is positive → supportive backdrop for re-rating
+- If sector is lagging or SPY RS is negative → macro headwind, higher bar required for BULLISH
+
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
@@ -589,39 +606,42 @@ TASK: Make a single long-term prediction (60–180 trading days). Every field mu
 
 DO NOT output BEARISH. If setup is unclear, output NEUTRAL.
 
-DIRECTION: Only BULLISH if there is a concrete fundamental catalyst. NEUTRAL if there is no identifiable catalyst or valuation is already stretched.
+DIRECTION: Only BULLISH if there is a concrete fundamental catalyst AND the macro/sector backdrop is not a strong headwind. NEUTRAL if no identifiable catalyst, valuation is stretched, or sector is significantly lagging.
 
-TARGET PRICE: Must be anchored to one of these mechanisms — state which you are using:
-  (1) Analyst convergence: price moves toward mean analyst target
-  (2) Multiple expansion: e.g. current 18x P/E reprices to 22x as earnings accelerate
-  (3) Earnings revision cycle: EPS estimate upgrades drive price higher
-  (4) Sector re-rating: sector multiple expansion carries the name
-Minimum 15% move required — if you cannot justify 15% via one of these, output NEUTRAL.
+TARGET PRICE: Must be anchored to exactly one of these mechanisms — name it in timing_rationale:
+  (1) Analyst convergence: price converges toward mean analyst target
+  (2) Multiple expansion: current P/E reprices higher as earnings accelerate (state before/after multiple)
+  (3) Earnings revision cycle: EPS estimate upgrades drive repricing over next 1–2 quarters
+  (4) Sector re-rating: sector multiple expansion carries the name (name the sector catalyst)
+  (5) Event-driven catalyst: discrete event reprices the stock (product launch, regulatory approval, restructuring)
+Minimum 15% move required — if you cannot anchor to one of these with 15% upside, output NEUTRAL.
 
-STOP PRICE: Wide enough to survive normal long-term volatility. Anchor to MA200 or prior consolidation base. Typically 10–15% below entry.
+STOP PRICE: Anchor to MA200 or a clear prior consolidation base. Account for volatility — wider for high-beta names. Typically 10–15% below entry but adjust for the stock's ATR.
 
-DAYS TO TARGET: Map to the named catalyst type:
-  - Earnings-driven re-rating (next cycle) → 60–90 days
-  - Multiple expansion / sentiment shift → 90–150 days
-  - Full fundamental re-rating → 120–180 days
-State which category applies and use the corresponding range. Do not pick a number outside the range for the category.
+DAYS TO TARGET: Map to the named catalyst type — allow ±15% flexibility within each range:
+  - Earnings-driven re-rating → 50–105 days (base 60–90)
+  - Multiple expansion / sentiment shift → 75–170 days (base 90–150)
+  - Full fundamental / event-driven re-rating → 100–210 days (base 120–180)
+State which category applies. Do not pick arbitrarily — it must follow from the mechanism.
 
-CONFIDENCE — derive from the strength of fundamental evidence:
-  F1: Earnings quality (consecutive beats + growth rate)
-  F2: Analyst conviction (strong consensus + ≥20% mean target upside)
-  F3: Insider activity (meaningful cluster buying)
-  F4: Valuation setup (PEG < 1.5 or forward P/E with expansion room)
-  F5: Fundamental momentum (revenue + earnings growth both accelerating)
+CONFIDENCE — derive strictly from factor count. Count each that clearly applies:
+  F1: Earnings quality (consecutive beats + growth rate both present)
+  F2: Analyst conviction (strong consensus AND ≥20% mean target upside)
+  F3: Insider activity (meaningful cluster buying, not token purchases)
+  F4: Valuation setup (PEG < 1.5 OR fwd P/E ≤ 25 with room to expand)
+  F5: Fundamental momentum (revenue AND earnings growth both accelerating YoY)
 
-Hard rules:
-  - Fewer than 2 factors → confidence MUST be ≤ 55, output NEUTRAL
-  - If valuation already stretched (PEG ≥3 or fwd P/E >50) → subtract 8 from confidence
-  - If UNKNOWN data for more than 2 factors → treat as not present, do not assume
+Hard rules (non-negotiable):
+  - Fewer than 2 factors present → confidence MUST be ≤ 55, output NEUTRAL
+  - ≥2 of F1–F5 are UNKNOWN → cap confidence at 60, strongly prefer NEUTRAL
+  - Missing F1 (earnings) OR F4 (valuation) → automatically drop one confidence tier
+  - Valuation stretched (PEG ≥3 or fwd P/E >50) → subtract 8 from confidence
+  - Macro headwind (sector lagging AND underperforming SPY) → subtract 5 from confidence
 
-Score ranges:
-  - 5 factors → 80–90
-  - 4 factors → 68–79
-  - 3 factors → 55–67
+Score ranges after applying hard rules:
+  - 5 factors → 78–88
+  - 4 factors → 65–77
+  - 3 factors → 55–64
   - ≤2 factors → <55, NEUTRAL recommended
 
 Respond in this exact JSON:
@@ -630,13 +650,13 @@ Respond in this exact JSON:
   "position": "LONG" | "HOLD",
   "confidence": <integer — must obey hard rules above>,
   "core_signals_count": <integer 0–5: how many of F1–F5 are clearly present>,
-  "target_price": <float — state the mechanism in timing_rationale>,
-  "stop_price": <float — structural level, 10-15% from entry>,
-  "days_to_target": <integer — must match catalyst category: 60-90, 90-150, or 120-180>,
-  "timing_rationale": "<1 sentence: name the specific catalyst mechanism and its timeline>",
-  "reasoning": "<3-4 sentences: name each factor present, note valuation context, and what is missing>",
+  "target_price": <float — anchored to named mechanism>,
+  "stop_price": <float — MA200 or consolidation base, adjusted for volatility>,
+  "days_to_target": <integer — within allowed range for the named catalyst category>,
+  "timing_rationale": "<1 sentence: name the exact mechanism (1–5) and catalyst timeline>",
+  "reasoning": "<3-4 sentences: name each factor present, valuation context, macro backdrop, what is missing>",
   "key_signals": ["signal1", "signal2", "signal3"],
-  "buy_window": "Any time — long-term position, entry timing less critical"
+  "buy_window": "Any time — long-term position, but prefer entry on pullback to MA50 or support retest"
 }}
 
 Only output the JSON."""

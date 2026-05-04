@@ -412,6 +412,10 @@ def run(debug: bool = False):
                     analyst_upside_pct=item.get("analyst_upside_pct"),
                     insider_buying=item.get("insider_buying"),
                     fundamentals=item.get("fundamentals"),
+                    rel_strength_vs_spy=item.get("rel_strength_vs_spy"),
+                    sector_return_5d=item.get("sector_return_5d"),
+                    sector_etf=item.get("sector_etf"),
+                    short_interest_pct=item.get("short_interest_pct"),
                 )
             else:
                 ai = analyze_stock_bullish(
