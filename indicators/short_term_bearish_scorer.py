@@ -160,10 +160,15 @@ def compute_short_term_bearish_score(
         penalty += 10
         penalty_reasons.append("Price below MA50 — already in downtrend, not a reversal setup (-10)")
 
-    # Strong upward OBV = still being accumulated, not a short
-    if obv == "CONFIRMING":
-        penalty += 15
-        penalty_reasons.append("OBV confirming uptrend — not distributing (-15)")
+    # OBV confirming during the run is expected — only penalise lightly.
+    # A -15 here wiped out most candidates since any 8%+ run has buyers behind it.
+    # Real red flag is OBV still accelerating UP on the day of scan (not yet reversing).
+    if obv == "CONFIRMING" and ind.get("volume_surge_ratio", 1.0) >= 2.0:
+        penalty += 8
+        penalty_reasons.append("OBV confirming + high volume surge — buyers still in control (-8)")
+    elif obv == "CONFIRMING":
+        penalty += 3
+        penalty_reasons.append("OBV still confirming — mild caution (-3)")
 
     total = max(0, min(round(base - penalty), 100))
 

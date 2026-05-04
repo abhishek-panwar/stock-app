@@ -8,7 +8,7 @@ filter_bearish_universe()  — pure computation from pre-fetched ticker_data
 Selection criteria (evaluated from pre-fetched data):
   - Market cap >= $2B
   - 5-day return >= 8% (has had a real sustained run)
-  - RSI >= 65 (approaching or in overbought territory)
+  - RSI >= 70 (genuinely overbought — required for reversal thesis)
   - Price > MA20 by >= 4% (extended from mean — prime for reversion)
   - Crypto and commodities excluded (trend, not revert)
 """
@@ -102,7 +102,7 @@ def filter_bearish_universe(
     print(
         f"  Bearish universe: {len(universe)} stocks "
         f"(filtered: {filtered['mcap']} mcap, {filtered['run']} run<8%, "
-        f"{filtered['rsi']} rsi<65, {filtered['extension']} extension<4%, "
+        f"{filtered['rsi']} rsi<70, {filtered['extension']} extension<4%, "
         f"{filtered['no_data']} no data)"
     )
     return universe, bearish_tickers
@@ -128,10 +128,10 @@ def _check_reversal_setup_from_data(data: dict, ind: dict, df) -> tuple[str | No
             if ret_5d < 8.0:
                 return "run", f"5d return {ret_5d:.1f}% < 8%"
 
-        # 3. RSI check — must be >= 65
+        # 3. RSI check — must be >= 70 (genuinely overbought)
         rsi = ind.get("rsi", 50)
-        if rsi < 65:
-            return "rsi", f"RSI {rsi:.1f} < 65"
+        if rsi < 70:
+            return "rsi", f"RSI {rsi:.1f} < 70"
 
         # 4. Extension from MA20 — must be >= 4% above MA20
         ma20 = ind.get("ma20")
