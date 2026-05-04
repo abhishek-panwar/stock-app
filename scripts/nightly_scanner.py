@@ -80,6 +80,17 @@ def run(debug: bool = False):
     is_friday = datetime.now(PT).weekday() == 4
     scan_mode = "long" if (is_friday and not debug) else "short"
 
+    # Fetch macro regime once — used in both long-term Claude prompts
+    macro_regime = None
+    if scan_mode == "long":
+        try:
+            from services.fred_service import get_macro_regime
+            macro_regime = get_macro_regime()
+            print(f"  Macro regime: {macro_regime.get('regime', 'UNKNOWN')} — {macro_regime.get('explanation', '')}")
+        except Exception as e:
+            log_error("scanner", f"FRED macro regime fetch failed: {e}", level="WARNING")
+            macro_regime = None
+
     # ── Step 1: Collect raw ticker lists (HTTP only) ──────────────────────────
     # Alpha Vantage called ONCE here, result shared with both builders (Issue #4 fix)
     print("Collecting raw ticker lists...")
@@ -391,6 +402,7 @@ def run(debug: bool = False):
                     rel_strength_vs_spy=item.get("rel_strength_vs_spy"),
                     sector_return_5d=item.get("sector_return_5d"),
                     sector_etf=item.get("sector_etf"),
+                    macro_regime=macro_regime,
                 )
             elif pipeline == "bearish":
                 ai = analyze_stock_bearish(
@@ -419,6 +431,7 @@ def run(debug: bool = False):
                     sector_return_5d=item.get("sector_return_5d"),
                     sector_etf=item.get("sector_etf"),
                     short_interest_pct=item.get("short_interest_pct"),
+                    macro_regime=macro_regime,
                 )
             else:
                 ai = analyze_stock_bullish(

@@ -91,6 +91,21 @@ def fundamentals_fetcher():
     s.run()
 
 
+# ── Thursday FMP Pre-fetch — Thu 9:00 PM PT ───────────────────────────────────
+# Pre-caches Nasdaq 100 fundamentals via FMP so Friday long-term scanner hits cache
+@app.function(
+    image=image,
+    secrets=secrets,
+    timeout=600,
+    schedule=modal.Cron("0 4 * * 5"),  # 9:00 PM PT Thu = 4:00 AM UTC Fri
+)
+def thursday_prefetch():
+    import sys
+    sys.path.insert(0, "/root/app")
+    import scripts.thursday_prefetch as s
+    s.run()
+
+
 # ── Price Watcher — every 5 min during market hours Mon–Fri ───────────────────
 # Modal Cron takes a single string; use the full UTC window 13-20 UTC = 6 AM-1 PM PT
 @app.function(

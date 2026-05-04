@@ -57,7 +57,15 @@ JOBS = [
         "platform":    "modal",
         "time_pt":     (8, 0),          # 8:00 AM PT
         "days":        [4, 5, 6],       # Fri, Sat, Sun
-        "description": "Fetch revenue growth, margins, FCF, PEG via yfinance + Alpha Vantage",
+        "description": "Fetch revenue growth, margins, FCF, PEG via FMP + yfinance + Alpha Vantage",
+    },
+    {
+        "id":          "thursday_prefetch",
+        "label":       "Thursday FMP Pre-fetch",
+        "platform":    "modal",
+        "time_pt":     (21, 0),         # 9:00 PM PT (after scanner at 7:30 PM, before Friday)
+        "days":        [3],             # Thursday only
+        "description": "Pre-fetch FMP fundamentals for Nasdaq 100 so Friday scanner hits cache",
     },
 
     # ── GitHub Actions ─────────────────────────────────────────────────────────
@@ -195,6 +203,7 @@ def sync_all():
         "feedback_engine_modal": "feedback_engine",
         "failure_analyzer":      "failure_analyzer",
         "fundamentals_fetcher":  "fundamentals_fetcher",
+        "thursday_prefetch":     "thursday_prefetch",
     }
 
     for job in JOBS:

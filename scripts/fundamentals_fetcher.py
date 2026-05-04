@@ -1,12 +1,19 @@
 """
 Fundamentals fetcher — runs Fri/Sat/Sun 8 AM PT via Modal cron.
-Reads hot_tickers from DB, fetches fundamentals from yfinance + Alpha Vantage,
+Reads hot_tickers from DB, fetches fundamentals from FMP (primary) + yfinance (fallback),
 persists to api_cache with 2-week TTL, refreshes weekly (overwrites if >7 days old).
 
-AV call budget per run:
-  Friday  8 AM PT: 24 calls (Thursday scanner used 1 from this budget)
-  Saturday 8 AM PT: 25 calls (full budget — no scanner ran Friday post-reset)
-  Sunday  8 AM PT: 25 calls (full budget — no scanner ran Saturday)
+FMP call budget per run:
+  Friday  8 AM PT: Nasdaq 100 already cached by Thursday pre-fetch (~200 calls used Thu)
+                   Only dynamic tickers need FMP here (~20-40 calls)
+  Saturday 8 AM PT: all hot tickers refreshed — up to 150 tickers × 2 = 300 calls
+                    (may exceed free tier 250; yfinance fallback covers the rest)
+  Sunday  8 AM PT: mostly cached from Saturday — minimal calls
+
+AV call budget per run (legacy overlay, kept as backup):
+  Friday  8 AM PT: 24 calls
+  Saturday 8 AM PT: 25 calls
+  Sunday  8 AM PT: 25 calls
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 import pytz
 
 from database.db import get_hot_tickers_from_db, get_cache, set_cache
+from services.fmp_service import get_fundamentals as get_fundamentals_from_fmp
 
 PT = pytz.timezone("America/Los_Angeles")
 
@@ -152,6 +160,9 @@ def run():
     skipped  = 0
     refreshed = 0
 
+    fmp_key  = os.environ.get("FMP_API_KEY", "")
+    fmp_calls = 0
+
     for ticker in tickers:
         cached = get_cache(f"fundamentals_{ticker}")
 
@@ -161,10 +172,32 @@ def run():
 
         is_refresh = cached is not None  # True = update, False = first fetch
 
-        # yfinance — no limit, fetch for all tickers
-        data = get_fundamentals_from_yfinance(ticker)
+        # Check if Thursday pre-fetch already populated FMP cache for this ticker
+        fmp_cached = get_cache(f"fundamentals_fmp_{ticker}")
+        if fmp_cached and not _needs_refresh(fmp_cached):
+            # Promote FMP cache → main fundamentals cache key
+            set_cache(f"fundamentals_{ticker}", fmp_cached, ttl_hours=FUNDAMENTALS_TTL_H)
+            fetched += 1
+            if is_refresh:
+                refreshed += 1
+            continue
 
-        # AV — overlay if budget remains, fills any gaps yfinance left
+        # FMP primary — better data quality than yfinance for long-term fundamentals
+        data = None
+        if fmp_key and fmp_calls < 200:  # conservative daily budget cap
+            try:
+                fmp_data = get_fundamentals_from_fmp(ticker)
+                if fmp_data and not fmp_data.get("error"):
+                    data = fmp_data
+                    fmp_calls += 2  # key-metrics + income-statement
+            except Exception as e:
+                print(f"  FMP error {ticker}: {e}")
+
+        # yfinance fallback — no limit, fills FMP gaps or replaces on budget exhaustion
+        if not data:
+            data = get_fundamentals_from_yfinance(ticker)
+
+        # AV — overlay if budget remains, fills any remaining gaps
         if av_key and av_calls < av_limit:
             av_data = get_fundamentals_from_av(ticker, av_key)
             if av_data:
@@ -180,12 +213,12 @@ def run():
             refreshed += 1
 
         if fetched % 10 == 0:
-            print(f"  Progress: {fetched}/{len(tickers)} — {av_calls} AV calls used")
+            print(f"  Progress: {fetched}/{len(tickers)} — {fmp_calls} FMP calls, {av_calls} AV calls used")
 
-        time.sleep(0.1)  # gentle yfinance pacing
+        time.sleep(0.1)  # gentle pacing
 
     print(f"  Done — {fetched} fetched ({refreshed} refreshed, {fetched - refreshed} new), "
-          f"{skipped} already fresh, {av_calls}/{av_limit} AV calls used")
+          f"{skipped} already fresh, {fmp_calls} FMP calls, {av_calls}/{av_limit} AV calls used")
 
 
 if __name__ == "__main__":

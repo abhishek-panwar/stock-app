@@ -73,6 +73,22 @@ def _social_velocity_context(social_velocity: dict) -> str:
     return ""
 
 
+def _macro_regime_context(macro_regime: dict) -> str:
+    """Returns a 1-line macro regime block for long-term prompts."""
+    if not macro_regime:
+        return ""
+    from services.fred_service import macro_regime_label
+    label = macro_regime_label(macro_regime)
+    regime = macro_regime.get("regime", "NEUTRAL")
+    if regime == "RISK_OFF":
+        note = "RISK_OFF — raise confidence bar, prefer NEUTRAL unless thesis is very strong"
+    elif regime == "RISK_ON":
+        note = "RISK_ON — macro supports re-rating; not a substitute for fundamentals"
+    else:
+        note = "NEUTRAL macro — no strong tailwind or headwind from macro"
+    return f"- 🌐 MACRO REGIME: {label}\n  → {note}\n"
+
+
 def _market_context_bullish(rel_strength_vs_spy: float, sector_return_5d: float, sector_etf: str, short_interest_pct: float) -> str:
     lines = []
     if rel_strength_vs_spy is not None:
@@ -549,7 +565,8 @@ def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: 
                        earnings_calendar: dict = None, analyst_upside_pct: float = None,
                        insider_buying: dict = None, fundamentals: dict = None,
                        rel_strength_vs_spy: float = None, sector_return_5d: float = None,
-                       sector_etf: str = None, short_interest_pct: float = None) -> dict:
+                       sector_etf: str = None, short_interest_pct: float = None,
+                       macro_regime: dict = None) -> dict:
     """
     Long-term Claude prediction — Friday scan only.
     Focuses on fundamental re-rating and institutional accumulation over 60-180 days.
@@ -594,7 +611,7 @@ FUNDAMENTALS & CATALYST:
 - Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  consecutive: {(earnings or {}).get('consecutive_beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
 MACRO & SECTOR CONTEXT:
-{_sector_line}{_spy_line}{_short_line}- If sector is leading and SPY RS is positive → supportive backdrop for re-rating
+{_macro_regime_context(macro_regime)}{_sector_line}{_spy_line}{_short_line}- If sector is leading and SPY RS is positive → supportive backdrop for re-rating
 - If sector is lagging or SPY RS is negative → macro headwind, higher bar required for BULLISH
 
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
@@ -701,7 +718,8 @@ def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, a
                                fundamentals: dict = None,
                                rel_strength_vs_spy: float = None,
                                sector_return_5d: float = None,
-                               sector_etf: str = None) -> dict:
+                               sector_etf: str = None,
+                               macro_regime: dict = None) -> dict:
     """
     Long-term bearish Claude prediction — Friday scan only.
     Focuses on fundamental deterioration and institutional re-rating downward over 60-180 days.
@@ -740,7 +758,7 @@ FUNDAMENTAL DETERIORATION:
 - Earnings beats (last 4Q): {(earnings or {}).get('beats', 0)}/4  (misses = {4 - (earnings or {}).get('beats', 0)})  consecutive beats: {(earnings or {}).get('consecutive_beats', 0)}
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
 MACRO & SECTOR CONTEXT:
-{_sector_line}{_spy_line}- Weak company in WEAK sector = strong short. Weak company in STRONG sector = poor timing.
+{_macro_regime_context(macro_regime)}{_sector_line}{_spy_line}- Weak company in WEAK sector = strong short. Weak company in STRONG sector = poor timing.
 
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 

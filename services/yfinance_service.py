@@ -96,10 +96,14 @@ def is_market_open() -> bool:
 
 def get_fundamentals(ticker: str, run_date: str = "", log_api: bool = False) -> dict:
     """
-    Returns cached fundamentals (fetched Saturday by fundamentals_fetcher).
-    Falls back to a live yfinance fetch if cache is empty (e.g. new ticker).
+    Returns cached fundamentals — FMP cache preferred, then main cache, then live yfinance fallback.
+    FMP cache is populated by Thursday pre-fetch (thursday_prefetch.py) and weekend fundamentals_fetcher.
     """
     from database.db import get_cache, set_cache
+    # Check FMP-specific cache first — higher quality data
+    fmp_cached = get_cache(f"fundamentals_fmp_{ticker}")
+    if fmp_cached:
+        return fmp_cached
     cached = get_cache(f"fundamentals_{ticker}")
     if cached:
         return cached
