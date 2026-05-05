@@ -57,19 +57,7 @@ def nightly_scanner():
     s.run()
 
 
-# ── Feedback Engine ────────────────────────────────────────────────────────────
-@app.function(
-    image=image,
-    secrets=secrets,
-    timeout=300,
-    schedule=modal.Cron(to_cron(get_job("feedback_engine_modal"))),
-)
-def feedback_engine():
-    import sys
-    sys.path.insert(0, "/root/app")
-    import scripts.feedback_engine as s
-    s.run()
-
+# Feedback Engine moved to GitHub Actions (feedback_engine.yml) to stay within Modal free tier (5 crons).
 
 # Health Monitor moved to GitHub Actions (health_check.yml) to free up Modal slot.
 # Opportunity Analyzer moved to GitHub Actions (Modal free tier limit is 5 crons)

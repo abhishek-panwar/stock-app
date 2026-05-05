@@ -36,9 +36,9 @@ JOBS = [
         "description": "Score universe, pick top 50, Claude predictions, Telegram summary",
     },
     {
-        "id":          "feedback_engine_modal",
+        "id":          "feedback_engine",
         "label":       "Feedback Engine",
-        "platform":    "modal",
+        "platform":    "gha",
         "time_pt":     (15, 30),        # 3:30 PM PT
         "days":        "weekdays",
         "description": "Update signal accuracy stats from closed predictions",
@@ -207,12 +207,10 @@ def sync_all():
         src = f.read()
 
     MODAL_ID_MAP = {
-        "nightly_scanner":       "nightly_scanner",
-        "feedback_engine_modal": "feedback_engine",
-        "failure_analyzer":      "failure_analyzer",
-        "fundamentals_fetcher":  "fundamentals_fetcher",
-        "midweek_prefetch":      "midweek_prefetch",
-        "options_prefetcher":    "options_prefetcher",
+        "nightly_scanner":    "nightly_scanner",
+        "fundamentals_fetcher": "fundamentals_fetcher",
+        "midweek_prefetch":   "midweek_prefetch",
+        "options_prefetcher": "options_prefetcher",
     }
 
     for job in JOBS:
