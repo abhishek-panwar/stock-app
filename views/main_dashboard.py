@@ -160,15 +160,15 @@ def render():
         def _fmt(val, suffix=""):
             return f"{val}{suffix}" if val not in (None, "", "—") else "—"
 
-        superset      = _fmt(log.get("superset_count"))
-        fetched       = _fmt(log.get("tickers_fetched"))
-        passed_filter = _fmt(log.get("universe_total"))
-        scored        = _fmt(log.get("stocks_scored"))
-        sent_claude   = _fmt(log.get("stocks_analyzed"))
-        predictions   = _fmt(log.get("predictions_created"))
-        hot           = _fmt(log.get("hot_stock_count"))
-        nasdaq_earn   = _fmt(log.get("nasdaq100_count"))
-        overlap       = _fmt(log.get("overlap_count"))
+        superset        = _fmt(log.get("superset_count"))
+        fetched         = _fmt(log.get("tickers_fetched"))
+        passed_filter   = _fmt(log.get("universe_total"))
+        scored          = _fmt(log.get("stocks_scored"))
+        sent_claude     = _fmt(log.get("stocks_analyzed"))
+        predictions_cnt = _fmt(log.get("predictions_created"))
+        hot             = _fmt(log.get("hot_stock_count"))
+        nasdaq_earn     = _fmt(log.get("nasdaq100_count"))
+        overlap         = _fmt(log.get("overlap_count"))
 
         # Compute pass rates where possible
         def _pct(num, denom):
@@ -196,7 +196,7 @@ def render():
             <span style="color:#64748b">Sent to Claude</span> &nbsp;
             <span style="font-weight:600">{sent_claude}</span>{_pct(sent_claude, scored)}
             &nbsp;→&nbsp;
-            <span style="color:#15803d;font-weight:700">Predictions: {predictions}</span>{_pct(predictions, sent_claude)}
+            <span style="color:#15803d;font-weight:700">Predictions: {predictions_cnt}</span>{_pct(predictions_cnt, sent_claude)}
             </div>""",
             unsafe_allow_html=True,
         )
