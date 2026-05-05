@@ -589,6 +589,7 @@ def run(debug: bool = False):
                 "outcome":             "PENDING",
                 "earnings_label":      earnings_label or None,
                 "insider_signal":      insider_signal or None,
+                "prediction_label":    ("🚀 RALLY THESIS" if direction == "BULLISH" else "💥 CRASH THESIS") if scan_mode == "long" else None,
                 "market_cap":          item.get("market_cap") or None,
                 "avg_volume":          item.get("avg_volume") or None,
             }

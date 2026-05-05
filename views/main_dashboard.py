@@ -664,6 +664,12 @@ def _asset_badge(p: dict) -> str:
         badges += '<span style="background:#1e1b4b;color:#a5b4fc;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">₿ CRYPTO</span>'
     elif asset == "commodity":
         badges += '<span style="background:#451a03;color:#fcd34d;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">⬡ COMMODITY</span>'
+    if p.get("prediction_label"):
+        label = p["prediction_label"]
+        if "RALLY" in label:
+            badges += f'<span style="background:#14532d;color:#86efac;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{label}</span>'
+        else:
+            badges += f'<span style="background:#450a0a;color:#fca5a5;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{label}</span>'
     if p.get("earnings_label"):
         badges += f'<span style="background:#78350f;color:#fde68a;border-radius:20px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:4px">{p["earnings_label"]}</span>'
     if p.get("insider_signal"):
