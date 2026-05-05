@@ -645,6 +645,22 @@ def run(debug: bool = False):
             except Exception as e:
                 log_error("scanner", f"Analyst article save failed {ticker}: {e}", level="WARNING")
 
+            # Pre-fetch options contract recommendation and store in Supabase cache (4h TTL).
+            # UI reads from same cache — no button click needed on first page load.
+            if direction in ("BULLISH", "BEARISH") and profit_pct >= 3.0:
+                try:
+                    from services.options_recommendation import get_option_recommendation
+                    ec = pred.get("earnings_calendar") or {}
+                    get_option_recommendation(
+                        ticker, direction, days_to_target,
+                        stock_entry=price, stock_target=target_price,
+                        timeframe=timeframe,
+                        has_earnings=bool(ec.get("has_upcoming")),
+                    )
+                    print(f"  [{pipeline}] {ticker} options contract pre-fetched")
+                except Exception as e:
+                    log_error("scanner", f"Options pre-fetch failed {ticker}: {e}", level="WARNING")
+
         except Exception as e:
             scan_stats["errors_encountered"] += 1
             log_error("scanner", f"Prediction error {ticker}: {e}", detail=str(e), ticker=ticker)

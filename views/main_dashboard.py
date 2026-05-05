@@ -621,6 +621,18 @@ def _option_section(p: dict):
     opt_key = f"opt_{p.get('id', ticker)}_{direction}_{timeframe}"
     fetched = st.session_state.get(opt_key)
 
+    # Auto-load from Supabase cache if scanner pre-fetched it (no button click needed)
+    if fetched is None:
+        try:
+            from database.db import get_cache
+            cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}"
+            cached = get_cache(cache_key)
+            if cached is not None:
+                st.session_state[opt_key] = cached
+                fetched = cached
+        except Exception:
+            pass
+
     is_call    = direction == "BULLISH"
     opt_color  = "#15803d" if is_call else "#b91c1c"
     opt_bg     = "#f0fdf4" if is_call else "#fef2f2"
