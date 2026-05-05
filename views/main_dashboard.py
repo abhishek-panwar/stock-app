@@ -719,6 +719,14 @@ def _option_section(p: dict):
         days_exp_str = f"  ·  {days_exp}d to expiry" if days_exp else ""
         iv_str       = f"{iv:.0f}%" if iv else "N/A"
 
+        if rec.get("after_hours"):
+            st.markdown(
+                '<div style="font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;'
+                'border-radius:6px;padding:4px 8px;margin-bottom:6px">'
+                '⚠️ After-hours: prices estimated from last trade. Refresh during market hours (9:30 AM–4 PM ET) for live bid/ask.</div>',
+                unsafe_allow_html=True,
+            )
+
         st.markdown(
             f"""<div style="font-size:14px;font-weight:700;color:{opt_color};margin-bottom:8px">
               {opt_type}: ${strike:.2f} strike — {exp_label}{days_exp_str}

@@ -172,6 +172,8 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
     best_grade_rank = 99
     best_oi = -1
 
+    all_bids_zero = all((float(row.get("bid") or 0) <= 0) for _, row in band.iterrows())
+
     for _, row in band.iterrows():
         try:
             strike  = float(row["strike"])
@@ -183,6 +185,11 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
             last    = float(row.get("lastPrice") or 0)
         except Exception:
             continue
+
+        # After hours: bid/ask are 0 — fall back to lastPrice as mid estimate
+        if bid <= 0 and all_bids_zero and last > 0:
+            bid = last * 0.95
+            ask = last * 1.05
 
         if bid <= 0 or oi < min_oi:
             continue
@@ -210,6 +217,7 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
                 "spread_pct":   round((spread or 0) * 100, 1),
                 "grade":        g,
                 "delta_approx": delta,
+                "after_hours":  all_bids_zero,
             }
 
     return best
@@ -331,6 +339,9 @@ def get_option_recommendation(
         except Exception:
             expiry_label = expiry
 
+        after_hours = contract.get("after_hours", False)
+        ttl = 0.5 if after_hours else _CACHE_TTL_HOURS  # 30min TTL after hours — prices stale
+
         result = {
             "available":        True,
             "option_type":      option_type_label,
@@ -349,9 +360,10 @@ def get_option_recommendation(
             "days_to_expiry":   days_to_exp,
             "is_short_term":    short_term,
             "earnings_warning": has_earnings,
+            "after_hours":      after_hours,
             "reason":           "",
         }
-        set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
+        set_cache(cache_key, result, ttl_hours=ttl)
         return result
 
     except Exception as e:
