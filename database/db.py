@@ -46,6 +46,9 @@ _COLUMN_MIGRATIONS = [
     ("predictions", "price_at_close",   "numeric"),
     ("predictions", "return_pct",       "numeric"),
     ("predictions", "closed_reason",    "text"),
+    ("scan_logs",   "superset_count",   "integer"),
+    ("scan_logs",   "tickers_fetched",  "integer"),
+    ("scan_logs",   "stocks_scored",    "integer"),
 ]
 
 _TABLE_MIGRATIONS = [

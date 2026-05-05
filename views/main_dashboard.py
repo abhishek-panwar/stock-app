@@ -156,11 +156,49 @@ def render():
 
     if scan_logs:
         log = scan_logs[0]
-        st.info(
-            f"Universe: **{log.get('universe_total','—')} stocks** scanned  ·  "
-            f"{log.get('hot_stock_count','—')} hot (Yahoo + Alpha Vantage) + "
-            f"{log.get('nasdaq100_count','—')} Nasdaq with earnings  ·  "
-            f"{log.get('overlap_count','—')} overlap deduplicated"
+
+        def _fmt(val, suffix=""):
+            return f"{val}{suffix}" if val not in (None, "", "—") else "—"
+
+        superset      = _fmt(log.get("superset_count"))
+        fetched       = _fmt(log.get("tickers_fetched"))
+        passed_filter = _fmt(log.get("universe_total"))
+        scored        = _fmt(log.get("stocks_scored"))
+        sent_claude   = _fmt(log.get("stocks_analyzed"))
+        predictions   = _fmt(log.get("predictions_created"))
+        hot           = _fmt(log.get("hot_stock_count"))
+        nasdaq_earn   = _fmt(log.get("nasdaq100_count"))
+        overlap       = _fmt(log.get("overlap_count"))
+
+        # Compute pass rates where possible
+        def _pct(num, denom):
+            try:
+                return f" ({int(num)/int(denom)*100:.0f}%)"
+            except Exception:
+                return ""
+
+        st.markdown(
+            f"""<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;font-size:13px;line-height:2">
+            <span style="font-weight:700;color:#1e293b">Last scan funnel</span><br>
+            <span style="color:#64748b">Raw candidates</span> &nbsp;
+            <span style="font-weight:600">{superset}</span>
+            <span style="color:#94a3b8"> ({hot} hot · {nasdaq_earn} Nasdaq earnings · {overlap} overlap deduped)</span>
+            &nbsp;→&nbsp;
+            <span style="color:#64748b">Fetched</span> &nbsp;
+            <span style="font-weight:600">{fetched}</span>{_pct(fetched, superset)}
+            &nbsp;→&nbsp;
+            <span style="color:#64748b">Passed filters</span> &nbsp;
+            <span style="font-weight:600">{passed_filter}</span>{_pct(passed_filter, fetched)}
+            &nbsp;→&nbsp;
+            <span style="color:#64748b">Passed scorer</span> &nbsp;
+            <span style="font-weight:600">{scored}</span>{_pct(scored, passed_filter)}
+            &nbsp;→&nbsp;
+            <span style="color:#64748b">Sent to Claude</span> &nbsp;
+            <span style="font-weight:600">{sent_claude}</span>{_pct(sent_claude, scored)}
+            &nbsp;→&nbsp;
+            <span style="color:#15803d;font-weight:700">Predictions: {predictions}</span>{_pct(predictions, sent_claude)}
+            </div>""",
+            unsafe_allow_html=True,
         )
 
     high_conviction = sorted(

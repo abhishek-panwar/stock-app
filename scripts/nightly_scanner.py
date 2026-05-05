@@ -212,6 +212,7 @@ def run(debug: bool = False):
         "nasdaq100_count":        nasdaq_count,
         "hot_stock_count":        hot_count,
         "overlap_count":          overlap_count,
+        "superset_count":         len(superset),
         "universe_total":         universe_total,
         "bullish_universe_count": len(bullish_universe),
         "bearish_universe_count": len(bearish_universe),
@@ -392,9 +393,12 @@ def run(debug: bool = False):
     top_bullish = bullish_scored[:MAX_BULLISH_STOCKS]
     top_bearish = bearish_scored[:MAX_BEARISH_STOCKS]
 
-    scan_stats["stocks_analyzed"] = len(top_bullish) + len(top_bearish)
+    scan_stats["tickers_fetched"]  = len(ticker_data)
+    scan_stats["stocks_scored"]    = len(bullish_scored) + len(bearish_scored)
+    scan_stats["stocks_analyzed"]  = len(top_bullish) + len(top_bearish)
     print(f"Superset: {len(superset)} → fetched {len(ticker_data)} → "
-          f"{len(bullish_universe)} bullish + {len(bearish_universe)} bearish scored")
+          f"filtered {universe_total} → scored {scan_stats['stocks_scored']} → "
+          f"Claude {scan_stats['stocks_analyzed']}")
     print(f"Claude batch: {len(top_bullish)} bullish + {len(top_bearish)} bearish")
 
     for s in shadow:
