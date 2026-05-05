@@ -19,6 +19,8 @@ from services.analyst_service import update_scores_for_prediction
 
 TIMEFRAME_DAYS = {"short": 5, "medium": 28, "long": 180}
 WIN_THRESHOLD_PCT = 2.0
+# Long-term predictions need a higher bar at expiry — a 60-day thesis up only 2% barely moved
+LONG_WIN_THRESHOLD_PCT = 8.0
 
 
 def run():
@@ -56,15 +58,27 @@ def run():
         timeframe = pred.get("timeframe", "short")
         predicted_on = pred.get("predicted_on", "")
 
-        # Check if timeframe expired
+        # Check if prediction has expired.
+        # Primary: use expires_on (set by Claude as days_to_target * 1.2) — respects per-prediction timing.
+        # Fallback: TIMEFRAME_DAYS bucket ceiling when expires_on is missing (older predictions).
         try:
             pred_dt = datetime.fromisoformat(predicted_on.replace("Z", "+00:00"))
             days_elapsed = (now.replace(tzinfo=None) - pred_dt.replace(tzinfo=None)).days
         except Exception:
             days_elapsed = 0
 
-        max_days = TIMEFRAME_DAYS.get(timeframe, 5)
-        expired = days_elapsed >= max_days
+        expires_on = pred.get("expires_on")
+        if expires_on:
+            try:
+                exp_dt = datetime.fromisoformat(expires_on.replace("Z", "+00:00"))
+                expired = now.replace(tzinfo=None) >= exp_dt.replace(tzinfo=None)
+            except Exception:
+                expired = days_elapsed >= TIMEFRAME_DAYS.get(timeframe, 5)
+        else:
+            expired = days_elapsed >= TIMEFRAME_DAYS.get(timeframe, 5)
+
+        # WIN threshold at expiry: long-term needs a real move, not just 2%
+        win_threshold = LONG_WIN_THRESHOLD_PCT if timeframe == "long" else WIN_THRESHOLD_PCT
 
         outcome = None
         closed_reason = None
@@ -76,7 +90,7 @@ def run():
             elif current <= stop_loss and stop_loss > 0:
                 outcome, closed_reason = "LOSS", "STOP_LOSS"
             elif expired:
-                outcome = "WIN" if current_return_pct >= WIN_THRESHOLD_PCT else "LOSS"
+                outcome = "WIN" if current_return_pct >= win_threshold else "LOSS"
                 closed_reason = "EXPIRED"
         elif direction == "BEARISH":
             if current <= target_high and target_high > 0:
@@ -84,10 +98,10 @@ def run():
             elif current >= stop_loss and stop_loss > 0:
                 outcome, closed_reason = "LOSS", "STOP_LOSS"
             elif expired:
-                outcome = "WIN" if current_return_pct <= -WIN_THRESHOLD_PCT else "LOSS"
+                outcome = "WIN" if current_return_pct <= -win_threshold else "LOSS"
                 closed_reason = "EXPIRED"
         elif expired:
-            outcome = "WIN" if abs(current_return_pct) >= WIN_THRESHOLD_PCT else "LOSS"
+            outcome = "WIN" if abs(current_return_pct) >= win_threshold else "LOSS"
             closed_reason = "EXPIRED"
 
         # Compute close price and return_pct at the level actually hit.
