@@ -732,19 +732,36 @@ def _option_section(p: dict):
             f'<div style="font-size:11px;color:#64748b;line-height:1.6">'
             f'⚠️ <strong>Estimated values only.</strong> '
             f'Option target uses first-order delta (delta≈{delta:.2f} × stock move). '
-            f'Actual price depends on gamma, theta decay, and IV changes. '
-            f'<strong>Sell into strength — do not hold to expiry.</strong>'
+            f'Actual price depends on gamma, theta decay, and IV changes.'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-        # Short-term strategy note: buy 35 DTE, exit in days, no theta problem
+        # Exit discipline note — shown on ALL timeframes, wording differs
         if is_short_term:
             st.markdown(
-                '<div style="font-size:11px;color:#1d4ed8;margin-top:5px;line-height:1.5">'
-                '💡 <strong>Strategy:</strong> This is a 35-DTE contract held for only '
-                f'{days_to_target}d. At 30+ DTE, theta is minimal (~$0.05–0.15/day). '
-                'Exit as soon as the stock hits the target price — do not wait for expiry.'
+                '<div style="font-size:12px;font-weight:600;color:#1d4ed8;'
+                'background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;'
+                'padding:8px 10px;margin-top:6px;line-height:1.6">'
+                '💡 <strong>Exit rule:</strong> This is a 35-DTE contract held for only '
+                f'{days_to_target}d. Theta at 30+ DTE is minimal (~$0.05–0.15/day). '
+                '<strong>Sell the option as soon as the stock hits the target price</strong> '
+                '— do not wait for expiry. The option still has 25-30 days of time value, '
+                'so it will sell easily at a tight spread.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="font-size:12px;font-weight:600;color:#1d4ed8;'
+                'background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;'
+                'padding:8px 10px;margin-top:6px;line-height:1.6">'
+                '💡 <strong>Exit rule:</strong> Do not hold this option to expiry. '
+                f'Once the stock moves {round(profit_pct * 0.6, 0):.0f}–{round(profit_pct * 0.8, 0):.0f}% '
+                'toward the target (60-80% of the move), the option will have captured most of the gain '
+                'while delta is still high. '
+                '<strong>Sell into strength</strong> — the last 20-40% of a stock move '
+                'yields diminishing option returns as delta plateaus near 1.0.'
                 '</div>',
                 unsafe_allow_html=True,
             )
