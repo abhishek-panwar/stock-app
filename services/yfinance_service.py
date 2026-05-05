@@ -198,6 +198,145 @@ def get_sector_etf(sector: str) -> str | None:
     return _SECTOR_ETF_MAP.get(sector)
 
 
+def get_analyst_upgrade_momentum(ticker: str, days_back: int = 30) -> dict:
+    """
+    Derives upgrade/downgrade momentum from yfinance upgrades_downgrades.
+    Counts raises vs cuts in the last days_back days — a cluster of raises = upgrade cycle.
+    Returns: {"raises": int, "cuts": int, "net": int, "momentum": "UPGRADING"|"DOWNGRADING"|"NEUTRAL"|None}
+    Cached 24h — changes daily but rarely intraday.
+    """
+    from database.db import get_cache, set_cache
+    cache_key = f"analyst_upgrades_{ticker}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {"raises": 0, "cuts": 0, "net": 0, "momentum": None}
+    try:
+        from datetime import timezone
+        import pandas as pd
+        t = yf.Ticker(ticker)
+        ud = t.upgrades_downgrades
+        if ud is None or ud.empty:
+            set_cache(cache_key, empty, ttl_hours=24)
+            return empty
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+        # Index is a DatetimeTZDynamic — normalise to UTC
+        if ud.index.tz is None:
+            ud.index = ud.index.tz_localize("UTC")
+        recent = ud[ud.index >= cutoff]
+        if recent.empty:
+            set_cache(cache_key, empty, ttl_hours=24)
+            return empty
+
+        raises = int((recent.get("priceTargetAction", pd.Series(dtype=str)) == "Raises").sum())
+        cuts   = int((recent.get("priceTargetAction", pd.Series(dtype=str)) == "Lowers").sum())
+        net    = raises - cuts
+
+        if net >= 3:
+            momentum = "UPGRADING"
+        elif net <= -3:
+            momentum = "DOWNGRADING"
+        else:
+            momentum = "NEUTRAL"
+
+        result = {"raises": raises, "cuts": cuts, "net": net, "momentum": momentum}
+        set_cache(cache_key, result, ttl_hours=24)
+        return result
+    except Exception:
+        return empty
+
+
+def get_institutional_ownership_delta(ticker: str) -> dict:
+    """
+    Derives net institutional buying/selling from yfinance institutional_holders (13F quarterly).
+    pctChange > 0 per institution = increasing position; < 0 = reducing.
+    Returns: {"net_buying": int, "net_selling": int, "bias": "ACCUMULATING"|"DISTRIBUTING"|"NEUTRAL"|None}
+    Cached 48h — 13F data is quarterly, no need to refresh more often.
+    """
+    from database.db import get_cache, set_cache
+    cache_key = f"inst_ownership_{ticker}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {"net_buying": 0, "net_selling": 0, "bias": None}
+    try:
+        t = yf.Ticker(ticker)
+        ih = t.institutional_holders
+        if ih is None or ih.empty:
+            set_cache(cache_key, empty, ttl_hours=48)
+            return empty
+
+        changes = ih["pctChange"].dropna() if "pctChange" in ih.columns else None
+        if changes is None or changes.empty:
+            set_cache(cache_key, empty, ttl_hours=48)
+            return empty
+
+        buying  = int((changes > 0.01).sum())   # >1% position increase
+        selling = int((changes < -0.01).sum())   # >1% position decrease
+
+        if buying >= selling + 3:
+            bias = "ACCUMULATING"
+        elif selling >= buying + 3:
+            bias = "DISTRIBUTING"
+        else:
+            bias = "NEUTRAL"
+
+        result = {"net_buying": buying, "net_selling": selling, "bias": bias}
+        set_cache(cache_key, result, ttl_hours=48)
+        return result
+    except Exception:
+        return empty
+
+
+def get_earnings_surprise_magnitude(ticker: str) -> dict:
+    """
+    Derives earnings beat magnitude from yfinance earnings_history.
+    Consistent large beats = Wall Street systematically under-estimating → re-rating catalyst.
+    Returns: {"avg_surprise_pct": float, "last_surprise_pct": float, "beat_quality": "STRONG"|"MODERATE"|"WEAK"|None}
+    Cached 7 days — earnings history changes once per quarter.
+    """
+    from database.db import get_cache, set_cache
+    cache_key = f"earnings_surprise_{ticker}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {"avg_surprise_pct": None, "last_surprise_pct": None, "beat_quality": None}
+    try:
+        t = yf.Ticker(ticker)
+        eh = t.earnings_history
+        if eh is None or eh.empty:
+            set_cache(cache_key, empty, ttl_hours=168)
+            return empty
+
+        eh = eh.dropna(subset=["surprisePercent"])
+        if eh.empty:
+            set_cache(cache_key, empty, ttl_hours=168)
+            return empty
+
+        surprises = eh["surprisePercent"].tolist()  # most recent last
+        avg_surprise   = round(sum(surprises) / len(surprises) * 100, 1)
+        last_surprise  = round(surprises[-1] * 100, 1) if surprises else None
+
+        if avg_surprise >= 8 and last_surprise is not None and last_surprise >= 3:
+            beat_quality = "STRONG"    # consistently beating by wide margin = re-rating fuel
+        elif avg_surprise >= 3:
+            beat_quality = "MODERATE"
+        elif avg_surprise < 0:
+            beat_quality = "WEAK"      # consistently missing
+        else:
+            beat_quality = "NEUTRAL"
+
+        result = {"avg_surprise_pct": avg_surprise, "last_surprise_pct": last_surprise, "beat_quality": beat_quality}
+        set_cache(cache_key, result, ttl_hours=168)
+        return result
+    except Exception:
+        return empty
+
+
 def get_price_momentum(ticker: str, days: int = 3) -> float | None:
     """Returns % price change over last N days."""
     df = get_price_history(ticker, period="1mo")

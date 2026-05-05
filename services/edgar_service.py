@@ -153,9 +153,11 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
         set_cache(cache_key, empty, ttl_hours=INSIDER_BUYING_TTL_H)
         return empty
 
-    # Parse each Form 4 XML to extract transaction type and value
-    total_usd = 0.0
-    insiders = set()
+    # Parse each Form 4 XML to extract buy and sell transactions
+    total_buy_usd = 0.0
+    total_sell_usd = 0.0
+    buy_insiders = set()
+    sell_insiders = set()
     largest = 0.0
     latest_date = None
 
@@ -169,24 +171,27 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
             r = _session().get(xml_url, timeout=10)
             if r.status_code != 200:
                 continue
-            purchase_usd = _parse_form4_purchase(r.text)
-            if purchase_usd and purchase_usd >= INSIDER_MIN_BUY_USD:
-                total_usd += purchase_usd
-                largest = max(largest, purchase_usd)
-                insiders.add(filing["accession"])  # one accession = one insider filing
+            buy_usd, sell_usd = _parse_form4_transactions(r.text)
+            if buy_usd >= INSIDER_MIN_BUY_USD:
+                total_buy_usd += buy_usd
+                largest = max(largest, buy_usd)
+                buy_insiders.add(filing["accession"])
                 if not latest_date or filing["date"] > latest_date:
                     latest_date = filing["date"]
+            if sell_usd >= INSIDER_MIN_BUY_USD:
+                total_sell_usd += sell_usd
+                sell_insiders.add(filing["accession"])
         except Exception:
             continue
 
-    if total_usd == 0:
+    if total_buy_usd == 0 and total_sell_usd == 0:
         set_cache(cache_key, empty, ttl_hours=INSIDER_BUYING_TTL_H)
         return empty
 
-    # Signal strength thresholds
-    if total_usd >= INSIDER_STRONG_USD or len(insiders) >= INSIDER_STRONG_COUNT:
+    # Buy signal strength
+    if total_buy_usd >= INSIDER_STRONG_USD or len(buy_insiders) >= INSIDER_STRONG_COUNT:
         strength = "STRONG"
-    elif total_usd >= INSIDER_MODERATE_USD:
+    elif total_buy_usd >= INSIDER_MODERATE_USD:
         strength = "MODERATE"
     else:
         strength = "NONE"
@@ -196,32 +201,40 @@ def get_insider_buying(ticker: str, days_back: int = INSIDER_LOOKBACK_DAYS, run_
         log_api_call(run_date, "sec_edgar", ticker, True)
     result = {
         "has_insider_buying": strength != "NONE",
-        "total_purchased_usd": round(total_usd, 2),
-        "num_insiders": len(insiders),
+        "total_purchased_usd": round(total_buy_usd, 2),
+        "num_insiders": len(buy_insiders),
         "largest_buy_usd": round(largest, 2),
         "latest_filing_date": latest_date,
         "signal_strength": strength,
+        # Selling signals — open-market sales by insiders into strength
+        "has_insider_selling": total_sell_usd >= INSIDER_MIN_BUY_USD,
+        "total_sold_usd": round(total_sell_usd, 2),
+        "num_sellers": len(sell_insiders),
     }
     set_cache(cache_key, result, ttl_hours=INSIDER_BUYING_TTL_H)
     return result
 
 
-def _parse_form4_purchase(xml_text: str) -> float:
+def _parse_form4_transactions(xml_text: str) -> tuple[float, float]:
     """
-    Extract total purchase value from Form 4 XML.
-    Only counts transactionCode 'P' (open-market purchase), not 'A' (award/grant).
+    Extract buy and sell values from Form 4 XML.
+    'P' = open-market purchase, 'S' = open-market sale.
+    Returns (total_buy_usd, total_sell_usd).
     """
     import re
-    total = 0.0
+    buy_total = 0.0
+    sell_total = 0.0
 
-    # Find all nonDerivativeTransaction blocks
     blocks = re.findall(
         r"<nonDerivativeTransaction>(.*?)</nonDerivativeTransaction>",
         xml_text, re.DOTALL
     )
     for block in blocks:
         code_match = re.search(r"<transactionCode>(\w+)</transactionCode>", block)
-        if not code_match or code_match.group(1) != "P":
+        if not code_match:
+            continue
+        code = code_match.group(1)
+        if code not in ("P", "S"):
             continue
         shares_match = re.search(
             r"<transactionShares>.*?<value>([\d.]+)</value>", block, re.DOTALL
@@ -231,7 +244,11 @@ def _parse_form4_purchase(xml_text: str) -> float:
         )
         if shares_match and price_match:
             try:
-                total += float(shares_match.group(1)) * float(price_match.group(1))
+                usd = float(shares_match.group(1)) * float(price_match.group(1))
+                if code == "P":
+                    buy_total += usd
+                else:
+                    sell_total += usd
             except Exception:
                 pass
-    return total
+    return buy_total, sell_total

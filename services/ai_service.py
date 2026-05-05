@@ -40,16 +40,25 @@ def _analyst_upside_context(upside_pct: float) -> str:
 
 
 def _insider_context(insider_buying: dict) -> str:
-    if not insider_buying or not insider_buying.get("has_insider_buying"):
+    if not insider_buying:
         return ""
-    strength = insider_buying.get("signal_strength", "")
-    total = insider_buying.get("total_purchased_usd", 0)
-    n = insider_buying.get("num_insiders", 1)
-    date = insider_buying.get("latest_filing_date", "")
-    total_str = f"${total/1e6:.1f}M" if total >= 1_000_000 else f"${total/1e3:.0f}K"
-    if strength == "STRONG":
-        return f"- 👤 INSIDER BUYING (STRONG): {n} insider(s) purchased {total_str} in last 14 days (latest: {date}) — executives buying their own stock\n"
-    return f"- 👤 INSIDER BUYING (MODERATE): {total_str} purchased by {n} insider(s) in last 14 days\n"
+    lines = []
+    if insider_buying.get("has_insider_buying"):
+        strength = insider_buying.get("signal_strength", "")
+        total = insider_buying.get("total_purchased_usd", 0)
+        n = insider_buying.get("num_insiders", 1)
+        date = insider_buying.get("latest_filing_date", "")
+        total_str = f"${total/1e6:.1f}M" if total >= 1_000_000 else f"${total/1e3:.0f}K"
+        if strength == "STRONG":
+            lines.append(f"- 👤 INSIDER BUYING (STRONG): {n} insider(s) purchased {total_str} in last 14 days (latest: {date}) — executives buying their own stock")
+        else:
+            lines.append(f"- 👤 INSIDER BUYING (MODERATE): {total_str} purchased by {n} insider(s) in last 14 days")
+    if insider_buying.get("has_insider_selling"):
+        sold = insider_buying.get("total_sold_usd", 0)
+        sellers = insider_buying.get("num_sellers", 0)
+        sold_str = f"${sold/1e6:.1f}M" if sold >= 1_000_000 else f"${sold/1e3:.0f}K"
+        lines.append(f"- 👤 INSIDER SELLING: {sellers} insider(s) sold {sold_str} in last 14 days — potential distribution signal")
+    return "\n".join(lines) + "\n" if lines else ""
 
 
 def _social_velocity_context(social_velocity: dict) -> str:
@@ -628,7 +637,10 @@ def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: 
                        insider_buying: dict = None, fundamentals: dict = None,
                        rel_strength_vs_spy: float = None, sector_return_5d: float = None,
                        sector_etf: str = None, short_interest_pct: float = None,
-                       macro_regime: dict = None) -> dict:
+                       macro_regime: dict = None,
+                       upgrade_momentum: dict = None,
+                       inst_ownership: dict = None,
+                       earnings_surprise: dict = None) -> dict:
     """
     Long-term Claude prediction — Friday scan only.
     Focuses on fundamental re-rating and institutional accumulation over 60-180 days.
@@ -675,6 +687,9 @@ FUNDAMENTALS & CATALYST:
 MACRO & SECTOR CONTEXT:
 {_macro_regime_context(macro_regime)}{_sector_line}{_spy_line}{_short_line}- If sector is leading and SPY RS is positive → supportive backdrop for re-rating
 - If sector is lagging or SPY RS is negative → macro headwind, higher bar required for BULLISH
+
+INSTITUTIONAL POSITIONING:
+{f"- Analyst momentum: {upgrade_momentum.get('momentum')} ({upgrade_momentum.get('raises',0)} raises, {upgrade_momentum.get('cuts',0)} cuts in last 30 days)" if upgrade_momentum and upgrade_momentum.get('momentum') not in (None, 'NEUTRAL') else "- Analyst momentum: NEUTRAL"}{chr(10)}{f"- Institutional ownership: {inst_ownership.get('bias')} ({inst_ownership.get('net_buying',0)} funds buying, {inst_ownership.get('net_selling',0)} reducing)" if inst_ownership and inst_ownership.get('bias') not in (None, 'NEUTRAL') else "- Institutional ownership: NEUTRAL"}{chr(10)}{f"- Earnings beat quality: {earnings_surprise.get('beat_quality')} (avg {earnings_surprise.get('avg_surprise_pct',0):.0f}% surprise, last quarter {earnings_surprise.get('last_surprise_pct',0):.0f}%)" if earnings_surprise and earnings_surprise.get('beat_quality') else "- Earnings beat quality: UNKNOWN"}
 
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
@@ -781,7 +796,10 @@ def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, a
                                rel_strength_vs_spy: float = None,
                                sector_return_5d: float = None,
                                sector_etf: str = None,
-                               macro_regime: dict = None) -> dict:
+                               macro_regime: dict = None,
+                               upgrade_momentum: dict = None,
+                               inst_ownership: dict = None,
+                               earnings_surprise: dict = None) -> dict:
     """
     Long-term bearish Claude prediction — Friday scan only.
     Focuses on fundamental deterioration and institutional re-rating downward over 60-180 days.
@@ -821,6 +839,9 @@ FUNDAMENTAL DETERIORATION:
 {_earnings_context(earnings_calendar)}{_analyst_upside_context(analyst_upside_pct)}{_insider_context(insider_buying)}{_fundamentals_context(fundamentals)}
 MACRO & SECTOR CONTEXT:
 {_macro_regime_context(macro_regime)}{_sector_line}{_spy_line}- Weak company in WEAK sector = strong short. Weak company in STRONG sector = poor timing.
+
+INSTITUTIONAL POSITIONING:
+{f"- Analyst momentum: {upgrade_momentum.get('momentum')} ({upgrade_momentum.get('raises',0)} raises, {upgrade_momentum.get('cuts',0)} cuts in last 30 days)" if upgrade_momentum and upgrade_momentum.get('momentum') not in (None, 'NEUTRAL') else "- Analyst momentum: NEUTRAL"}{chr(10)}{f"- Institutional ownership: {inst_ownership.get('bias')} ({inst_ownership.get('net_buying',0)} funds buying, {inst_ownership.get('net_selling',0)} reducing)" if inst_ownership and inst_ownership.get('bias') not in (None, 'NEUTRAL') else "- Institutional ownership: NEUTRAL"}{chr(10)}{f"- Earnings beat quality: {earnings_surprise.get('beat_quality')} (avg {earnings_surprise.get('avg_surprise_pct',0):.0f}% surprise)" if earnings_surprise and earnings_surprise.get('beat_quality') else "- Earnings beat quality: UNKNOWN"}
 
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 

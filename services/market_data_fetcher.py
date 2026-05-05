@@ -88,6 +88,7 @@ def fetch_all(
     run_date: str,
     earnings_universe: dict,
     log_api: bool = True,
+    scan_mode: str = "short",
 ) -> tuple[dict, dict]:
     """
     Fetches all required market data for each ticker concurrently (10 workers).
@@ -113,6 +114,11 @@ def fetch_all(
                 get_earnings_history, get_analyst_price_target,
             )
             from services.edgar_service import get_insider_buying
+            from services.yfinance_service import (
+                get_analyst_upgrade_momentum,
+                get_institutional_ownership_delta,
+                get_earnings_surprise_magnitude,
+            )
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -134,6 +140,17 @@ def fetch_all(
             fundamentals   = get_fundamentals(ticker, run_date=run_date, log_api=log_api)
             social_vel     = get_social_velocity(ticker)
             info           = get_ticker_info(ticker, run_date=run_date, log_api=log_api)
+
+            # Long-term only: extra yfinance calls (upgrade momentum, inst ownership, beat magnitude)
+            # These run on Friday scans only — 3 extra yfinance calls per ticker, no API key needed
+            if scan_mode == "long":
+                upgrade_momentum   = get_analyst_upgrade_momentum(ticker)
+                inst_ownership     = get_institutional_ownership_delta(ticker)
+                earnings_surprise  = get_earnings_surprise_magnitude(ticker)
+            else:
+                upgrade_momentum  = {"raises": 0, "cuts": 0, "net": 0, "momentum": None}
+                inst_ownership    = {"net_buying": 0, "net_selling": 0, "bias": None}
+                earnings_surprise = {"avg_surprise_pct": None, "last_surprise_pct": None, "beat_quality": None}
 
             # Derive narrative_risk from fundamentals — no API calls, pure computation
             narrative_risk = _derive_narrative_risk(fundamentals, sentiment)
@@ -184,8 +201,11 @@ def fetch_all(
                     "sector_return_5d": sector_return,
                     "ticker_return_5d": ticker_5d,
                     "rel_strength_vs_spy": rel_strength_vs_spy,
-                    "short_interest_pct": info.get("short_interest_pct"),
-                "narrative_risk":     narrative_risk,
+                    "short_interest_pct":   info.get("short_interest_pct"),
+                    "narrative_risk":       narrative_risk,
+                    "upgrade_momentum":     upgrade_momentum,
+                    "inst_ownership":       inst_ownership,
+                    "earnings_surprise":    earnings_surprise,
                 }
                 stats["rows_fetched"] += len(df)
                 stats["news_fetched"] += sentiment.get("volume", 0)

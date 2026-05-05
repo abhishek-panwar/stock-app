@@ -43,6 +43,9 @@ def compute_long_term_bearish_score(
     narrative_risk: dict = None,
     sector: str = None,
     sector_pe_ratios: dict = None,
+    upgrade_momentum: dict = None,
+    inst_ownership: dict = None,
+    earnings_surprise: dict = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -271,6 +274,17 @@ def compute_long_term_bearish_score(
         elif upside_pct > 15 and consensus in ("SELL", "STRONG_SELL"):
             analyst_score = max(0, analyst_score - 4)
 
+    # Analyst downgrade cycle — cluster of cuts = institutional conviction on deterioration
+    if upgrade_momentum:
+        um  = upgrade_momentum.get("momentum")
+        net = upgrade_momentum.get("net", 0)
+        if um == "DOWNGRADING":
+            analyst_score += 5
+            bonus_reasons.append(f"Analyst downgrade cycle — {abs(net)} net cuts in last 30 days (+5)")
+        elif um == "UPGRADING":
+            analyst_score -= 4
+            bonus_reasons.append(f"Analyst upgrade cycle contradicts bearish thesis (-4)")
+
     scores["analyst_bearishness"] = round(min(analyst_score, 20), 1)
 
     # ── Group 3: Earnings Miss Pattern (20 pts) ───────────────────────────────
@@ -293,6 +307,29 @@ def compute_long_term_bearish_score(
     if consecutive_beats == 0 and total_beats > 0:
         miss_score = min(miss_score + 4, 20)
         bonus_reasons.append("Most recent quarter missed — deteriorating execution trend (+4)")
+
+    # Earnings surprise magnitude — consistent misses = management credibility problem
+    if earnings_surprise:
+        bq  = earnings_surprise.get("beat_quality")
+        avg = earnings_surprise.get("avg_surprise_pct")
+        if bq == "WEAK":
+            miss_score = min(miss_score + 4, 20)
+            bonus_reasons.append(f"Consistently missing estimates (avg {avg:.0f}%) — execution problem compounds thesis (+4)")
+        elif bq == "STRONG":
+            miss_score = max(miss_score - 4, 0)
+            bonus_reasons.append(f"Beating estimates by wide margin — contradicts bearish thesis (-4)")
+
+    # Institutional distribution — smart money reducing exposure
+    if inst_ownership:
+        bias    = inst_ownership.get("bias")
+        selling = inst_ownership.get("net_selling", 0)
+        buying  = inst_ownership.get("net_buying", 0)
+        if bias == "DISTRIBUTING":
+            miss_score = min(miss_score + 4, 20)
+            bonus_reasons.append(f"Institutions distributing — {selling} funds reducing positions, smart money exiting (+4)")
+        elif bias == "ACCUMULATING":
+            miss_score = max(miss_score - 4, 0)
+            bonus_reasons.append(f"Institutions accumulating — contradicts bearish thesis (-4)")
 
     scores["earnings_misses"] = round(min(miss_score, 20), 1)
 

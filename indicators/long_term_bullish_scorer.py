@@ -35,6 +35,9 @@ def compute_long_term_bullish_score(
     sector: str = None,
     sector_pe_ratios: dict = None,
     rel_strength_vs_spy: float = None,
+    upgrade_momentum: dict = None,
+    inst_ownership: dict = None,
+    earnings_surprise: dict = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -303,6 +306,18 @@ def compute_long_term_bullish_score(
         else:
             insider_score = 5
 
+    # Institutional ownership delta — smart money positioning from 13F
+    if inst_ownership:
+        bias = inst_ownership.get("bias")
+        buying  = inst_ownership.get("net_buying", 0)
+        selling = inst_ownership.get("net_selling", 0)
+        if bias == "ACCUMULATING":
+            insider_score = min(insider_score + 5, 15)
+            bonus_reasons.append(f"Institutions accumulating — {buying} funds increasing positions (+5)")
+        elif bias == "DISTRIBUTING":
+            insider_score = max(insider_score - 5, -5)
+            bonus_reasons.append(f"Institutions distributing — {selling} funds reducing positions (-5)")
+
     scores["insider"] = insider_score
 
     # ── Group 4: Analyst Conviction (20 pts) ──────────────────────────────────
@@ -322,6 +337,17 @@ def compute_long_term_bullish_score(
             bonus_reasons.append(f"Analyst upside {upside_pct:.0f}% (+7)")
         elif upside_pct >= 10:
             analyst_score += 4
+
+    # Analyst upgrade momentum — cluster of raises = upgrade cycle in progress
+    if upgrade_momentum:
+        um = upgrade_momentum.get("momentum")
+        net = upgrade_momentum.get("net", 0)
+        if um == "UPGRADING":
+            analyst_score += 5
+            bonus_reasons.append(f"Analyst upgrade cycle — {net} net raises in last 30 days (+5)")
+        elif um == "DOWNGRADING":
+            analyst_score -= 4
+            bonus_reasons.append(f"Analyst downgrade cycle — {abs(net)} net cuts in last 30 days (-4)")
 
     scores["analyst"] = round(min(analyst_score, 20), 1)
 
@@ -345,6 +371,17 @@ def compute_long_term_bullish_score(
         bonus_reasons.append("4/4 earnings beats (streak broken) — consistent execution (+8 floor)")
     elif total_beats >= 3 and consecutive == 0:
         earnings_score = max(earnings_score, 5)
+
+    # Earnings surprise magnitude — consistently beating by wide margin = re-rating fuel
+    if earnings_surprise:
+        bq  = earnings_surprise.get("beat_quality")
+        avg = earnings_surprise.get("avg_surprise_pct")
+        if bq == "STRONG":
+            earnings_score = min(earnings_score + 4, 15)
+            bonus_reasons.append(f"Beating estimates by avg {avg:.0f}% — Wall Street systematically under-estimating (+4)")
+        elif bq == "WEAK":
+            earnings_score = max(earnings_score - 3, 0)
+            bonus_reasons.append(f"Consistently missing estimates (avg {avg:.0f}%) — execution risk (-3)")
 
     scores["earnings"] = earnings_score
 

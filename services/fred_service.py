@@ -85,15 +85,12 @@ def _trend(observations: list[dict], n: int = 3) -> float | None:
 
 def get_macro_regime() -> dict:
     """
-    Returns macro regime dict:
-    {
-        "regime":       "RISK_ON" | "NEUTRAL" | "RISK_OFF",
-        "yield_curve":  float | None,   # T10Y2Y spread
-        "fed_rate":     float | None,   # current Fed Funds rate
-        "cpi_yoy":      float | None,   # latest CPI YoY %
-        "explanation":  str,
-        "fetched_at":   str,
-    }
+    Returns macro regime dict with 5 signals:
+      - yield_curve  : T10Y2Y spread
+      - fed_rate     : Fed Funds effective rate
+      - cpi_yoy      : CPI YoY %
+      - vix          : VIX fear index (VIXCLS)
+      - hy_spread    : HY credit spread in bps (BAMLH0A0HYM2) — widens in risk-off
     Cached 24h in DB.
     """
     from database.db import get_cache, set_cache
@@ -101,19 +98,22 @@ def get_macro_regime() -> dict:
     if cached:
         return cached
 
-    # Fetch all 3 series in sequence (FRED is free, no parallelism needed)
-    yield_obs = _get_series("T10Y2Y", limit=5)      # daily, last 5 trading days
-    rate_obs  = _get_series("DFF", limit=10)         # daily Fed Funds effective
-    cpi_obs   = _get_series("CPIAUCSL", limit=14)    # monthly CPI
+    # Fetch all 5 series (FRED is free, no rate limits worth worrying about)
+    yield_obs  = _get_series("T10Y2Y",       limit=5)   # daily yield curve
+    rate_obs   = _get_series("DFF",           limit=10)  # daily Fed Funds
+    cpi_obs    = _get_series("CPIAUCSL",      limit=14)  # monthly CPI
+    vix_obs    = _get_series("VIXCLS",        limit=5)   # daily VIX
+    hy_obs     = _get_series("BAMLH0A0HYM2", limit=5)   # daily HY-IG spread (%)
 
     yield_curve = _latest_value(yield_obs)
     fed_rate    = _latest_value(rate_obs)
-    rate_trend  = _trend(rate_obs, n=5)  # rising if positive
+    vix         = _latest_value(vix_obs)
+    hy_spread   = _latest_value(hy_obs)  # in %, multiply by 100 for bps
 
-    # CPI YoY: FRED provides index level, compute YoY manually from 13 months of data
+    # CPI YoY: FRED provides index level, compute manually from 13 months of data
     cpi_yoy = None
     if cpi_obs and len(cpi_obs) >= 13:
-        curr_cpi = _latest_value(cpi_obs[:1])
+        curr_cpi     = _latest_value(cpi_obs[:1])
         year_ago_cpi = _latest_value(cpi_obs[12:13])
         if curr_cpi and year_ago_cpi and year_ago_cpi > 0:
             cpi_yoy = round((curr_cpi - year_ago_cpi) / year_ago_cpi * 100, 1)
@@ -133,6 +133,12 @@ def get_macro_regime() -> dict:
     if cpi_yoy is not None and cpi_yoy > 4.0:
         risk_off_count += 1
         reasons.append(f"CPI inflation high ({cpi_yoy:.1f}% YoY)")
+    if vix is not None and vix > 30:
+        risk_off_count += 1
+        reasons.append(f"VIX elevated ({vix:.0f}) — market fear state")
+    if hy_spread is not None and hy_spread > 5.0:  # >500bps = stress
+        risk_off_count += 1
+        reasons.append(f"HY credit spread wide ({hy_spread:.1f}%) — risk assets under pressure")
 
     # RISK_ON conditions
     risk_on_count = 0
@@ -145,9 +151,12 @@ def get_macro_regime() -> dict:
     if cpi_yoy is not None and cpi_yoy < 3.0:
         risk_on_count += 1
         reasons.append(f"CPI benign ({cpi_yoy:.1f}% YoY)")
-    elif cpi_yoy is None:
-        # Unknown CPI — don't penalise risk_on
-        pass
+    if vix is not None and vix < 18:
+        risk_on_count += 1
+        reasons.append(f"VIX low ({vix:.0f}) — complacent/bullish sentiment")
+    if hy_spread is not None and hy_spread < 3.5:  # <350bps = tight spreads
+        risk_on_count += 1
+        reasons.append(f"HY credit spread tight ({hy_spread:.1f}%) — risk appetite healthy")
 
     if risk_off_count >= 2:
         regime = "RISK_OFF"
@@ -161,6 +170,8 @@ def get_macro_regime() -> dict:
         "yield_curve": round(yield_curve, 2) if yield_curve is not None else None,
         "fed_rate":    round(fed_rate, 2) if fed_rate is not None else None,
         "cpi_yoy":     cpi_yoy,
+        "vix":         round(vix, 1) if vix is not None else None,
+        "hy_spread":   round(hy_spread, 2) if hy_spread is not None else None,
         "explanation": explanation,
         "fetched_at":  datetime.now(timezone.utc).isoformat(),
     }
@@ -171,11 +182,12 @@ def get_macro_regime() -> dict:
 
 def macro_regime_label(regime_dict: dict) -> str:
     """Returns a single-line label for Claude prompts."""
-    r = regime_dict.get("regime", "NEUTRAL")
-    exp = regime_dict.get("explanation", "")
-    yc  = regime_dict.get("yield_curve")
+    r    = regime_dict.get("regime", "NEUTRAL")
+    yc   = regime_dict.get("yield_curve")
     rate = regime_dict.get("fed_rate")
     cpi  = regime_dict.get("cpi_yoy")
+    vix  = regime_dict.get("vix")
+    hy   = regime_dict.get("hy_spread")
 
     parts = []
     if yc is not None:
@@ -184,6 +196,12 @@ def macro_regime_label(regime_dict: dict) -> str:
         parts.append(f"Fed Funds {rate:.2f}%")
     if cpi is not None:
         parts.append(f"CPI {cpi:.1f}% YoY")
+    if vix is not None:
+        fear = " FEAR" if vix > 30 else " elevated" if vix > 20 else ""
+        parts.append(f"VIX {vix:.0f}{fear}")
+    if hy is not None:
+        stress = " STRESSED" if hy > 5.0 else " wide" if hy > 4.0 else ""
+        parts.append(f"HY spread {hy:.1f}%{stress}")
 
     detail = ", ".join(parts) if parts else "data unavailable"
     return f"{r} ({detail})"

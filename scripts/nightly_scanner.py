@@ -175,6 +175,7 @@ def run(debug: bool = False):
         run_date=run_date,
         earnings_universe=earnings_universe,
         log_api=True,
+        scan_mode=scan_mode,
     )
     scan_stats["yfinance_rows_fetched"] = fetch_stats["rows_fetched"]
     scan_stats["finnhub_news_fetched"]  = fetch_stats["news_fetched"]
@@ -253,6 +254,9 @@ def run(debug: bool = False):
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                     sector=data.get("sector"), sector_pe_ratios=sector_pe_ratios,
                     rel_strength_vs_spy=data.get("rel_strength_vs_spy"),
+                    upgrade_momentum=data.get("upgrade_momentum"),
+                    inst_ownership=data.get("inst_ownership"),
+                    earnings_surprise=data.get("earnings_surprise"),
                 )
             else:
                 score_data = compute_short_term_bullish_score(
@@ -313,6 +317,9 @@ def run(debug: bool = False):
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                     narrative_risk=data.get("narrative_risk"),
                     sector=data.get("sector"), sector_pe_ratios=sector_pe_ratios,
+                    upgrade_momentum=data.get("upgrade_momentum"),
+                    inst_ownership=data.get("inst_ownership"),
+                    earnings_surprise=data.get("earnings_surprise"),
                 )
             else:
                 score_data = compute_short_term_bearish_score(
@@ -419,6 +426,9 @@ def run(debug: bool = False):
                     sector_return_5d=item.get("sector_return_5d"),
                     sector_etf=item.get("sector_etf"),
                     macro_regime=macro_regime,
+                    upgrade_momentum=item.get("upgrade_momentum"),
+                    inst_ownership=item.get("inst_ownership"),
+                    earnings_surprise=item.get("earnings_surprise"),
                 )
             elif pipeline == "bearish":
                 ai = analyze_stock_bearish(
@@ -448,6 +458,9 @@ def run(debug: bool = False):
                     sector_etf=item.get("sector_etf"),
                     short_interest_pct=item.get("short_interest_pct"),
                     macro_regime=macro_regime,
+                    upgrade_momentum=item.get("upgrade_momentum"),
+                    inst_ownership=item.get("inst_ownership"),
+                    earnings_surprise=item.get("earnings_surprise"),
                 )
             else:
                 ai = analyze_stock_bullish(
