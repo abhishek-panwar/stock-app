@@ -1,8 +1,7 @@
 """
 FMP (Financial Modeling Prep) fundamentals service.
 
-Replaces yfinance for long-term prediction fundamentals — yfinance returns None
-for revenue_growth_pct, earnings_growth_pct, forward_pe too often to be useful.
+Migrated from legacy api/v3 (deprecated Aug 2025, now 403) to stable/ endpoints.
 
 Free tier: 250 calls/day
 Usage pattern:
@@ -11,18 +10,18 @@ Usage pattern:
   - Friday scanner uses cache for Nasdaq 100; FMP only for cache-miss dynamic tickers
   - TTL: 72h (Wednesday cache valid through Friday scan ~46h gap)
 
-Endpoints used per ticker (4 calls):
-  1. /key-metrics-ttm/{ticker}      — PE, PEG, P/B
-  2. /income-statement/{ticker}     — revenue/earnings growth (3 years for trend)
-  3. /ratios/{ticker}               — forward PE
-  4. /analyst-estimates/{ticker}    — EPS revision trend (are estimates rising or falling?)
+Endpoints used per ticker (4 calls — unchanged from v3):
+  1. stable/key-metrics-ttm?symbol=   — PE, PEG, P/B, ROIC, EV/EBITDA, net debt ratio, FCF yield
+  2. stable/income-statement?symbol=  — revenue/earnings growth (3 years), shares outstanding (buyback trend)
+  3. stable/ratios-ttm?symbol=        — forward PE proxy, profit margins TTM
+  4. stable/analyst-estimates?symbol= — EPS revision trend (are estimates rising or falling?)
 """
 import os
 import time
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 
-FMP_BASE = "https://financialmodelingprep.com/api/v3"
+FMP_BASE = "https://financialmodelingprep.com/stable"
 _REQUEST_DELAY = 0.25  # 250ms between calls — well within rate limit
 
 
@@ -59,8 +58,8 @@ def _derive_eps_revision_trend(estimates: list) -> str | None:
     if not estimates or len(estimates) < 2:
         return None
     try:
-        curr = estimates[0].get("estimatedEpsAvg") or estimates[0].get("estimatedEpsHigh")
-        prev = estimates[1].get("estimatedEpsAvg") or estimates[1].get("estimatedEpsHigh")
+        curr = estimates[0].get("epsAvg") or estimates[0].get("epsHigh")
+        prev = estimates[1].get("epsAvg") or estimates[1].get("epsHigh")
         if curr is None or prev is None or prev == 0:
             return None
         change_pct = (float(curr) - float(prev)) / abs(float(prev)) * 100
@@ -94,61 +93,93 @@ def _derive_revenue_declining_years(income: list) -> int:
         return 0
 
 
+def _derive_share_buyback_trend(income: list) -> str | None:
+    """
+    Detects whether shares outstanding are shrinking (buyback) or growing (dilution).
+    Uses weightedAverageShsOut from 3 years of income-statement — no extra API call.
+    Returns: "BUYBACK" | "DILUTING" | "STABLE" | None
+    """
+    if not income or len(income) < 2:
+        return None
+    try:
+        shares = [yr.get("weightedAverageShsOut") for yr in income]
+        shares = [s for s in shares if s and s > 0]
+        if len(shares) < 2:
+            return None
+        # Compare most recent vs oldest available
+        pct_change = (shares[0] - shares[-1]) / shares[-1] * 100
+        if pct_change <= -2:
+            return "BUYBACK"    # shrinking ≥2% — management returning capital
+        elif pct_change >= 3:
+            return "DILUTING"   # growing ≥3% — options/secondaries headwind
+        return "STABLE"
+    except Exception:
+        return None
+
+
 def get_fundamentals(ticker: str) -> dict:
     """
     Fetches fundamentals from FMP for one ticker.
     Returns dict matching the schema expected by scorers and Claude prompts.
-    Uses 4 API calls per ticker.
+    Uses 4 API calls per ticker (stable endpoints).
     Falls back gracefully — any field that FMP can't provide remains None.
     """
     result = {
-        "ticker":                  ticker,
-        "revenue_growth_pct":      None,
-        "earnings_growth_pct":     None,
-        "operating_margin_pct":    None,
-        "gross_margin_pct":        None,
-        "profit_margin_pct":       None,
-        "free_cashflow":           None,
-        "trailing_pe":             None,
-        "forward_pe":              None,
-        "peg_ratio":               None,
-        "price_to_book":           None,
-        "analyst_mean_target":     None,
-        "analyst_upside_pct":      None,
-        "analyst_count":           None,
-        # New fields for narrative risk + EPS revision
-        "eps_revision_trend":      None,   # "RISING" | "FALLING" | "STABLE" | None
-        "revenue_declining_years": None,   # int: how many consecutive years of decline
-        "gross_margin_prev_pct":   None,   # prior year gross margin for compression check
-        "operating_margin_prev_pct": None, # prior year op margin for compression check
-        "debt_to_equity":          None,   # D/E ratio from key-metrics-ttm
-        "price_to_sales":          None,   # P/S TTM — valuation for unprofitable growth names
-        "revenue_growth_pct_prev": None,   # yr1→yr2 revenue growth (for deceleration signal)
-        "revenue_growth_decel":    None,   # yr0_growth minus yr1_growth — positive = decelerating
-        "fetched_at":              datetime.now(timezone.utc).isoformat(),
-        "source":                  "fmp",
+        "ticker":                    ticker,
+        "revenue_growth_pct":        None,
+        "earnings_growth_pct":       None,
+        "operating_margin_pct":      None,
+        "gross_margin_pct":          None,
+        "profit_margin_pct":         None,
+        "free_cashflow":             None,
+        "trailing_pe":               None,
+        "forward_pe":                None,
+        "peg_ratio":                 None,
+        "price_to_book":             None,
+        "analyst_mean_target":       None,
+        "analyst_upside_pct":        None,
+        "analyst_count":             None,
+        "eps_revision_trend":        None,   # "RISING" | "FALLING" | "STABLE" | None
+        "revenue_declining_years":   None,   # int: consecutive years of decline
+        "gross_margin_prev_pct":     None,   # prior year gross margin for compression check
+        "operating_margin_prev_pct": None,   # prior year op margin for compression check
+        "profit_margin_prev_pct":    None,   # prior year net margin for trend detection
+        "debt_to_equity":            None,   # D/E ratio
+        "price_to_sales":            None,   # P/S TTM — valuation for unprofitable growth names
+        "revenue_growth_pct_prev":   None,   # yr1→yr2 revenue growth (for deceleration signal)
+        "revenue_growth_decel":      None,   # yr0_growth minus yr1_growth — positive = decelerating
+        # New signals (zero extra calls)
+        "roic":                      None,   # Return on Invested Capital TTM — moat quality signal
+        "ev_to_ebitda":              None,   # EV/EBITDA TTM — cross-sector valuation
+        "net_debt_to_ebitda":        None,   # Net debt / EBITDA — negative = net cash
+        "fcf_yield":                 None,   # FCF yield TTM — cash return to market cap
+        "share_buyback_trend":       None,   # "BUYBACK" | "DILUTING" | "STABLE" | None
+        "fetched_at":                datetime.now(timezone.utc).isoformat(),
+        "source":                    "fmp",
     }
 
-    # ── Call 1: key-metrics-ttm — PE, PEG, P/B ───────────────────────────────
+    # ── Call 1: key-metrics-ttm — ROIC, EV/EBITDA, net debt, FCF ───────────────
+    # Note: PE, PEG, D/E, P/S live in ratios-ttm on the stable API (extracted in Call 3)
     time.sleep(_REQUEST_DELAY)
-    metrics = _get(f"/key-metrics-ttm/{ticker}")
+    metrics = _get("/key-metrics-ttm", {"symbol": ticker})
     if metrics and isinstance(metrics, list) and metrics:
         m = metrics[0]
-        pe_ttm = m.get("peRatioTTM") or m.get("priceEarningsRatioTTM")
-        peg    = m.get("pegRatioTTM")
-        pb     = m.get("pbRatioTTM") or m.get("priceToBookRatioTTM")
-        dte    = m.get("debtToEquityTTM")
-        ps     = m.get("priceToSalesRatioTTM")
 
-        result["trailing_pe"]    = round(float(pe_ttm), 1) if pe_ttm else None
-        result["peg_ratio"]      = round(float(peg), 2) if peg and float(peg) > 0 else None
-        result["price_to_book"]  = round(float(pb), 2) if pb else None
-        result["debt_to_equity"] = round(float(dte), 2) if dte else None
-        result["price_to_sales"] = round(float(ps), 1) if ps and float(ps) > 0 else None
+        roic  = m.get("returnOnInvestedCapitalTTM")
+        ev_eb = m.get("evToEBITDATTM") or m.get("enterpriseValueOverEBITDATTM")
+        nd_eb = m.get("netDebtToEBITDATTM")
+        fcfy  = m.get("freeCashFlowYieldTTM")
+        fcf   = m.get("freeCashFlowToFirmTTM") or m.get("freeCashFlowToEquityTTM")
 
-    # ── Call 2: income-statement — 3 years for growth + narrative risk trend ──
+        result["roic"]               = round(float(roic) * 100, 1) if roic is not None else None
+        result["ev_to_ebitda"]       = round(float(ev_eb), 1) if ev_eb and float(ev_eb) > 0 else None
+        result["net_debt_to_ebitda"] = round(float(nd_eb), 2) if nd_eb is not None else None
+        result["fcf_yield"]          = round(float(fcfy) * 100, 2) if fcfy is not None else None
+        result["free_cashflow"]      = int(fcf) if fcf else None
+
+    # ── Call 2: income-statement — 3 years for growth + buyback trend ──────────
     time.sleep(_REQUEST_DELAY)
-    income = _get(f"/income-statement/{ticker}", {"limit": 3, "period": "annual"})
+    income = _get("/income-statement", {"symbol": ticker, "limit": 3, "period": "annual"})
     if income and isinstance(income, list) and len(income) >= 1:
         curr = income[0]
         prev = income[1] if len(income) > 1 else None
@@ -168,23 +199,21 @@ def get_fundamentals(ticker: str) -> dict:
             result["profit_margin_pct"]    = round(curr_earn / curr_rev * 100, 1)
 
         if prev:
-            prev_rev   = prev.get("revenue", 0) or 0
-            prev_earn  = prev.get("netIncome", 0) or 0
-            prev_op    = prev.get("operatingIncome", 0) or 0
-            prev_gp    = prev.get("grossProfit", 0) or 0
+            prev_rev  = prev.get("revenue", 0) or 0
+            prev_earn = prev.get("netIncome", 0) or 0
+            prev_op   = prev.get("operatingIncome", 0) or 0
+            prev_gp   = prev.get("grossProfit", 0) or 0
 
             if prev_rev > 0 and curr_rev > 0:
                 result["revenue_growth_pct"] = round((curr_rev - prev_rev) / abs(prev_rev) * 100, 1)
             if prev_earn != 0 and curr_earn is not None:
                 result["earnings_growth_pct"] = round((curr_earn - prev_earn) / abs(prev_earn) * 100, 1)
 
-            # Prior year margins for compression detection
             if prev_rev > 0:
                 result["gross_margin_prev_pct"]     = round(prev_gp / prev_rev * 100, 1)
                 result["operating_margin_prev_pct"] = round(prev_op / prev_rev * 100, 1)
+                result["profit_margin_prev_pct"]    = round(prev_earn / prev_rev * 100, 1)
 
-            # Revenue growth deceleration: compare yr0→yr1 growth vs yr1→yr2 growth
-            # Positive decel value = growth is slowing (the canary for future earnings misses)
             if yr2 is not None:
                 yr2_rev = yr2.get("revenue", 0) or 0
                 if yr2_rev > 0 and prev_rev > 0:
@@ -193,24 +222,43 @@ def get_fundamentals(ticker: str) -> dict:
                     if result["revenue_growth_pct"] is not None:
                         result["revenue_growth_decel"] = round(prev_growth - result["revenue_growth_pct"], 1)
 
-        # Consecutive years of revenue decline (secular decline signal)
         result["revenue_declining_years"] = _derive_revenue_declining_years(income)
+        result["share_buyback_trend"]     = _derive_share_buyback_trend(income)
 
-    # ── Call 3: ratios — forward PE ───────────────────────────────────────────
+    # ── Call 3: ratios-ttm — PE, PEG, P/B, D/E, P/S, forward PE, margins ───────
+    # In stable API all valuation ratios live here (not in key-metrics-ttm)
     time.sleep(_REQUEST_DELAY)
-    ratios = _get(f"/ratios/{ticker}", {"limit": 1})
+    ratios = _get("/ratios-ttm", {"symbol": ticker})
     if ratios and isinstance(ratios, list) and ratios:
         r = ratios[0]
-        fwd = r.get("priceEarningsRatio")
-        if fwd and float(fwd) > 0:
-            result["forward_pe"] = round(float(fwd), 1)
+
+        pe_ttm = r.get("priceToEarningsRatioTTM")
+        peg    = r.get("priceToEarningsGrowthRatioTTM")
+        fwd_peg = r.get("forwardPriceToEarningsGrowthRatioTTM")  # forward PEG (not forward PE)
+        pb     = r.get("priceToBookRatioTTM")
+        dte    = r.get("debtToEquityRatioTTM")
+        ps     = r.get("priceToSalesRatioTTM")
+
+        result["trailing_pe"]    = round(float(pe_ttm), 1) if pe_ttm and float(pe_ttm) > 0 else None
+        result["forward_pe"]     = result["trailing_pe"]  # stable API has no separate fwd PE; use TTM as proxy
+        result["peg_ratio"]      = round(float(peg), 2) if peg and float(peg) > 0 else None
+        result["price_to_book"]  = round(float(pb), 2) if pb else None
+        result["debt_to_equity"] = round(float(dte), 2) if dte else None
+        result["price_to_sales"] = round(float(ps), 1) if ps and float(ps) > 0 else None
+
+        # Profit margin TTM from ratios (confirmation / fallback for income-statement calc)
+        if result["profit_margin_pct"] is None:
+            npm = r.get("netProfitMarginTTM") or r.get("continuousOperationsProfitMarginTTM")
+            if npm is not None:
+                result["profit_margin_pct"] = round(float(npm) * 100, 1)
+
     # Fallback: use trailing PE as forward PE proxy if still None
     if result["forward_pe"] is None and result["trailing_pe"] is not None:
         result["forward_pe"] = result["trailing_pe"]
 
     # ── Call 4: analyst-estimates — EPS revision trend ────────────────────────
     time.sleep(_REQUEST_DELAY)
-    estimates = _get(f"/analyst-estimates/{ticker}", {"limit": 4, "period": "annual"})
+    estimates = _get("/analyst-estimates", {"symbol": ticker, "limit": 4, "period": "annual"})
     if estimates and isinstance(estimates, list):
         result["eps_revision_trend"] = _derive_eps_revision_trend(estimates)
 
@@ -219,8 +267,8 @@ def get_fundamentals(ticker: str) -> dict:
 
 def get_sector_pe() -> dict[str, float]:
     """
-    Fetches average P/E ratio for all 11 GICS sectors from FMP.
-    Uses 11 API calls total — cached weekly.
+    Fetches average P/E ratio for all sectors from FMP stable sector-pe-snapshot.
+    Uses 1 API call total (returns all sectors in one response) — cached weekly.
     Returns: {"Technology": 28.5, "Healthcare": 22.1, ...}
     """
     try:
@@ -229,37 +277,31 @@ def get_sector_pe() -> dict[str, float]:
         if cached:
             return cached
     except Exception:
-        set_cache = lambda *a, **kw: None  # cache write becomes a no-op if DB is down
+        set_cache = lambda *a, **kw: None
 
-    SECTORS = [
-        "Technology", "Healthcare", "Financials", "Consumer Cyclical",
-        "Consumer Defensive", "Industrials", "Communication Services",
-        "Energy", "Utilities", "Real Estate", "Basic Materials",
-    ]
+    today = date.today().isoformat()
     result = {}
-    for sector in SECTORS:
-        time.sleep(_REQUEST_DELAY)
-        data = _get(f"/sector_price_earning_ratio", {"date": "", "exchange": "NYSE,NASDAQ", "sector": sector})
-        if data and isinstance(data, list) and data:
-            try:
-                pe = float(data[0].get("pe", 0))
-                if pe > 0:
-                    result[sector] = round(pe, 1)
-            except Exception:
-                pass
-        elif data and isinstance(data, dict):
-            try:
-                pe = float(data.get("pe", 0))
-                if pe > 0:
-                    result[sector] = round(pe, 1)
-            except Exception:
-                pass
+    data = _get("/sector-pe-snapshot", {"date": today, "exchange": "NASDAQ"})
+    if data and isinstance(data, list):
+        for row in data:
+            sector = row.get("sector")
+            pe     = row.get("pe")
+            if sector and pe:
+                try:
+                    val = float(pe)
+                    if val > 0:
+                        result[sector] = round(val, 1)
+                except Exception:
+                    pass
 
     if result:
-        set_cache("sector_pe_ratios", result, ttl_hours=168)  # 1-week TTL
+        try:
+            set_cache("sector_pe_ratios", result, ttl_hours=168)  # 1-week TTL
+        except Exception:
+            pass
         print(f"  Sector PE fetched for {len(result)} sectors")
     else:
-        print("  WARNING: all 11 sector PE calls failed — sector comparison scoring disabled this run")
+        print("  WARNING: sector PE snapshot returned empty — sector comparison scoring disabled this run")
     return result
 
 

@@ -191,6 +191,62 @@ def compute_long_term_bearish_score(
                 deteri_score -= 3
                 bonus_reasons.append(f"PE {pe_for_comparison:.0f} below sector avg {sector_avg_pe:.0f} — already cheap, limits compression (-3)")
 
+        # ROIC deterioration — moat erosion; low/falling ROIC = structural weakness
+        roic = fundamentals.get("roic")
+        if roic is not None:
+            if roic < 5:
+                deteri_score += 5
+                bonus_reasons.append(f"ROIC {roic:.0f}% — destroying capital, no competitive advantage (+5)")
+            elif roic < 10:
+                deteri_score += 2
+                bonus_reasons.append(f"ROIC {roic:.0f}% — weak capital efficiency, moat eroding (+2)")
+            elif roic >= 20:
+                deteri_score -= 4
+                bonus_reasons.append(f"ROIC {roic:.0f}% — strong moat contradicts bearish thesis (-4)")
+
+        # Net debt / EBITDA — high leverage amplifies deterioration risk
+        net_debt_to_ebitda = fundamentals.get("net_debt_to_ebitda")
+        if net_debt_to_ebitda is not None:
+            if net_debt_to_ebitda > 4.0:
+                deteri_score += 5
+                bonus_reasons.append(f"Net debt/EBITDA {net_debt_to_ebitda:.1f} — over-leveraged, amplifies downside risk (+5)")
+            elif net_debt_to_ebitda > 2.5:
+                deteri_score += 2
+                bonus_reasons.append(f"Net debt/EBITDA {net_debt_to_ebitda:.1f} — meaningful leverage headwind (+2)")
+            elif net_debt_to_ebitda < -0.5:
+                deteri_score -= 3
+                bonus_reasons.append(f"Net cash position (net debt/EBITDA {net_debt_to_ebitda:.1f}) — limits downside, company can defend itself (-3)")
+
+        # Profit margin compression — net margin trend as leading indicator of earnings pressure
+        profit_margin      = fundamentals.get("profit_margin_pct")
+        profit_margin_prev = fundamentals.get("profit_margin_prev_pct")
+        if profit_margin is not None and profit_margin_prev is not None:
+            pm_delta = profit_margin - profit_margin_prev
+            if pm_delta <= -3:
+                deteri_score += 4
+                bonus_reasons.append(f"Net margin compressing {profit_margin_prev:.0f}% → {profit_margin:.0f}% — earnings quality deteriorating (+4)")
+            elif pm_delta >= 3:
+                deteri_score -= 2
+                bonus_reasons.append(f"Net margin expanding — contradicts bearish thesis (-2)")
+
+        # Share dilution — management printing shares = no confidence in stock, dilutes holders
+        buyback = fundamentals.get("share_buyback_trend")
+        if buyback == "DILUTING":
+            deteri_score += 3
+            bonus_reasons.append("Share count growing — dilution signals management not buying own stock (+3)")
+        elif buyback == "BUYBACK":
+            deteri_score -= 2
+            bonus_reasons.append("Buyback program active — contradicts bearish thesis (-2)")
+
+        # High short interest on deteriorating stock = institutional conviction aligns with thesis
+        short_interest = fundamentals.get("short_interest_pct")
+        if short_interest is not None and short_interest >= 15:
+            deteri_score += 4
+            bonus_reasons.append(f"Short interest {short_interest:.0f}% of float — institutional short conviction confirms thesis (+4)")
+        elif short_interest is not None and short_interest >= 8:
+            deteri_score += 2
+            bonus_reasons.append(f"Short interest {short_interest:.0f}% of float — meaningful short interest building (+2)")
+
     scores["fundamental_deterioration"] = round(min(max(deteri_score, 0), 30), 1)
 
     # ── Group 2: Analyst Bearishness (20 pts) — reduced from 25; analysts lag ──

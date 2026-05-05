@@ -64,6 +64,8 @@ def get_fundamentals_from_yfinance(ticker: str) -> dict:
         dte_raw = info.get("debtToEquity")
         debt_to_equity = round(dte_raw / 100, 2) if dte_raw is not None else None
 
+        short_pct = info.get("shortPercentOfFloat")
+
         return {
             "ticker":               ticker,
             "price":                price,
@@ -78,7 +80,14 @@ def get_fundamentals_from_yfinance(ticker: str) -> dict:
             "peg_ratio":            round(peg, 2) if peg else None,
             "price_to_book":        round(pb, 2) if pb else None,
             "debt_to_equity":       debt_to_equity,
+            "short_interest_pct":   round(short_pct * 100, 1) if short_pct is not None else None,
             "eps_revision_trend":   None,  # not available from yfinance — requires FMP analyst-estimates
+            "roic":                 None,  # requires FMP key-metrics-ttm
+            "ev_to_ebitda":         None,  # requires FMP key-metrics-ttm
+            "net_debt_to_ebitda":   None,  # requires FMP key-metrics-ttm
+            "fcf_yield":            None,  # requires FMP key-metrics-ttm
+            "share_buyback_trend":  None,  # requires FMP income-statement (3yr shares)
+            "profit_margin_prev_pct": None, # requires FMP income-statement (2yr)
             "analyst_mean_target":  mean_target,
             "analyst_upside_pct":   analyst_upside,
             "analyst_count":        analyst_count,

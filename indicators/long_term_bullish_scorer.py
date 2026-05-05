@@ -157,6 +157,50 @@ def compute_long_term_bullish_score(
                 fund_score -= 3
                 bonus_reasons.append(f"P/S {price_to_sales:.1f} — very expensive on revenue basis, high bar for re-rating (-3)")
 
+        # ROIC — moat quality: earning above cost of capital = durable competitive advantage
+        roic = fundamentals.get("roic")
+        if roic is not None:
+            if roic >= 20:
+                fund_score += 5
+                bonus_reasons.append(f"ROIC {roic:.0f}% — strong moat, compounding above cost of capital (+5)")
+            elif roic >= 12:
+                fund_score += 3
+                bonus_reasons.append(f"ROIC {roic:.0f}% — solid capital efficiency (+3)")
+            elif roic < 5:
+                fund_score -= 2
+                bonus_reasons.append(f"ROIC {roic:.0f}% — poor capital efficiency, weak moat (-2)")
+
+        # Net debt / EBITDA — financial resilience; negative = net cash (can fund buybacks/acquisitions)
+        net_debt_to_ebitda = fundamentals.get("net_debt_to_ebitda")
+        if net_debt_to_ebitda is not None:
+            if net_debt_to_ebitda < -0.5:
+                fund_score += 3
+                bonus_reasons.append(f"Net cash position (net debt/EBITDA {net_debt_to_ebitda:.1f}) — balance sheet optionality (+3)")
+            elif net_debt_to_ebitda > 4.0:
+                fund_score -= 3
+                bonus_reasons.append(f"High net debt/EBITDA {net_debt_to_ebitda:.1f} — leverage limits upside (-3)")
+
+        # Profit margin trend — operating leverage kicking in = re-rating catalyst
+        profit_margin      = fundamentals.get("profit_margin_pct")
+        profit_margin_prev = fundamentals.get("profit_margin_prev_pct")
+        if profit_margin is not None and profit_margin_prev is not None:
+            pm_delta = profit_margin - profit_margin_prev
+            if pm_delta >= 3 and profit_margin > 0:
+                fund_score += 3
+                bonus_reasons.append(f"Net margin expanding {profit_margin_prev:.0f}% → {profit_margin:.0f}% — operating leverage kicking in (+3)")
+            elif pm_delta <= -3:
+                fund_score -= 2
+                bonus_reasons.append(f"Net margin compressing {profit_margin_prev:.0f}% → {profit_margin:.0f}% — cost pressure headwind (-2)")
+
+        # Share buyback trend — management conviction at current price
+        buyback = fundamentals.get("share_buyback_trend")
+        if buyback == "BUYBACK":
+            fund_score += 3
+            bonus_reasons.append("Share count shrinking — management buying back at current price, shareholder-friendly (+3)")
+        elif buyback == "DILUTING":
+            fund_score -= 2
+            bonus_reasons.append("Share count growing — dilution headwind, reduces per-share value (-2)")
+
     scores["fundamentals"] = round(min(max(fund_score, -10), 25), 1)
 
     # ── Group 2: Valuation Context (15 pts) ───────────────────────────────────
@@ -208,6 +252,37 @@ def compute_long_term_bullish_score(
             elif discount_pct <= -25:
                 val_score -= 3
                 bonus_reasons.append(f"PE {pe_for_comparison:.0f} is {abs(discount_pct):.0f}% above sector avg {sector_avg_pe:.0f} — premium multiple, less room to expand (-3)")
+
+        # EV/EBITDA — cross-sector valuation; better than P/E because it accounts for debt
+        ev_to_ebitda = fundamentals.get("ev_to_ebitda")
+        if ev_to_ebitda is not None and fwd_pe is None:
+            # Only use when P/E isn't available to avoid double-counting
+            if ev_to_ebitda <= 12:
+                val_score += 4
+                bonus_reasons.append(f"EV/EBITDA {ev_to_ebitda:.0f} — attractively valued on cash earnings (+4)")
+            elif ev_to_ebitda <= 20:
+                val_score += 2
+            elif ev_to_ebitda >= 40:
+                val_score -= 2
+                bonus_reasons.append(f"EV/EBITDA {ev_to_ebitda:.0f} — expensive on cash earnings basis (-2)")
+
+        # FCF yield — direct cash return to market cap; >4% is cheap for a quality compounder
+        fcf_yield = fundamentals.get("fcf_yield")
+        if fcf_yield is not None:
+            if fcf_yield >= 6:
+                val_score += 4
+                bonus_reasons.append(f"FCF yield {fcf_yield:.1f}% — high cash generation vs market cap, re-rating fuel (+4)")
+            elif fcf_yield >= 3:
+                val_score += 2
+            elif fcf_yield < 0:
+                val_score -= 2
+                bonus_reasons.append(f"Negative FCF yield — cash consumption at current valuation (-2)")
+
+        # Short interest on a fundamentally strong stock = squeeze fuel = bullish catalyst
+        short_interest = fundamentals.get("short_interest_pct")
+        if short_interest is not None and short_interest >= 10:
+            val_score += 3
+            bonus_reasons.append(f"Short interest {short_interest:.0f}% of float — high short base, squeeze potential on positive catalyst (+3)")
 
     scores["valuation"] = round(min(max(val_score, -6), 15), 1)
 

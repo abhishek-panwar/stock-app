@@ -167,6 +167,35 @@ def _fundamentals_context(fundamentals: dict) -> str:
     ps = fundamentals.get("price_to_sales")
     if ps is not None and fundamentals.get("trailing_pe") is None:
         lines.append(f"Price/Sales: {ps:.1f}x (P/E unavailable — revenue multiple used for valuation)")
+    # ROIC — moat quality signal
+    roic = fundamentals.get("roic")
+    if roic is not None:
+        quality = "strong moat" if roic >= 20 else "solid" if roic >= 12 else "weak moat" if roic < 8 else "adequate"
+        lines.append(f"ROIC: {roic:.0f}% ({quality})")
+    # EV/EBITDA — cross-sector valuation
+    ev_eb = fundamentals.get("ev_to_ebitda")
+    if ev_eb is not None:
+        lines.append(f"EV/EBITDA: {ev_eb:.0f}x")
+    # Net debt position
+    nd_eb = fundamentals.get("net_debt_to_ebitda")
+    if nd_eb is not None:
+        pos = "net cash" if nd_eb < 0 else "leveraged"
+        lines.append(f"Net debt/EBITDA: {nd_eb:.1f}x ({pos})")
+    # FCF yield
+    fcfy = fundamentals.get("fcf_yield")
+    if fcfy is not None:
+        lines.append(f"FCF yield: {fcfy:.1f}%")
+    # Net profit margin trend
+    pm      = fundamentals.get("profit_margin_pct")
+    pm_prev = fundamentals.get("profit_margin_prev_pct")
+    if pm is not None and pm_prev is not None:
+        pm_delta = pm - pm_prev
+        arrow = "↑ expanding" if pm_delta >= 1 else "↓ compressing" if pm_delta <= -1 else "→ flat"
+        lines.append(f"Net margin: {pm:.0f}% (was {pm_prev:.0f}% prior year, {arrow} {abs(pm_delta):.1f}pp)")
+    # Share buyback trend
+    buyback = fundamentals.get("share_buyback_trend")
+    if buyback and buyback != "STABLE":
+        lines.append(f"Share count: {buyback} ({'shrinking — management buying back' if buyback == 'BUYBACK' else 'growing — dilution risk'})")
     if not lines:
         return ""
     return "- 📊 FUNDAMENTALS:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
