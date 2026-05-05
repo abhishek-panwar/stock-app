@@ -32,6 +32,7 @@ _COLUMN_MIGRATIONS = [
     ("predictions", "earnings_label",    "text"),
     ("predictions", "insider_signal",   "text"),
     ("predictions", "prediction_label", "text"),
+    ("predictions", "active_signals",   "text"),
     ("predictions", "market_cap",       "bigint"),
     ("predictions", "avg_volume",       "bigint"),
     ("predictions", "deleted_at",       "timestamptz"),

@@ -74,11 +74,12 @@ def compute_long_term_bearish_score(
 
         if rev_growth is not None:
             if rev_growth <= -15:
-                deteri_score += 12
-                bonus_reasons.append(f"Revenue declining {rev_growth:.0f}% YoY (+12)")
+                # Lagging: already in decline — reduce slightly to shift weight to leading signals
+                deteri_score += 10
+                bonus_reasons.append(f"Revenue declining {rev_growth:.0f}% YoY (+10)")
             elif rev_growth <= -5:
-                deteri_score += 8
-                bonus_reasons.append(f"Revenue declining {rev_growth:.0f}% YoY (+8)")
+                deteri_score += 7
+                bonus_reasons.append(f"Revenue declining {rev_growth:.0f}% YoY (+7)")
             elif rev_growth <= 0:
                 deteri_score += 4
 
@@ -122,11 +123,12 @@ def compute_long_term_bearish_score(
                 deteri_score -= 3
                 bonus_reasons.append(f"Low leverage D/E {debt_to_equity:.2f} — resilient balance sheet, limits downside (-3)")
 
-        # EPS revision trend — forward-looking analyst conviction signal
+        # EPS revision trend — leading signal: analysts cutting estimates precedes price decline
         eps_trend = fundamentals.get("eps_revision_trend")
         if eps_trend == "FALLING":
-            deteri_score += 6
-            bonus_reasons.append("EPS estimates being cut — institutional conviction on deterioration (+6)")
+            # Boosted from 6→8: leading signal, analysts cutting before market prices it in
+            deteri_score += 8
+            bonus_reasons.append("EPS estimates being cut — institutional conviction on deterioration (+8)")
         elif eps_trend == "RISING":
             deteri_score -= 5
             bonus_reasons.append("EPS estimates rising — contradicts bearish thesis (-5)")
@@ -146,16 +148,17 @@ def compute_long_term_bearish_score(
                 deteri_score -= 3
                 bonus_reasons.append(f"Gross margin expanding — contradicts bearish thesis (-3)")
 
-        # Revenue growth deceleration — growth slowing sharply = the setup before the crash
-        # This catches the Netflix/Meta/Shopify pattern: still growing but losing momentum
+        # Revenue growth deceleration — leading signal: the setup BEFORE the crash
+        # Catches the Netflix/Meta/Shopify pattern: still growing but losing momentum fast
         rev_decel = fundamentals.get("revenue_growth_decel")
         if rev_decel is not None and rev_growth is not None:
             if rev_decel >= 20 and rev_growth > 0:
-                deteri_score += 7
-                bonus_reasons.append(f"Revenue decelerating sharply — growth slowed {rev_decel:.0f}pp YoY, still positive but losing momentum (+7)")
+                # Boosted from 7→9: leading signal, more predictive than lagging revenue-already-negative
+                deteri_score += 9
+                bonus_reasons.append(f"Revenue decelerating sharply — growth slowed {rev_decel:.0f}pp YoY, still positive but losing momentum fast (+9)")
             elif rev_decel >= 10 and rev_growth > 0:
-                deteri_score += 4
-                bonus_reasons.append(f"Revenue decelerating — growth slowed {rev_decel:.0f}pp YoY (+4)")
+                deteri_score += 5
+                bonus_reasons.append(f"Revenue decelerating — growth slowed {rev_decel:.0f}pp YoY (+5)")
             elif rev_decel <= -10:
                 deteri_score -= 3
                 bonus_reasons.append(f"Revenue re-accelerating — contradicts bearish thesis (-3)")

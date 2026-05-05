@@ -34,6 +34,7 @@ def compute_long_term_bullish_score(
     fundamentals: dict = None,
     sector: str = None,
     sector_pe_ratios: dict = None,
+    rel_strength_vs_spy: float = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -287,6 +288,27 @@ def compute_long_term_bullish_score(
     # Higher low = institutional accumulation pattern (not a short-term signal)
     if ind.get("higher_low"):
         trend_score += 1
+
+    # OBV trend — smart money flow confirms or contradicts price action
+    obv_trend = ind.get("obv_trend")
+    if obv_trend == "DIVERGING_BULLISH":
+        trend_score += 4
+        bonus_reasons.append("OBV rising while price flat — smart money accumulating before breakout (+4)")
+    elif obv_trend == "CONFIRMING":
+        trend_score += 3
+        bonus_reasons.append("OBV confirming uptrend — institutional buying aligned with price (+3)")
+    elif obv_trend == "DIVERGING_BEARISH":
+        trend_score -= 2
+        bonus_reasons.append("OBV declining while price holds — distribution into strength (-2)")
+
+    # Relative strength vs SPY — sustained outperformance = institutional preference
+    if rel_strength_vs_spy is not None:
+        if rel_strength_vs_spy >= 5:
+            trend_score += 3
+            bonus_reasons.append(f"Outperforming SPY by {rel_strength_vs_spy:.0f}% — institutional preference (+3)")
+        elif rel_strength_vs_spy <= -5:
+            trend_score -= 2
+            bonus_reasons.append(f"Underperforming SPY by {abs(rel_strength_vs_spy):.0f}% — weak relative momentum (-2)")
 
     scores["trend"] = round(min(trend_score, 10), 1)
 

@@ -48,10 +48,14 @@ def _derive_narrative_risk(fundamentals: dict, sentiment: dict) -> dict:
 
     risk = {}
 
-    # competitive_disruption: revenue AND operating margin both declining
+    # competitive_disruption: revenue + margin declining simultaneously,
+    # OR revenue still positive but decelerating sharply (Netflix/Meta/Shopify early warning)
+    rev_decel = fundamentals.get("revenue_growth_decel")
     if (rev_growth is not None and rev_growth < 0 and
             op_margin is not None and op_margin_p is not None and
             op_margin < op_margin_p):
+        risk["competitive_disruption"] = True
+    elif rev_decel is not None and rev_decel >= 15 and rev_growth is not None and rev_growth > 0:
         risk["competitive_disruption"] = True
 
     # secular_decline: 2+ consecutive years of revenue decline

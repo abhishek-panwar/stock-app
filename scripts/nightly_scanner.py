@@ -252,6 +252,7 @@ def run(debug: bool = False):
                     analyst_target=data["analyst_target"],
                     insider_buying=data["insider_buying"], fundamentals=data["fundamentals"],
                     sector=data.get("sector"), sector_pe_ratios=sector_pe_ratios,
+                    rel_strength_vs_spy=data.get("rel_strength_vs_spy"),
                 )
             else:
                 score_data = compute_short_term_bullish_score(
@@ -590,6 +591,7 @@ def run(debug: bool = False):
                 "earnings_label":      earnings_label or None,
                 "insider_signal":      insider_signal or None,
                 "prediction_label":    ("🚀 RALLY THESIS" if direction == "BULLISH" else "💥 CRASH THESIS") if scan_mode == "long" else None,
+                "active_signals":      ",".join(score_data.get("bonus_reasons", [])),
                 "market_cap":          item.get("market_cap") or None,
                 "avg_volume":          item.get("avg_volume") or None,
             }
@@ -746,7 +748,7 @@ def _build_accuracy_context(scan_mode: str = "short") -> str:
         target_combo = "all_signals_long" if scan_mode == "long" else "all_signals"
         filtered = [s for s in stats if s.get("signal_combo", "") == target_combo]
         if not filtered:
-            filtered = stats  # fallback: show whatever exists if long-term bucket is empty yet
+            return ""  # long-term bucket not yet populated — don't inject short-term stats
         lines = ["Signal accuracy (last 60 days):"]
         for s in filtered[:8]:
             lines.append(f"  {s['signal_combo']}: {s['win_rate']*100:.0f}% win ({s['total_trades']} trades)")

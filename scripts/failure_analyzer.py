@@ -28,10 +28,25 @@ def run():
         print("Not enough closed predictions to analyze yet.")
         return
 
+    # Split by formula family so Claude gets clean signal-to-failure data per pipeline
+    _long_fvs = {"long_bullish_v2.0", "long_bearish_v2.0"}
+    long_closed  = [p for p in closed if p.get("formula_version", "") in _long_fvs]
+    short_closed = [p for p in closed if p.get("formula_version", "") not in _long_fvs]
+
+    # Analyze the pipeline that has more data; fall back to all if neither has enough
+    if len(long_closed) >= len(short_closed) and len(long_closed) >= 3:
+        closed = long_closed
+        pipeline_label = "long-term"
+    elif len(short_closed) >= 3:
+        closed = short_closed
+        pipeline_label = "short-term"
+    else:
+        pipeline_label = "mixed"
+
     losses = [p for p in closed if p.get("outcome") == "LOSS"]
     wins   = [p for p in closed if p.get("outcome") == "WIN"]
 
-    print(f"  {len(closed)} closed predictions: {len(wins)} wins, {len(losses)} losses")
+    print(f"  {len(closed)} {pipeline_label} closed predictions: {len(wins)} wins, {len(losses)} losses")
 
     # Don't re-analyze if no new closed predictions since last run
     existing = get_all_optimizations(limit=200)
