@@ -160,7 +160,12 @@ def set_cache(key: str, value, ttl_hours: float) -> None:
 
 # ── Predictions ────────────────────────────────────────────────────────────────
 
-_NEW_PREDICTION_COLS = {"expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class", "earnings_label", "insider_signal"}
+_NEW_PREDICTION_COLS = {
+    "expires_on", "days_to_target", "timing_rationale", "company_name", "asset_class",
+    "earnings_label", "insider_signal", "prediction_label", "active_signals",
+    "roic", "ev_to_ebitda", "net_debt_to_ebitda", "fcf_yield", "share_buyback_trend",
+    "short_interest_pct", "market_cap", "avg_volume",
+}
 
 def prediction_exists_today(ticker: str, scan_date: str) -> bool:
     """Returns True if a PENDING prediction for this ticker already exists from today's scan."""
@@ -213,8 +218,9 @@ def insert_prediction(data: dict) -> dict:
     try:
         return get_client().table("predictions").insert(data).execute().data[0]
     except Exception as e:
-        # If insert fails because new columns don't exist yet, retry without them
-        if any(col in str(e) for col in _NEW_PREDICTION_COLS):
+        e_str = str(e)
+        # PGRST204 = column not in schema cache; strip all optional cols and retry
+        if "PGRST204" in e_str or any(col in e_str for col in _NEW_PREDICTION_COLS):
             slim = {k: v for k, v in data.items() if k not in _NEW_PREDICTION_COLS}
             return get_client().table("predictions").insert(slim).execute().data[0]
         raise
