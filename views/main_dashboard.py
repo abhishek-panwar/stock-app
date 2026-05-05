@@ -599,13 +599,9 @@ def _option_section(p: dict):
     if direction not in ("BULLISH", "BEARISH"):
         return
 
-    timeframe = p.get("timeframe", "short")
-    # Only show for long-term predictions (Friday scan) — short-term options are too noisy
-    if timeframe != "long":
-        return
-
     ticker         = p.get("ticker", "")
-    days_to_target = p.get("days_to_target") or 60
+    timeframe      = p.get("timeframe", "short")
+    days_to_target = p.get("days_to_target") or (60 if timeframe == "long" else 5)
     entry          = _calc_entry(p)
     tgt_low        = p.get("target_low") or 0
     tgt_high       = p.get("target_high") or 0
@@ -614,21 +610,37 @@ def _option_section(p: dict):
     if entry <= 0 or tgt_mid <= 0:
         return
 
-    opt_key = f"opt_{p.get('id', ticker)}_{direction}"
+    # Skip if predicted move too small for options to make sense (<3%)
+    profit_pct = abs(tgt_mid - entry) / entry * 100 if entry > 0 else 0
+    if profit_pct < 3.0:
+        return
+
+    has_earnings = bool((p.get("earnings_calendar") or {}).get("has_upcoming"))
+    is_short_term = timeframe in ("short", "medium")
+
+    opt_key = f"opt_{p.get('id', ticker)}_{direction}_{timeframe}"
     fetched = st.session_state.get(opt_key)
 
-    is_call = direction == "BULLISH"
+    is_call    = direction == "BULLISH"
     opt_color  = "#15803d" if is_call else "#b91c1c"
     opt_bg     = "#f0fdf4" if is_call else "#fef2f2"
     opt_border = "#bbf7d0" if is_call else "#fecaca"
     opt_emoji  = "📈" if is_call else "📉"
 
+    # Timeframe label shown in header
+    tf_note = {
+        "short":  "35 DTE — buy time, exit when stock hits target",
+        "medium": "35 DTE — hold 1-3 weeks, sell before expiry",
+        "long":   f"{days_to_target + 30}d DTE target — long conviction hold",
+    }.get(timeframe, "")
+
     st.markdown(
         f"""<div style="margin-top:14px;padding:12px 14px;background:{opt_bg};
             border:1px solid {opt_border};border-radius:10px">
-          <div style="font-size:13px;font-weight:700;color:{opt_color};margin-bottom:6px">
+          <div style="font-size:13px;font-weight:700;color:{opt_color};margin-bottom:2px">
             {opt_emoji} OPTIONS CONTRACT RECOMMENDATION
-          </div>""",
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px">{tf_note}</div>""",
         unsafe_allow_html=True,
     )
 
@@ -640,7 +652,8 @@ def _option_section(p: dict):
                     try:
                         from services.options_recommendation import get_option_recommendation
                         rec = get_option_recommendation(
-                            ticker, direction, days_to_target, entry, tgt_mid
+                            ticker, direction, days_to_target, entry, tgt_mid,
+                            timeframe=timeframe, has_earnings=has_earnings,
                         )
                         st.session_state[opt_key] = rec
                         st.rerun()
@@ -648,14 +661,17 @@ def _option_section(p: dict):
                         st.session_state[opt_key] = {"available": False, "reason": str(e)}
                         st.rerun()
         st.markdown(
-            '<div style="font-size:11px;color:#94a3b8;padding:2px 0 4px">Live fetch — uses yfinance, no API key needed</div>',
+            '<div style="font-size:11px;color:#94a3b8;padding:2px 0 4px">'
+            'Live fetch — yfinance, no API key · cached 4h</div>',
             unsafe_allow_html=True,
         )
+
     elif not fetched.get("available"):
-        reason = fetched.get("reason", "No liquid contract found")
+        reason   = fetched.get("reason", "No liquid contract found")
         opt_type = fetched.get("option_type", "CALL BUY OPTION" if is_call else "PUT BUY OPTION")
         st.markdown(
-            f'<div style="font-size:12px;color:#64748b">**{opt_type}** — unavailable: {reason}</div>',
+            f'<div style="font-size:12px;color:#64748b;padding:4px 0">'
+            f'<strong>{opt_type}</strong> — unavailable: {reason}</div>',
             unsafe_allow_html=True,
         )
         refetch_col, _ = st.columns([1.5, 8.5])
@@ -663,27 +679,28 @@ def _option_section(p: dict):
             if st.button("Retry", key=f"retry_{opt_key}", type="secondary"):
                 del st.session_state[opt_key]
                 st.rerun()
+
     else:
-        rec = fetched
-        opt_type    = rec["option_type"]
-        strike      = rec["strike"]
-        exp_label   = rec["expiry_label"]
-        entry_mid   = rec["entry_mid"]
-        target_est  = rec["target_est"]
-        gain_pct    = rec["gain_pct_est"]
-        oi          = rec["oi"]
-        vol         = rec["volume"]
-        spread      = rec["spread_pct"]
-        iv          = rec["iv_pct"]
-        grade       = rec["grade"]
-        delta       = rec["delta_approx"]
-        days_exp    = rec.get("days_to_expiry")
+        rec        = fetched
+        opt_type   = rec["option_type"]
+        strike     = rec["strike"]
+        exp_label  = rec["expiry_label"]
+        entry_mid  = rec["entry_mid"]
+        target_est = rec["target_est"]
+        gain_pct   = rec["gain_pct_est"]
+        oi         = rec["oi"]
+        vol        = rec["volume"]
+        spread     = rec["spread_pct"]
+        iv         = rec["iv_pct"]
+        grade      = rec["grade"]
+        delta      = rec["delta_approx"]
+        days_exp   = rec.get("days_to_expiry")
 
         grade_color = "#15803d" if grade == "A" else "#b45309"
         gain_color  = "#15803d" if gain_pct >= 0 else "#b91c1c"
         gain_str    = f"+{gain_pct:.0f}%" if gain_pct >= 0 else f"{gain_pct:.0f}%"
-
         days_exp_str = f"  ·  {days_exp}d to expiry" if days_exp else ""
+        iv_str       = f"{iv:.0f}%" if iv else "N/A"
 
         st.markdown(
             f"""<div style="font-size:14px;font-weight:700;color:{opt_color};margin-bottom:8px">
@@ -692,7 +709,6 @@ def _option_section(p: dict):
             unsafe_allow_html=True,
         )
 
-        iv_str = f"{iv:.0f}%" if iv else "N/A"
         st.markdown(
             f"""<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
               {_pill("Entry (mid)", f"${entry_mid:.2f}", opt_color)}
@@ -711,21 +727,36 @@ def _option_section(p: dict):
             unsafe_allow_html=True,
         )
 
+        # Disclaimer always shown
         st.markdown(
-            f'<div style="font-size:11px;color:#64748b;line-height:1.5">'
+            f'<div style="font-size:11px;color:#64748b;line-height:1.6">'
             f'⚠️ <strong>Estimated values only.</strong> '
-            f'Option target is a first-order delta approximation (delta≈{delta:.2f} × stock move). '
-            f'Actual option price depends on gamma, theta decay, and IV changes. '
-            f'Sell into strength — do not hold to expiry.'
+            f'Option target uses first-order delta (delta≈{delta:.2f} × stock move). '
+            f'Actual price depends on gamma, theta decay, and IV changes. '
+            f'<strong>Sell into strength — do not hold to expiry.</strong>'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-        if rec.get("short_term_warning"):
+        # Short-term strategy note: buy 35 DTE, exit in days, no theta problem
+        if is_short_term:
             st.markdown(
-                '<div style="font-size:11px;color:#b45309;margin-top:4px">'
-                '⏱️ Short-term thesis — theta decay accelerates. Consider buying more time (next expiry) '
-                'or using stock position instead of options.</div>',
+                '<div style="font-size:11px;color:#1d4ed8;margin-top:5px;line-height:1.5">'
+                '💡 <strong>Strategy:</strong> This is a 35-DTE contract held for only '
+                f'{days_to_target}d. At 30+ DTE, theta is minimal (~$0.05–0.15/day). '
+                'Exit as soon as the stock hits the target price — do not wait for expiry.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Earnings warning: IV spike into earnings, crush on exit
+        if rec.get("earnings_warning"):
+            st.markdown(
+                '<div style="font-size:11px;color:#b45309;margin-top:5px;line-height:1.5">'
+                '⚡ <strong>Earnings within window.</strong> IV spikes into the report and '
+                'collapses after — you may be right on direction but still lose on IV crush. '
+                'Consider selling the option before the earnings date.'
+                '</div>',
                 unsafe_allow_html=True,
             )
 

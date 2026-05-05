@@ -1,42 +1,63 @@
 """
 Options contract recommendation for a stock prediction.
 
-Given: ticker, direction (BULLISH/BEARISH), days_to_target, stock entry price, stock target price.
+Given: ticker, direction (BULLISH/BEARISH), days_to_target, timeframe, stock entry/target prices.
 Returns: best liquid contract to BUY, with estimated option target price.
 
 CALL BUY OPTION — direction == BULLISH  (buy a call, profit if stock rises above strike)
 PUT  BUY OPTION — direction == BEARISH  (buy a put,  profit if stock falls below strike)
 
-Contract selection:
-  1. Expiry: nearest expiry >= (days_to_target + buffer) so theta doesn't eat the trade
-     buffer = 7d for short-term (≤10d), 21d for medium (11-35d), 30d for long (>35d)
-  2. Strike band: search ATM → 1-strike OTM only (higher OTM = too speculative)
-     Calls: strikes in [price×0.98, price×1.06]
-     Puts:  strikes in [price×0.94, price×1.02]
-  3. Liquidity filter: OI ≥ 100, bid > 0, bid-ask spread ≤ 25% of mid
-  4. Pick highest-OI contract in the band that passes liquidity
-  5. Grade: A (OI≥500, vol≥50, spread≤10%), B (OI≥100, vol≥10, spread≤20%), skip if neither
+Expiry strategy by timeframe:
+  short/medium (≤35d prediction): target 35 DTE regardless of days_to_target.
+    Rationale: buy time, hold only 2-10 days while the move plays out, sell before theta
+    accelerates. At 30+ DTE, theta is ~$0.05-0.15/day vs $0.40-0.80/day at 5 DTE.
+  long (>35d prediction): target days_to_target + 30d buffer (existing behaviour).
+
+Liquidity thresholds:
+  short/medium — stricter, must exit quickly:
+    Grade A: OI≥300, vol≥30, spread≤12%
+    Grade B: OI≥150, vol≥10, spread≤18%
+  long — as before:
+    Grade A: OI≥500, vol≥50, spread≤10%
+    Grade B: OI≥100, vol≥10, spread≤20%
+
+Strike band: ATM → 1-strike OTM only (both timeframes)
+  Calls: [price×0.98, price×1.06]
+  Puts:  [price×0.94, price×1.02]
 
 Target price estimation (first-order delta approximation):
-  delta ≈ 0.50 if |strike - price| / price ≤ 2%  (ATM)
-         0.35 if |strike - price| / price ≤ 5%  (1-strike OTM)
-         0.22 otherwise (deep OTM — not recommended)
-  stock_move = abs(stock_target - stock_entry)
-  option_target = option_entry + stock_move × delta
+  delta ≈ 0.50 ATM (|strike-price|/price ≤ 2%)
+         0.35 near-OTM (≤ 5%)
+         0.22 OTM (> 5%, not recommended)
+  option_target = entry_mid + stock_move × delta
   ⚠️ First-order only. Ignores gamma, theta decay, IV changes.
+
+API calls: yfinance only, no API key. Called on-demand from UI only (never during scanner).
+Cached 4h in Supabase — second view within 4h costs zero network calls.
 """
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 from database.db import get_cache, set_cache
 
 
-_CACHE_TTL_HOURS = 4     # options prices change intraday
-_MIN_OI          = 100   # hard minimum open interest
-_MIN_OI_A        = 500
-_MIN_VOL_A       = 50
-_MAX_SPREAD_A    = 0.10  # 10%
-_MIN_VOL_B       = 10
-_MAX_SPREAD_B    = 0.20  # 20%
+_CACHE_TTL_HOURS = 4          # options prices change intraday
+_SHORT_TERM_DTE  = 35         # fixed DTE target for short/medium predictions
+
+# Long-term liquidity thresholds (hold weeks-months, exit is less time-sensitive)
+_LT_MIN_OI       = 100
+_LT_MIN_OI_A     = 500
+_LT_MIN_VOL_A    = 50
+_LT_MAX_SPREAD_A = 0.10
+_LT_MIN_VOL_B    = 10
+_LT_MAX_SPREAD_B = 0.20
+
+# Short/medium-term liquidity thresholds (must exit in days — tighter spread critical)
+_ST_MIN_OI       = 150
+_ST_MIN_OI_A     = 300
+_ST_MIN_VOL_A    = 30
+_ST_MAX_SPREAD_A = 0.12
+_ST_MIN_VOL_B    = 10
+_ST_MAX_SPREAD_B = 0.18
 
 
 def _spread_pct(bid: float, ask: float) -> float | None:
@@ -46,12 +67,21 @@ def _spread_pct(bid: float, ask: float) -> float | None:
     return (ask - bid) / mid if mid > 0 else None
 
 
-def _grade(oi: int, vol: int, spread: float | None) -> str | None:
-    if spread is None or spread > _MAX_SPREAD_B or oi < _MIN_OI:
-        return None  # skip — too illiquid
-    if oi >= _MIN_OI_A and vol >= _MIN_VOL_A and spread <= _MAX_SPREAD_A:
+def _grade(oi: int, vol: int, spread: float | None, short_term: bool = False) -> str | None:
+    if short_term:
+        min_oi, min_oi_a = _ST_MIN_OI, _ST_MIN_OI_A
+        min_vol_a, max_spread_a = _ST_MIN_VOL_A, _ST_MAX_SPREAD_A
+        min_vol_b, max_spread_b = _ST_MIN_VOL_B, _ST_MAX_SPREAD_B
+    else:
+        min_oi, min_oi_a = _LT_MIN_OI, _LT_MIN_OI_A
+        min_vol_a, max_spread_a = _LT_MIN_VOL_A, _LT_MAX_SPREAD_A
+        min_vol_b, max_spread_b = _LT_MIN_VOL_B, _LT_MAX_SPREAD_B
+
+    if spread is None or spread > max_spread_b or oi < min_oi:
+        return None
+    if oi >= min_oi_a and vol >= min_vol_a and spread <= max_spread_a:
         return "A"
-    if oi >= _MIN_OI and vol >= _MIN_VOL_B and spread <= _MAX_SPREAD_B:
+    if oi >= min_oi and vol >= min_vol_b and spread <= max_spread_b:
         return "B"
     return None
 
@@ -66,18 +96,20 @@ def _delta_approx(strike: float, spot: float) -> float:
         return 0.22
 
 
-def _best_expiry(all_expiries: list[str], days_to_target: int) -> str | None:
+def _best_expiry(all_expiries: list[str], days_to_target: int, short_term: bool = False) -> str | None:
     today = datetime.now(timezone.utc).date()
-    if days_to_target <= 10:
-        buffer = 7
-    elif days_to_target <= 35:
-        buffer = 21
-    else:
-        buffer = 30
 
-    # Must not expire before the thesis plays out
-    min_days = max(days_to_target, 5)
-    target_days = days_to_target + buffer
+    if short_term:
+        # Fixed 35 DTE — buy time, not tied to prediction horizon.
+        # Must be at least 14d away (avoid weeklies) and ≥ days_to_target.
+        target_days = _SHORT_TERM_DTE
+        min_days    = max(days_to_target + 3, 14)   # at minimum clears the thesis + 3d buffer
+    else:
+        # Long-term: expiry well beyond thesis horizon
+        buffer = 30
+        target_days = days_to_target + buffer
+        min_days    = max(days_to_target, 5)
+
     target_date = today + timedelta(days=target_days)
     min_date    = today + timedelta(days=min_days)
 
@@ -97,7 +129,7 @@ def _best_expiry(all_expiries: list[str], days_to_target: int) -> str | None:
     return best
 
 
-def _best_contract(chain_df, spot: float, option_type: str) -> dict | None:
+def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = False) -> dict | None:
     """
     Finds highest-OI liquid contract in the ATM/near-OTM band.
     option_type: 'call' or 'put'
@@ -118,6 +150,8 @@ def _best_contract(chain_df, spot: float, option_type: str) -> dict | None:
     if band.empty:
         return None
 
+    min_oi = _ST_MIN_OI if short_term else _LT_MIN_OI
+
     best = None
     best_grade_rank = 99
     best_oi = -1
@@ -134,11 +168,11 @@ def _best_contract(chain_df, spot: float, option_type: str) -> dict | None:
         except Exception:
             continue
 
-        if bid <= 0 or oi < _MIN_OI:
+        if bid <= 0 or oi < min_oi:
             continue
 
         spread = _spread_pct(bid, ask)
-        g = _grade(oi, vol, spread)
+        g = _grade(oi, vol, spread, short_term=short_term)
         if g is None:
             continue
 
@@ -149,16 +183,16 @@ def _best_contract(chain_df, spot: float, option_type: str) -> dict | None:
             mid = (bid + ask) / 2
             delta = _delta_approx(strike, spot)
             best = {
-                "strike":   round(strike, 2),
-                "bid":      round(bid, 2),
-                "ask":      round(ask, 2),
-                "mid":      round(mid, 2),
-                "oi":       oi,
-                "volume":   vol,
-                "iv":       round(iv * 100, 1) if iv else None,
-                "last":     round(last, 2),
-                "spread_pct": round((spread or 0) * 100, 1),
-                "grade":    g,
+                "strike":       round(strike, 2),
+                "bid":          round(bid, 2),
+                "ask":          round(ask, 2),
+                "mid":          round(mid, 2),
+                "oi":           oi,
+                "volume":       vol,
+                "iv":           round(iv * 100, 1) if iv else None,
+                "last":         round(last, 2),
+                "spread_pct":   round((spread or 0) * 100, 1),
+                "grade":        g,
                 "delta_approx": delta,
             }
 
@@ -171,9 +205,18 @@ def get_option_recommendation(
     days_to_target: int,
     stock_entry: float,
     stock_target: float,
+    timeframe: str = "long",
+    has_earnings: bool = False,
 ) -> dict:
     """
     Returns the best options contract recommendation for the prediction.
+
+    timeframe: "short" | "medium" | "long"
+      short/medium → 35 DTE target, stricter liquidity (must be able to exit quickly)
+      long          → days_to_target + 30d buffer, standard liquidity
+
+    has_earnings: True if earnings fall within the hold window
+      → surfaced as a warning in the result (IV crush risk on exit)
 
     dict keys:
       option_type        — "CALL BUY OPTION" | "PUT BUY OPTION"
@@ -190,11 +233,13 @@ def get_option_recommendation(
       grade              — "A" | "B"
       delta_approx       — float
       days_to_expiry     — int
-      short_term_warning — bool (theta risk if days_to_target ≤ 10)
-      available          — bool (False if no liquid contract found)
-      reason             — str (why unavailable, if applicable)
+      is_short_term      — bool
+      earnings_warning   — bool  (IV crush risk if earnings in window)
+      available          — bool
+      reason             — str
     """
-    cache_key = f"opt_rec_{ticker}_{direction}_{days_to_target}"
+    short_term = timeframe in ("short", "medium")
+    cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}"
     cached = get_cache(cache_key)
     if cached is not None:
         return cached
@@ -202,6 +247,7 @@ def get_option_recommendation(
     unavailable = {
         "available": False, "option_type": None, "reason": "No liquid contract found",
         "grade": None, "entry_mid": None, "target_est": None, "gain_pct_est": None,
+        "is_short_term": short_term, "earnings_warning": has_earnings,
     }
 
     if direction not in ("BULLISH", "BEARISH"):
@@ -222,7 +268,7 @@ def get_option_recommendation(
             set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
             return result
 
-        expiry = _best_expiry(all_expiries, days_to_target)
+        expiry = _best_expiry(all_expiries, days_to_target, short_term=short_term)
         if not expiry:
             result = {**unavailable, "option_type": option_type_label,
                       "reason": "No expiry found beyond thesis horizon"}
@@ -241,15 +287,16 @@ def get_option_recommendation(
         except Exception:
             pass
 
-        contract = _best_contract(chain_df, spot, chain_key.rstrip("s"))
+        contract = _best_contract(chain_df, spot, chain_key.rstrip("s"), short_term=short_term)
         if contract is None:
+            liq_note = "(OI≥300, spread≤12% required)" if short_term else "(OI≥100, spread≤20% required)"
             result = {**unavailable, "option_type": option_type_label,
-                      "reason": "No liquid contract in ATM/near-OTM band (OI too low or spread too wide)"}
+                      "reason": f"No liquid contract in ATM/near-OTM band {liq_note}"}
             set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
             return result
 
         # Estimated option target price
-        stock_move = abs(stock_target - stock_entry)
+        stock_move  = abs(stock_target - stock_entry)
         option_move = stock_move * contract["delta_approx"]
         entry_mid   = contract["mid"]
         target_est  = round(entry_mid + option_move, 2)
@@ -257,7 +304,7 @@ def get_option_recommendation(
 
         # Days to expiry
         try:
-            exp_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+            exp_date    = datetime.strptime(expiry, "%Y-%m-%d").date()
             days_to_exp = (exp_date - datetime.now(timezone.utc).date()).days
         except Exception:
             days_to_exp = None
@@ -269,23 +316,24 @@ def get_option_recommendation(
             expiry_label = expiry
 
         result = {
-            "available":          True,
-            "option_type":        option_type_label,
-            "strike":             contract["strike"],
-            "expiry":             expiry,
-            "expiry_label":       expiry_label,
-            "entry_mid":          entry_mid,
-            "target_est":         target_est,
-            "gain_pct_est":       gain_pct,
-            "oi":                 contract["oi"],
-            "volume":             contract["volume"],
-            "spread_pct":         contract["spread_pct"],
-            "iv_pct":             contract.get("iv"),
-            "grade":              contract["grade"],
-            "delta_approx":       contract["delta_approx"],
-            "days_to_expiry":     days_to_exp,
-            "short_term_warning": days_to_target <= 10,
-            "reason":             "",
+            "available":        True,
+            "option_type":      option_type_label,
+            "strike":           contract["strike"],
+            "expiry":           expiry,
+            "expiry_label":     expiry_label,
+            "entry_mid":        entry_mid,
+            "target_est":       target_est,
+            "gain_pct_est":     gain_pct,
+            "oi":               contract["oi"],
+            "volume":           contract["volume"],
+            "spread_pct":       contract["spread_pct"],
+            "iv_pct":           contract.get("iv"),
+            "grade":            contract["grade"],
+            "delta_approx":     contract["delta_approx"],
+            "days_to_expiry":   days_to_exp,
+            "is_short_term":    short_term,
+            "earnings_warning": has_earnings,
+            "reason":           "",
         }
         set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
         return result
