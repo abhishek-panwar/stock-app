@@ -125,6 +125,49 @@ def _market_context_bearish(rel_strength_vs_spy: float, sector_return_5d: float,
     return "- 📊 MARKET CONTEXT:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
 
 
+def _options_flow_context(options_flow: dict) -> str:
+    if not options_flow or options_flow.get("flow_signal") is None:
+        return ""
+    signal = options_flow.get("flow_signal", "NEUTRAL")
+    pcr    = options_flow.get("put_call_ratio")
+    skew   = options_flow.get("iv_skew")
+    bias   = options_flow.get("net_oi_bias")
+    expiries = options_flow.get("expiries_analyzed", 0)
+    lines = []
+    if pcr is not None:
+        direction = "bearish pressure" if pcr > 1.0 else "bullish positioning" if pcr < 0.7 else "neutral"
+        lines.append(f"P/C ratio: {pcr:.2f} ({direction})")
+    if skew is not None:
+        lines.append(f"IV skew (put-call): {skew:+.0f}% ({'fear premium' if skew > 5 else 'call premium — bullish bias' if skew < -3 else 'balanced'})")
+    if bias is not None:
+        lines.append(f"OI bias: {bias:+.2f} ({'calls dominant' if bias > 0.1 else 'puts dominant' if bias < -0.1 else 'balanced'})")
+    if not lines:
+        return ""
+    emoji = "🔴" if signal == "BEARISH" else "🟢" if signal == "BULLISH" else "⚪"
+    return f"- {emoji} OPTIONS FLOW ({expiries} expiries): {signal}\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+
+
+def _transcript_context(transcript_tone: dict) -> str:
+    if not transcript_tone or transcript_tone.get("guidance_tone") is None:
+        return ""
+    gt  = transcript_tone.get("guidance_tone", "CAUTIOUS")
+    dm  = transcript_tone.get("demand_signals")
+    ml  = transcript_tone.get("margin_language")
+    def_ = transcript_tone.get("management_defensiveness", False)
+    ts  = transcript_tone.get("transcript_score", 0)
+    q   = transcript_tone.get("transcript_quarter", "")
+    lines = [f"Guidance tone: {gt}"]
+    if dm:
+        lines.append(f"Demand signals: {dm}")
+    if ml:
+        lines.append(f"Margin language: {ml}")
+    if def_:
+        lines.append("Management defensiveness: YES — hedging/excuse language detected")
+    emoji = "🟢" if ts >= 3 else "🔴" if ts <= -2 else "⚪"
+    tone_label = "POSITIVE" if ts >= 3 else "NEGATIVE" if ts <= -2 else "MIXED"
+    return f"- {emoji} EARNINGS CALL TRANSCRIPT {q}: {tone_label} (score {ts:+d})\n" + "\n".join(f"  · {l}" for l in lines) + "\n"
+
+
 def _fundamentals_context(fundamentals: dict) -> str:
     if not fundamentals:
         return ""
@@ -640,7 +683,9 @@ def analyze_stock_long(ticker: str, indicators: dict, sentiment: dict, analyst: 
                        macro_regime: dict = None,
                        upgrade_momentum: dict = None,
                        inst_ownership: dict = None,
-                       earnings_surprise: dict = None) -> dict:
+                       earnings_surprise: dict = None,
+                       options_flow: dict = None,
+                       transcript_tone: dict = None) -> dict:
     """
     Long-term Claude prediction — Friday scan only.
     Focuses on fundamental re-rating and institutional accumulation over 60-180 days.
@@ -690,7 +735,7 @@ MACRO & SECTOR CONTEXT:
 
 INSTITUTIONAL POSITIONING:
 {f"- Analyst momentum: {upgrade_momentum.get('momentum')} ({upgrade_momentum.get('raises',0)} raises, {upgrade_momentum.get('cuts',0)} cuts in last 30 days)" if upgrade_momentum and upgrade_momentum.get('momentum') not in (None, 'NEUTRAL') else "- Analyst momentum: NEUTRAL"}{chr(10)}{f"- Institutional ownership: {inst_ownership.get('bias')} ({inst_ownership.get('net_buying',0)} funds buying, {inst_ownership.get('net_selling',0)} reducing)" if inst_ownership and inst_ownership.get('bias') not in (None, 'NEUTRAL') else "- Institutional ownership: NEUTRAL"}{chr(10)}{f"- Earnings beat quality: {earnings_surprise.get('beat_quality')} (avg {earnings_surprise.get('avg_surprise_pct',0):.0f}% surprise, last quarter {earnings_surprise.get('last_surprise_pct',0):.0f}%)" if earnings_surprise and earnings_surprise.get('beat_quality') else "- Earnings beat quality: UNKNOWN"}
-
+{_options_flow_context(options_flow)}{_transcript_context(transcript_tone)}
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
@@ -799,7 +844,9 @@ def analyze_stock_long_bearish(ticker: str, indicators: dict, sentiment: dict, a
                                macro_regime: dict = None,
                                upgrade_momentum: dict = None,
                                inst_ownership: dict = None,
-                               earnings_surprise: dict = None) -> dict:
+                               earnings_surprise: dict = None,
+                               options_flow: dict = None,
+                               transcript_tone: dict = None) -> dict:
     """
     Long-term bearish Claude prediction — Friday scan only.
     Focuses on fundamental deterioration and institutional re-rating downward over 60-180 days.
@@ -842,7 +889,7 @@ MACRO & SECTOR CONTEXT:
 
 INSTITUTIONAL POSITIONING:
 {f"- Analyst momentum: {upgrade_momentum.get('momentum')} ({upgrade_momentum.get('raises',0)} raises, {upgrade_momentum.get('cuts',0)} cuts in last 30 days)" if upgrade_momentum and upgrade_momentum.get('momentum') not in (None, 'NEUTRAL') else "- Analyst momentum: NEUTRAL"}{chr(10)}{f"- Institutional ownership: {inst_ownership.get('bias')} ({inst_ownership.get('net_buying',0)} funds buying, {inst_ownership.get('net_selling',0)} reducing)" if inst_ownership and inst_ownership.get('bias') not in (None, 'NEUTRAL') else "- Institutional ownership: NEUTRAL"}{chr(10)}{f"- Earnings beat quality: {earnings_surprise.get('beat_quality')} (avg {earnings_surprise.get('avg_surprise_pct',0):.0f}% surprise)" if earnings_surprise and earnings_surprise.get('beat_quality') else "- Earnings beat quality: UNKNOWN"}
-
+{_options_flow_context(options_flow)}{_transcript_context(transcript_tone)}
 Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 
 {f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}

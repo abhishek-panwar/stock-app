@@ -144,13 +144,20 @@ def fetch_all(
             # Long-term only: extra yfinance calls (upgrade momentum, inst ownership, beat magnitude)
             # These run on Friday scans only — 3 extra yfinance calls per ticker, no API key needed
             if scan_mode == "long":
+                from services.options_service import get_options_flow
+                from services.transcript_service import get_earnings_transcript_tone
                 upgrade_momentum   = get_analyst_upgrade_momentum(ticker)
                 inst_ownership     = get_institutional_ownership_delta(ticker)
                 earnings_surprise  = get_earnings_surprise_magnitude(ticker)
+                options_flow       = get_options_flow(ticker)
+                transcript_tone    = get_earnings_transcript_tone(ticker, log_api=log_api, run_date=run_date)
             else:
                 upgrade_momentum  = {"raises": 0, "cuts": 0, "net": 0, "momentum": None}
                 inst_ownership    = {"net_buying": 0, "net_selling": 0, "bias": None}
                 earnings_surprise = {"avg_surprise_pct": None, "last_surprise_pct": None, "beat_quality": None}
+                options_flow      = {"put_call_ratio": None, "iv_skew": None, "net_oi_bias": None, "flow_signal": None}
+                transcript_tone   = {"guidance_tone": None, "demand_signals": None, "margin_language": None,
+                                     "management_defensiveness": False, "transcript_score": 0}
 
             # Derive narrative_risk from fundamentals — no API calls, pure computation
             narrative_risk = _derive_narrative_risk(fundamentals, sentiment)
@@ -206,6 +213,8 @@ def fetch_all(
                     "upgrade_momentum":     upgrade_momentum,
                     "inst_ownership":       inst_ownership,
                     "earnings_surprise":    earnings_surprise,
+                    "options_flow":         options_flow,
+                    "transcript_tone":      transcript_tone,
                 }
                 stats["rows_fetched"] += len(df)
                 stats["news_fetched"] += sentiment.get("volume", 0)

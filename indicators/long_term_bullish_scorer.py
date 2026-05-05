@@ -38,6 +38,8 @@ def compute_long_term_bullish_score(
     upgrade_momentum: dict = None,
     inst_ownership: dict = None,
     earnings_surprise: dict = None,
+    options_flow: dict = None,
+    transcript_tone: dict = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -423,6 +425,49 @@ def compute_long_term_bullish_score(
             bonus_reasons.append(f"Underperforming SPY by {abs(rel_strength_vs_spy):.0f}% — weak relative momentum (-2)")
 
     scores["trend"] = round(min(trend_score, 10), 1)
+
+    # ── Options Flow (bonus, not a scored group) ──────────────────────────────
+    # P/C ratio + IV skew: institutional positioning across 3 expiry windows
+    if options_flow:
+        flow_signal = options_flow.get("flow_signal")
+        pcr         = options_flow.get("put_call_ratio")
+        iv_skew     = options_flow.get("iv_skew")
+        if flow_signal == "BULLISH":
+            bonus += 6
+            pcr_str = f"P/C {pcr:.2f}" if pcr is not None else ""
+            skew_str = f", IV skew {iv_skew:.0f}%" if iv_skew is not None else ""
+            bonus_reasons.append(f"Options flow BULLISH ({pcr_str}{skew_str}) — call positioning dominates (+6)")
+        elif flow_signal == "BEARISH":
+            bonus -= 4
+            bonus_reasons.append(f"Options flow BEARISH (P/C {pcr:.2f if pcr else 'N/A'}) — put pressure headwind (-4)")
+
+    # ── Transcript Tone ───────────────────────────────────────────────────────
+    # Management guidance quality: bullish → accelerate re-rating, cautious/negative → slow it down
+    if transcript_tone:
+        ts = transcript_tone.get("transcript_score", 0)
+        gt = transcript_tone.get("guidance_tone")
+        dm = transcript_tone.get("demand_signals")
+        ml = transcript_tone.get("margin_language")
+        q  = transcript_tone.get("transcript_quarter", "")
+
+        if ts >= 6:
+            bonus += 8
+            bonus_reasons.append(f"Earnings call tone STRONGLY POSITIVE {q} — guidance raised + demand strong + margins expanding (+8)")
+        elif ts >= 3:
+            bonus += 5
+            bonus_reasons.append(f"Earnings call tone POSITIVE {q} — {gt or 'positive'} guidance ({dm or 'neutral'} demand) (+5)")
+        elif ts >= 1:
+            bonus += 2
+            bonus_reasons.append(f"Earnings call tone SLIGHTLY POSITIVE {q} (+2)")
+        elif ts <= -5:
+            bonus -= 7
+            bonus_reasons.append(f"Earnings call tone NEGATIVE {q} — {gt or 'negative'} guidance ({dm or 'weak'} demand) (-7)")
+        elif ts <= -2:
+            bonus -= 4
+            bonus_reasons.append(f"Earnings call tone CAUTIOUS {q} — {gt or 'cautious'} guidance (-4)")
+        if transcript_tone.get("management_defensiveness") and ts < 0:
+            bonus -= 2
+            bonus_reasons.append(f"Management defensiveness on call {q} — hedging language (-2)")
 
     # ── Source bonus ──────────────────────────────────────────────────────────
     if source == "both":

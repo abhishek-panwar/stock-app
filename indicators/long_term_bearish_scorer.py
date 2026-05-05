@@ -46,6 +46,8 @@ def compute_long_term_bearish_score(
     upgrade_momentum: dict = None,
     inst_ownership: dict = None,
     earnings_surprise: dict = None,
+    options_flow: dict = None,
+    transcript_tone: dict = None,
 ) -> dict:
     """
     Returns score dict with breakdown and total (0–100).
@@ -387,6 +389,47 @@ def compute_long_term_bearish_score(
         bonus_reasons.append("Strong ADX with price below MA50 — trending down with conviction (+4)")
 
     scores["structural_breakdown"] = round(min(struct_score, 15), 1)
+
+    # ── Options Flow ─────────────────────────────────────────────────────────
+    # Put-heavy flow on deteriorating stock = institutional hedging confirms thesis
+    if options_flow:
+        flow_signal = options_flow.get("flow_signal")
+        pcr         = options_flow.get("put_call_ratio")
+        iv_skew     = options_flow.get("iv_skew")
+        if flow_signal == "BEARISH":
+            bonus += 6
+            pcr_str  = f"P/C {pcr:.2f}" if pcr is not None else ""
+            skew_str = f", IV skew {iv_skew:.0f}%" if iv_skew is not None else ""
+            bonus_reasons.append(f"Options flow BEARISH ({pcr_str}{skew_str}) — put positioning dominant (+6)")
+        elif flow_signal == "BULLISH":
+            bonus -= 4
+            bonus_reasons.append(f"Options flow BULLISH (P/C {pcr:.2f if pcr else 'N/A'}) — call buying contradicts bearish thesis (-4)")
+
+    # ── Transcript Tone ───────────────────────────────────────────────────────
+    # Management tone on last earnings call: negative/cautious = thesis confirmation
+    if transcript_tone:
+        ts = transcript_tone.get("transcript_score", 0)
+        gt = transcript_tone.get("guidance_tone")
+        dm = transcript_tone.get("demand_signals")
+        q  = transcript_tone.get("transcript_quarter", "")
+
+        if ts <= -5:
+            bonus += 8
+            bonus_reasons.append(f"Earnings call tone NEGATIVE {q} — {gt or 'negative'} guidance + {dm or 'weak'} demand = management confirms deterioration (+8)")
+        elif ts <= -2:
+            bonus += 4
+            bonus_reasons.append(f"Earnings call tone CAUTIOUS {q} — {gt or 'cautious'} guidance (+4)")
+        elif ts <= 0:
+            bonus += 1
+        elif ts >= 5:
+            bonus -= 6
+            bonus_reasons.append(f"Earnings call tone STRONGLY POSITIVE {q} — contradicts bearish thesis (-6)")
+        elif ts >= 3:
+            bonus -= 3
+            bonus_reasons.append(f"Earnings call tone POSITIVE {q} — contradicts bearish thesis (-3)")
+        if transcript_tone.get("management_defensiveness") and ts <= 0:
+            bonus += 3
+            bonus_reasons.append(f"Management defensiveness on call {q} — hedging language confirms problems (+3)")
 
     # ── Hard penalties ─────────────────────────────────────────────────────────
     base = sum(scores.values())

@@ -257,6 +257,8 @@ def run(debug: bool = False):
                     upgrade_momentum=data.get("upgrade_momentum"),
                     inst_ownership=data.get("inst_ownership"),
                     earnings_surprise=data.get("earnings_surprise"),
+                    options_flow=data.get("options_flow"),
+                    transcript_tone=data.get("transcript_tone"),
                 )
             else:
                 score_data = compute_short_term_bullish_score(
@@ -297,6 +299,8 @@ def run(debug: bool = False):
                 "sector_etf": data.get("sector_etf"),
                 "sector": data.get("sector"),
                 "short_interest_pct": data.get("short_interest_pct"),
+                "options_flow": data.get("options_flow"),
+                "transcript_tone": data.get("transcript_tone"),
             })
         except Exception as e:
             scan_stats["errors_encountered"] += 1
@@ -320,6 +324,8 @@ def run(debug: bool = False):
                     upgrade_momentum=data.get("upgrade_momentum"),
                     inst_ownership=data.get("inst_ownership"),
                     earnings_surprise=data.get("earnings_surprise"),
+                    options_flow=data.get("options_flow"),
+                    transcript_tone=data.get("transcript_tone"),
                 )
             else:
                 score_data = compute_short_term_bearish_score(
@@ -356,6 +362,8 @@ def run(debug: bool = False):
                 "sector_return_5d": data.get("sector_return_5d"),
                 "sector_etf": data.get("sector_etf"),
                 "sector": data.get("sector"),
+                "options_flow": data.get("options_flow"),
+                "transcript_tone": data.get("transcript_tone"),
             })
         except Exception as e:
             scan_stats["errors_encountered"] += 1
@@ -429,6 +437,8 @@ def run(debug: bool = False):
                     upgrade_momentum=item.get("upgrade_momentum"),
                     inst_ownership=item.get("inst_ownership"),
                     earnings_surprise=item.get("earnings_surprise"),
+                    options_flow=item.get("options_flow"),
+                    transcript_tone=item.get("transcript_tone"),
                 )
             elif pipeline == "bearish":
                 ai = analyze_stock_bearish(
@@ -461,6 +471,8 @@ def run(debug: bool = False):
                     upgrade_momentum=item.get("upgrade_momentum"),
                     inst_ownership=item.get("inst_ownership"),
                     earnings_surprise=item.get("earnings_surprise"),
+                    options_flow=item.get("options_flow"),
+                    transcript_tone=item.get("transcript_tone"),
                 )
             else:
                 ai = analyze_stock_bullish(
