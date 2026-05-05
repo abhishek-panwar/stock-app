@@ -14,12 +14,12 @@ Expiry strategy by timeframe:
   long (>35d prediction): target days_to_target + 30d buffer (existing behaviour).
 
 Liquidity thresholds:
-  short/medium — stricter, must exit quickly:
-    Grade A: OI≥300, vol≥30, spread≤12%
-    Grade B: OI≥150, vol≥10, spread≤18%
-  long — as before:
-    Grade A: OI≥500, vol≥50, spread≤10%
-    Grade B: OI≥100, vol≥10, spread≤20%
+  short/medium — must exit quickly:
+    Grade A: OI≥150, vol≥15, spread≤15%
+    Grade B: OI≥75,  vol≥5,  spread≤25%
+  long — hold weeks-months:
+    Grade A: OI≥300, vol≥30, spread≤10%
+    Grade B: OI≥75,  vol≥10, spread≤20%
 
 Strike band: ATM → 1-strike OTM only (both timeframes)
   Calls: [price×0.98, price×1.06]
@@ -44,20 +44,20 @@ _CACHE_TTL_HOURS = 4          # options prices change intraday
 _SHORT_TERM_DTE  = 35         # fixed DTE target for short/medium predictions
 
 # Long-term liquidity thresholds (hold weeks-months, exit is less time-sensitive)
-_LT_MIN_OI       = 100
-_LT_MIN_OI_A     = 500
-_LT_MIN_VOL_A    = 50
+_LT_MIN_OI       = 75
+_LT_MIN_OI_A     = 300
+_LT_MIN_VOL_A    = 30
 _LT_MAX_SPREAD_A = 0.10
 _LT_MIN_VOL_B    = 10
 _LT_MAX_SPREAD_B = 0.20
 
 # Short/medium-term liquidity thresholds (must exit in days — tighter spread critical)
-_ST_MIN_OI       = 150
-_ST_MIN_OI_A     = 300
-_ST_MIN_VOL_A    = 30
-_ST_MAX_SPREAD_A = 0.12
-_ST_MIN_VOL_B    = 10
-_ST_MAX_SPREAD_B = 0.18
+_ST_MIN_OI       = 75
+_ST_MIN_OI_A     = 150
+_ST_MIN_VOL_A    = 15
+_ST_MAX_SPREAD_A = 0.15
+_ST_MIN_VOL_B    = 5
+_ST_MAX_SPREAD_B = 0.25
 
 
 def _spread_pct(bid: float, ask: float) -> float | None:
@@ -305,7 +305,7 @@ def get_option_recommendation(
 
         contract = _best_contract(chain_df, spot, chain_key.rstrip("s"), short_term=short_term)
         if contract is None:
-            liq_note = "(OI≥300, spread≤12% required)" if short_term else "(OI≥100, spread≤20% required)"
+            liq_note = "(OI≥75, spread≤25% required)" if short_term else "(OI≥75, spread≤20% required)"
             result = {**unavailable, "option_type": option_type_label,
                       "reason": f"No liquid contract in ATM/near-OTM band {liq_note}"}
             set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
