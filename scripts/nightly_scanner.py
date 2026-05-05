@@ -738,18 +738,8 @@ def run(debug: bool = False):
             r.raise_for_status()
             print(f"  Raw Claude log → GitHub debug/claude_raw_{date_str}.json")
         else:
-            # Fallback: local git push (works when running locally without secrets)
-            base_dir  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            debug_dir = os.path.join(base_dir, "debug")
-            os.makedirs(debug_dir, exist_ok=True)
-            with open(os.path.join(debug_dir, f"claude_raw_{date_str}.json"), "w") as f:
-                json.dump(raw_payload, f, indent=2)
-            import subprocess
-            rel_path = f"debug/claude_raw_{date_str}.json"
-            subprocess.run(["git", "add", rel_path], cwd=base_dir, check=True)
-            subprocess.run(["git", "commit", "-m", f"debug: claude raw responses {date_str}"], cwd=base_dir, check=True)
-            subprocess.run(["git", "push"], cwd=base_dir, check=True)
-            print(f"  Raw Claude log → local git push ({rel_path})")
+            # No GitHub token — raw log already saved to Supabase above, skip git push
+            print("  Raw Claude log → Supabase only (GITHUB_TOKEN not set)")
     except Exception as e:
         print(f"  Warning: GitHub file save failed: {e}")
 

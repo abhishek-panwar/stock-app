@@ -40,8 +40,22 @@ def fetch_alpha_vantage_gainers() -> set[str]:
         for category in ("top_gainers", "most_actively_traded"):
             for item in data.get(category, []):
                 sym = item.get("ticker", "")
-                if sym and "=" not in sym and "/" not in sym:
-                    raw.add(sym.upper())
+                if not sym:
+                    continue
+                sym = sym.upper()
+                # Skip warrants (+), rights (R suffix), units (U suffix), options (=)
+                if any(c in sym for c in ("=", "/", "+")):
+                    continue
+                # Skip leveraged/inverse ETF names (2X, 3X, -2X, SOXS, SOXL patterns)
+                name = item.get("name", "").upper()
+                if any(kw in name for kw in ("2X LONG", "2X SHORT", "3X LONG", "3X SHORT",
+                                              "LEVERAGED", "INVERSE", "ULTRA ", "PROSHARES ULTRA",
+                                              "T-REX", "LEVERAGE SHARES")):
+                    continue
+                # Skip tickers longer than 5 chars (warrants like ABVEW, USGOW, ECXWW)
+                if len(sym) > 5:
+                    continue
+                raw.add(sym)
         print(f"  Alpha Vantage: {len(raw)} tickers (gainers + actives)")
         return raw
     except Exception as e:
