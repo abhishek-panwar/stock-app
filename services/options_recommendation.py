@@ -96,16 +96,29 @@ def _delta_approx(strike: float, spot: float) -> float:
         return 0.22
 
 
+def _is_monthly_expiry(exp_date) -> bool:
+    """
+    Monthly options: 3rd Friday of the month (highest OI by far).
+    yfinance returns the last *trading* day — typically the 3rd Friday,
+    but some months it's Thursday the 18th when Friday falls on a holiday.
+    Accept 3rd Friday ± 1 day to handle both cases.
+    """
+    from calendar import monthcalendar, FRIDAY
+    mc = monthcalendar(exp_date.year, exp_date.month)
+    fridays = [week[FRIDAY] for week in mc if week[FRIDAY] != 0]
+    if len(fridays) < 3:
+        return False
+    third_fri = fridays[2]
+    return abs(exp_date.day - third_fri) <= 1
+
+
 def _best_expiry(all_expiries: list[str], days_to_target: int, short_term: bool = False) -> str | None:
     today = datetime.now(timezone.utc).date()
 
     if short_term:
-        # Fixed 35 DTE — buy time, not tied to prediction horizon.
-        # Must be at least 14d away (avoid weeklies) and ≥ days_to_target.
         target_days = _SHORT_TERM_DTE
-        min_days    = max(days_to_target + 3, 14)   # at minimum clears the thesis + 3d buffer
+        min_days    = max(days_to_target + 3, 14)
     else:
-        # Long-term: expiry well beyond thesis horizon
         buffer = 30
         target_days = days_to_target + buffer
         min_days    = max(days_to_target, 5)
@@ -113,20 +126,23 @@ def _best_expiry(all_expiries: list[str], days_to_target: int, short_term: bool 
     target_date = today + timedelta(days=target_days)
     min_date    = today + timedelta(days=min_days)
 
-    best = None
-    best_diff = float("inf")
+    candidates = []
     for e in all_expiries:
         try:
             exp_date = datetime.strptime(e, "%Y-%m-%d").date()
             if exp_date < min_date:
                 continue
             diff = abs((exp_date - target_date).days)
-            if diff < best_diff:
-                best_diff = diff
-                best = e
+            candidates.append((diff, not _is_monthly_expiry(exp_date), e))
         except Exception:
             continue
-    return best
+
+    if not candidates:
+        return None
+
+    # Sort: prefer monthlies (is_monthly=False sorts before True), then closest to target DTE
+    candidates.sort(key=lambda x: (x[1], x[0]))
+    return candidates[0][2]
 
 
 def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = False) -> dict | None:
