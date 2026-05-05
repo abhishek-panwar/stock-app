@@ -131,6 +131,48 @@ def compute_long_term_bearish_score(
             deteri_score -= 5
             bonus_reasons.append("EPS estimates rising — contradicts bearish thesis (-5)")
 
+        # Gross margin compression — pricing power eroding, often leads earnings declines by 1-2Q
+        gross_margin      = fundamentals.get("gross_margin_pct")
+        gross_margin_prev = fundamentals.get("gross_margin_prev_pct")
+        if gross_margin is not None and gross_margin_prev is not None:
+            gm_delta = gross_margin - gross_margin_prev
+            if gm_delta <= -3:
+                deteri_score += 6
+                bonus_reasons.append(f"Gross margin compressing {gross_margin_prev:.0f}% → {gross_margin:.0f}% (-{abs(gm_delta):.0f}pp) — pricing power collapsing (+6)")
+            elif gm_delta <= -1:
+                deteri_score += 3
+                bonus_reasons.append(f"Gross margin eroding {gross_margin_prev:.0f}% → {gross_margin:.0f}% — pricing pressure building (+3)")
+            elif gm_delta >= 3:
+                deteri_score -= 3
+                bonus_reasons.append(f"Gross margin expanding — contradicts bearish thesis (-3)")
+
+        # Revenue growth deceleration — growth slowing sharply = the setup before the crash
+        # This catches the Netflix/Meta/Shopify pattern: still growing but losing momentum
+        rev_decel = fundamentals.get("revenue_growth_decel")
+        if rev_decel is not None and rev_growth is not None:
+            if rev_decel >= 20 and rev_growth > 0:
+                deteri_score += 7
+                bonus_reasons.append(f"Revenue decelerating sharply — growth slowed {rev_decel:.0f}pp YoY, still positive but losing momentum (+7)")
+            elif rev_decel >= 10 and rev_growth > 0:
+                deteri_score += 4
+                bonus_reasons.append(f"Revenue decelerating — growth slowed {rev_decel:.0f}pp YoY (+4)")
+            elif rev_decel <= -10:
+                deteri_score -= 3
+                bonus_reasons.append(f"Revenue re-accelerating — contradicts bearish thesis (-3)")
+
+        # P/S ratio for unprofitable names — high P/S + decelerating revenue = canonical crash setup
+        price_to_sales = fundamentals.get("price_to_sales")
+        if price_to_sales is not None and (trailing_pe is None or trailing_pe <= 0):
+            if price_to_sales >= 15 and (rev_decel or 0) >= 10:
+                deteri_score += 6
+                bonus_reasons.append(f"P/S {price_to_sales:.1f} — expensive on revenue with growth decelerating — multiple compression risk (+6)")
+            elif price_to_sales >= 10:
+                deteri_score += 3
+                bonus_reasons.append(f"P/S {price_to_sales:.1f} — high revenue multiple for unprofitable name (+3)")
+            elif price_to_sales <= 2:
+                deteri_score -= 2
+                bonus_reasons.append(f"P/S {price_to_sales:.1f} — already cheap on revenue, limits downside (-2)")
+
         # Sector-relative PE — stock expensive vs sector = compression candidate
         pe_for_comparison = fundamentals.get("forward_pe") or fundamentals.get("trailing_pe")
         sector_avg_pe = (sector_pe_ratios or {}).get(sector) if sector else None

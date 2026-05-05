@@ -129,7 +129,7 @@ def run(debug: bool = False):
     except Exception as e:
         log_error("scanner", f"Failed to save hot tickers: {e}", level="WARNING")
 
-    accuracy_context = _build_accuracy_context()
+    accuracy_context = _build_accuracy_context(scan_mode)
 
     # ── Step 2: Load earnings calendar once ───────────────────────────────────
     if debug:
@@ -735,13 +735,19 @@ def run(debug: bool = False):
     return scan_stats
 
 
-def _build_accuracy_context() -> str:
+def _build_accuracy_context(scan_mode: str = "short") -> str:
     try:
         stats = get_accuracy_stats(reliable_only=True)
         if not stats:
             return ""
+        # Long-term predictions use a separate accuracy bucket — don't show short-term stats
+        # to long-term Claude (they run on different timescales, win rates aren't comparable)
+        target_combo = "all_signals_long" if scan_mode == "long" else "all_signals"
+        filtered = [s for s in stats if s.get("signal_combo", "") == target_combo]
+        if not filtered:
+            filtered = stats  # fallback: show whatever exists if long-term bucket is empty yet
         lines = ["Signal accuracy (last 60 days):"]
-        for s in stats[:8]:
+        for s in filtered[:8]:
             lines.append(f"  {s['signal_combo']}: {s['win_rate']*100:.0f}% win ({s['total_trades']} trades)")
         return "\n".join(lines)
     except Exception:

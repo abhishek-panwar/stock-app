@@ -27,22 +27,30 @@ def run():
         print("No closed predictions yet.")
         return
 
-    # Global by timeframe
+    # Split by formula family: long-term vs short-term
+    long_fvs  = {"long_bullish_v2.0", "long_bearish_v2.0"}
+    long_preds  = [p for p in closed if p.get("formula_version", "") in long_fvs]
+    short_preds = [p for p in closed if p.get("formula_version", "") not in long_fvs]
+
+    # Global by timeframe — split by formula family so stats don't bleed across pipelines
     for tf in ["short", "medium", "long"]:
-        tf_preds = [p for p in closed if p.get("timeframe") == tf]
-        _write_stat("all_signals", None, tf, tf_preds)
+        _write_stat("all_signals", None, tf, [p for p in short_preds if p.get("timeframe") == tf])
+        _write_stat("all_signals_long", None, tf, [p for p in long_preds if p.get("timeframe") == tf])
 
     # By ticker + timeframe
     tickers = {p["ticker"] for p in closed}
     for ticker in tickers:
         for tf in ["short", "medium", "long"]:
-            tp = [p for p in closed if p["ticker"] == ticker and p.get("timeframe") == tf]
-            _write_stat("all_signals", ticker, tf, tp)
+            tp_short = [p for p in short_preds if p["ticker"] == ticker and p.get("timeframe") == tf]
+            tp_long  = [p for p in long_preds  if p["ticker"] == ticker and p.get("timeframe") == tf]
+            _write_stat("all_signals", ticker, tf, tp_short)
+            _write_stat("all_signals_long", ticker, tf, tp_long)
 
-    # Global overall
-    _write_stat("all_signals", None, "all", closed)
+    # Global overall per family
+    _write_stat("all_signals", None, "all", short_preds)
+    _write_stat("all_signals_long", None, "all", long_preds)
 
-    print(f"Accuracy stats updated for {len(tickers)} tickers.")
+    print(f"Accuracy stats updated for {len(tickers)} tickers ({len(long_preds)} long-term, {len(short_preds)} short-term closed).")
 
 
 def _write_stat(combo: str, ticker, timeframe: str, preds: list):

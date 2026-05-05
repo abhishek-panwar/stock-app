@@ -148,6 +148,25 @@ def _fundamentals_context(fundamentals: dict) -> str:
     if fundamentals.get("revenue_declining_years"):
         yrs = fundamentals["revenue_declining_years"]
         lines.append(f"Revenue declining: {yrs} consecutive year{'s' if yrs > 1 else ''} ← secular trend")
+    # Gross margin trend — leading indicator of pricing power (typically precedes earnings 1-2Q)
+    gm      = fundamentals.get("gross_margin_pct")
+    gm_prev = fundamentals.get("gross_margin_prev_pct")
+    if gm is not None and gm_prev is not None:
+        gm_delta = gm - gm_prev
+        arrow = "↑ expanding" if gm_delta >= 1 else "↓ compressing" if gm_delta <= -1 else "→ flat"
+        lines.append(f"Gross margin: {gm:.0f}% (was {gm_prev:.0f}% prior year, {arrow} {abs(gm_delta):.1f}pp)")
+    # Revenue growth deceleration — growth slowing sharply is the setup before earnings misses
+    rev_decel = fundamentals.get("revenue_growth_decel")
+    rev_curr  = fundamentals.get("revenue_growth_pct")
+    rev_prev  = fundamentals.get("revenue_growth_pct_prev")
+    if rev_decel is not None and rev_curr is not None and rev_prev is not None:
+        if abs(rev_decel) >= 5:
+            direction = "DECELERATING" if rev_decel > 0 else "ACCELERATING"
+            lines.append(f"Revenue growth trend: {rev_prev:+.0f}% → {rev_curr:+.0f}% YoY ({direction} {abs(rev_decel):.0f}pp)")
+    # P/S ratio — only show when P/E is unavailable (unprofitable/high-growth names)
+    ps = fundamentals.get("price_to_sales")
+    if ps is not None and fundamentals.get("trailing_pe") is None:
+        lines.append(f"Price/Sales: {ps:.1f}x (P/E unavailable — revenue multiple used for valuation)")
     if not lines:
         return ""
     return "- 📊 FUNDAMENTALS:\n" + "\n".join(f"  · {l}" for l in lines) + "\n"

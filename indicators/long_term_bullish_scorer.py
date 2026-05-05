@@ -115,6 +115,47 @@ def compute_long_term_bullish_score(
             fund_score -= 4
             bonus_reasons.append("EPS estimates cut — analyst downgrades headwind (-4)")
 
+        # Gross margin expansion — pricing power and scale leverage improving
+        gross_margin      = fundamentals.get("gross_margin_pct")
+        gross_margin_prev = fundamentals.get("gross_margin_prev_pct")
+        if gross_margin is not None and gross_margin_prev is not None:
+            gm_delta = gross_margin - gross_margin_prev
+            if gm_delta >= 3:
+                fund_score += 4
+                bonus_reasons.append(f"Gross margin expanding {gross_margin_prev:.0f}% → {gross_margin:.0f}% (+3pp) — pricing power improving (+4)")
+            elif gm_delta >= 1:
+                fund_score += 2
+            elif gm_delta <= -3:
+                fund_score -= 3
+                bonus_reasons.append(f"Gross margin compressing {gross_margin_prev:.0f}% → {gross_margin:.0f}% (-3pp) — pricing pressure headwind (-3)")
+
+        # Revenue acceleration — growth rate increasing YoY (opposite of deceleration)
+        rev_decel = fundamentals.get("revenue_growth_decel")
+        if rev_decel is not None and rev_growth is not None:
+            if rev_decel <= -10 and rev_growth >= 10:
+                fund_score += 5
+                bonus_reasons.append(f"Revenue accelerating — growth rate up {abs(rev_decel):.0f}pp YoY — re-rating catalyst (+5)")
+            elif rev_decel <= -5 and rev_growth >= 5:
+                fund_score += 3
+                bonus_reasons.append(f"Revenue re-accelerating (+3)")
+            elif rev_decel >= 15 and rev_growth > 0:
+                fund_score -= 3
+                bonus_reasons.append(f"Revenue decelerating sharply — growth slowing {rev_decel:.0f}pp YoY — re-rating risk (-3)")
+
+        # P/S ratio — valuation signal for unprofitable high-growth names (where P/E is meaningless)
+        price_to_sales = fundamentals.get("price_to_sales")
+        trailing_pe    = fundamentals.get("trailing_pe")
+        if price_to_sales is not None and trailing_pe is None:
+            # Only use P/S when P/E is unavailable — avoids double-counting valuation for profitable names
+            if price_to_sales <= 3:
+                fund_score += 4
+                bonus_reasons.append(f"P/S {price_to_sales:.1f} — cheap for growth profile, room to re-rate (+4)")
+            elif price_to_sales <= 8:
+                fund_score += 2
+            elif price_to_sales >= 20:
+                fund_score -= 3
+                bonus_reasons.append(f"P/S {price_to_sales:.1f} — very expensive on revenue basis, high bar for re-rating (-3)")
+
     scores["fundamentals"] = round(min(max(fund_score, -10), 25), 1)
 
     # ── Group 2: Valuation Context (15 pts) ───────────────────────────────────

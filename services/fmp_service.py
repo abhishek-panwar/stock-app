@@ -122,6 +122,9 @@ def get_fundamentals(ticker: str) -> dict:
         "gross_margin_prev_pct":   None,   # prior year gross margin for compression check
         "operating_margin_prev_pct": None, # prior year op margin for compression check
         "debt_to_equity":          None,   # D/E ratio from key-metrics-ttm
+        "price_to_sales":          None,   # P/S TTM — valuation for unprofitable growth names
+        "revenue_growth_pct_prev": None,   # yr1→yr2 revenue growth (for deceleration signal)
+        "revenue_growth_decel":    None,   # yr0_growth minus yr1_growth — positive = decelerating
         "fetched_at":              datetime.now(timezone.utc).isoformat(),
         "source":                  "fmp",
     }
@@ -135,11 +138,13 @@ def get_fundamentals(ticker: str) -> dict:
         peg    = m.get("pegRatioTTM")
         pb     = m.get("pbRatioTTM") or m.get("priceToBookRatioTTM")
         dte    = m.get("debtToEquityTTM")
+        ps     = m.get("priceToSalesRatioTTM")
 
         result["trailing_pe"]    = round(float(pe_ttm), 1) if pe_ttm else None
         result["peg_ratio"]      = round(float(peg), 2) if peg and float(peg) > 0 else None
         result["price_to_book"]  = round(float(pb), 2) if pb else None
         result["debt_to_equity"] = round(float(dte), 2) if dte else None
+        result["price_to_sales"] = round(float(ps), 1) if ps and float(ps) > 0 else None
 
     # ── Call 2: income-statement — 3 years for growth + narrative risk trend ──
     time.sleep(_REQUEST_DELAY)
@@ -177,6 +182,16 @@ def get_fundamentals(ticker: str) -> dict:
             if prev_rev > 0:
                 result["gross_margin_prev_pct"]     = round(prev_gp / prev_rev * 100, 1)
                 result["operating_margin_prev_pct"] = round(prev_op / prev_rev * 100, 1)
+
+            # Revenue growth deceleration: compare yr0→yr1 growth vs yr1→yr2 growth
+            # Positive decel value = growth is slowing (the canary for future earnings misses)
+            if yr2 is not None:
+                yr2_rev = yr2.get("revenue", 0) or 0
+                if yr2_rev > 0 and prev_rev > 0:
+                    prev_growth = (prev_rev - yr2_rev) / abs(yr2_rev) * 100
+                    result["revenue_growth_pct_prev"] = round(prev_growth, 1)
+                    if result["revenue_growth_pct"] is not None:
+                        result["revenue_growth_decel"] = round(prev_growth - result["revenue_growth_pct"], 1)
 
         # Consecutive years of revenue decline (secular decline signal)
         result["revenue_declining_years"] = _derive_revenue_declining_years(income)
