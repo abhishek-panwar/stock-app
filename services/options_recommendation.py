@@ -191,6 +191,11 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
             bid = last * 0.95
             ask = last * 1.05
 
+        # yfinance returns OI=0 after hours even for actively traded contracts
+        # volume > 0 proves the contract traded today — use it as OI proxy
+        if oi == 0 and vol > 0:
+            oi = vol
+
         if bid <= 0 or oi < min_oi:
             continue
 
@@ -231,6 +236,7 @@ def get_option_recommendation(
     stock_target: float,
     timeframe: str = "long",
     has_earnings: bool = False,
+    _ttl_override: float = None,
 ) -> dict:
     """
     Returns the best options contract recommendation for the prediction.
@@ -277,32 +283,13 @@ def get_option_recommendation(
     if direction not in ("BULLISH", "BEARISH"):
         return {**unavailable, "reason": "NEUTRAL prediction — no directional option play"}
 
-    if not stock_entry or stock_entry <= 0:
-        return {**unavailable, "reason": "Missing stock entry price"}
-
     option_type_label = "CALL BUY OPTION" if direction == "BULLISH" else "PUT BUY OPTION"
     chain_key = "calls" if direction == "BULLISH" else "puts"
 
     try:
         t = yf.Ticker(ticker)
-        all_expiries = list(t.options or [])
-        if not all_expiries:
-            result = {**unavailable, "option_type": option_type_label,
-                      "reason": "No options chain available for this ticker"}
-            set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
-            return result
 
-        expiry = _best_expiry(all_expiries, days_to_target, short_term=short_term)
-        if not expiry:
-            result = {**unavailable, "option_type": option_type_label,
-                      "reason": "No expiry found beyond thesis horizon"}
-            set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
-            return result
-
-        chain = t.option_chain(expiry)
-        chain_df = chain.calls if chain_key == "calls" else chain.puts
-
-        # Use live fast_info price if we have it, else fall back to stock_entry
+        # Always use live price as spot — stock_entry may be a dummy from the prefetcher
         spot = stock_entry
         try:
             live = float(t.fast_info.last_price)
@@ -311,16 +298,39 @@ def get_option_recommendation(
         except Exception:
             pass
 
+        if not spot or spot <= 0:
+            return {**unavailable, "reason": "Could not determine spot price"}
+
+        all_expiries = list(t.options or [])
+        if not all_expiries:
+            result = {**unavailable, "option_type": option_type_label,
+                      "reason": "No options chain available for this ticker"}
+            set_cache(cache_key, result, ttl_hours=_ttl_override or _CACHE_TTL_HOURS)
+            return result
+
+        expiry = _best_expiry(all_expiries, days_to_target, short_term=short_term)
+        if not expiry:
+            result = {**unavailable, "option_type": option_type_label,
+                      "reason": "No expiry found beyond thesis horizon"}
+            set_cache(cache_key, result, ttl_hours=_ttl_override or _CACHE_TTL_HOURS)
+            return result
+
+        chain = t.option_chain(expiry)
+        chain_df = chain.calls if chain_key == "calls" else chain.puts
+
         contract = _best_contract(chain_df, spot, chain_key.rstrip("s"), short_term=short_term)
         if contract is None:
             liq_note = "(OI≥75, spread≤25% required)" if short_term else "(OI≥75, spread≤20% required)"
             result = {**unavailable, "option_type": option_type_label,
                       "reason": f"No liquid contract in ATM/near-OTM band {liq_note}"}
-            set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
+            set_cache(cache_key, result, ttl_hours=_ttl_override or _CACHE_TTL_HOURS)
             return result
 
-        # Estimated option target price
-        stock_move  = abs(stock_target - stock_entry)
+        # Estimated option target price using actual stock_entry/target if valid, else ATR proxy
+        if stock_entry and stock_entry > 0 and stock_target and stock_target > 0:
+            stock_move = abs(stock_target - stock_entry)
+        else:
+            stock_move = spot * 0.05  # 5% proxy when called from prefetcher
         option_move = stock_move * contract["delta_approx"]
         entry_mid   = contract["mid"]
         target_est  = round(entry_mid + option_move, 2)
@@ -339,8 +349,7 @@ def get_option_recommendation(
         except Exception:
             expiry_label = expiry
 
-        after_hours = contract.get("after_hours", False)
-        ttl = 0.5 if after_hours else _CACHE_TTL_HOURS  # 30min TTL after hours — prices stale
+        ttl = _ttl_override or _CACHE_TTL_HOURS
 
         result = {
             "available":        True,
@@ -360,7 +369,6 @@ def get_option_recommendation(
             "days_to_expiry":   days_to_exp,
             "is_short_term":    short_term,
             "earnings_warning": has_earnings,
-            "after_hours":      after_hours,
             "reason":           "",
         }
         set_cache(cache_key, result, ttl_hours=ttl)
@@ -369,5 +377,5 @@ def get_option_recommendation(
     except Exception as e:
         result = {**unavailable, "option_type": option_type_label,
                   "reason": f"Fetch error: {str(e)[:80]}"}
-        set_cache(cache_key, result, ttl_hours=_CACHE_TTL_HOURS)
+        set_cache(cache_key, result, ttl_hours=_ttl_override or _CACHE_TTL_HOURS)
         return result

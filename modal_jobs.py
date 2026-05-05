@@ -108,6 +108,20 @@ def midweek_prefetch():
     s.run()
 
 
+# ── Options Pre-fetcher — Mon–Fri 12:00 PM PT (1h before market close) ────────
+@app.function(
+    image=image,
+    secrets=secrets,
+    timeout=600,
+    schedule=modal.Cron("0 19 * * 1-5"),  # 12:00 PM PT (PDT=UTC-7)
+)
+def options_prefetcher():
+    import sys
+    sys.path.insert(0, "/root/app")
+    import scripts.options_prefetcher as s
+    s.run()
+
+
 # ── Price Watcher — every 5 min during market hours Mon–Fri ───────────────────
 # Modal Cron takes a single string; use the full UTC window 13-20 UTC = 6 AM-1 PM PT
 @app.function(

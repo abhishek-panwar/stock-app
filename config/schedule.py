@@ -67,6 +67,14 @@ JOBS = [
         "days":        [2, 3],          # Wednesday (first 50) + Thursday (last 50)
         "description": "Pre-fetch FMP fundamentals for Nasdaq 100 split Wed/Thu — 200 calls/night, stays in free tier",
     },
+    {
+        "id":          "options_prefetcher",
+        "label":       "Options Pre-fetcher",
+        "platform":    "modal",
+        "time_pt":     (12, 0),         # 12:00 PM PT — 1h before market close, OI fresh + bids live
+        "days":        "weekdays",      # Mon–Fri
+        "description": "Pre-fetch options contracts for Nasdaq 100 + hot tickers, cache 70h in Supabase",
+    },
 
     # ── GitHub Actions ─────────────────────────────────────────────────────────
     {
@@ -204,6 +212,7 @@ def sync_all():
         "failure_analyzer":      "failure_analyzer",
         "fundamentals_fetcher":  "fundamentals_fetcher",
         "midweek_prefetch":      "midweek_prefetch",
+        "options_prefetcher":    "options_prefetcher",
     }
 
     for job in JOBS:
