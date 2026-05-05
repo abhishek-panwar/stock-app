@@ -557,6 +557,7 @@ def _prediction_card(p: dict, _unused: set = None):
                 unsafe_allow_html=True,
             )
 
+        _option_section(p)
         _news_links(ticker)
 
         if position == "SHORT":
@@ -590,6 +591,151 @@ def _prediction_card(p: dict, _unused: set = None):
                     st.rerun()
                 except Exception as e:
                     st.error(f"Failed: {e}")
+
+
+def _option_section(p: dict):
+    """Renders the options contract recommendation section inside an expanded card."""
+    direction = p.get("direction", "NEUTRAL")
+    if direction not in ("BULLISH", "BEARISH"):
+        return
+
+    timeframe = p.get("timeframe", "short")
+    # Only show for long-term predictions (Friday scan) — short-term options are too noisy
+    if timeframe != "long":
+        return
+
+    ticker         = p.get("ticker", "")
+    days_to_target = p.get("days_to_target") or 60
+    entry          = _calc_entry(p)
+    tgt_low        = p.get("target_low") or 0
+    tgt_high       = p.get("target_high") or 0
+    tgt_mid        = (tgt_low + tgt_high) / 2 if tgt_low > 0 and tgt_high > 0 else tgt_low
+
+    if entry <= 0 or tgt_mid <= 0:
+        return
+
+    opt_key = f"opt_{p.get('id', ticker)}_{direction}"
+    fetched = st.session_state.get(opt_key)
+
+    is_call = direction == "BULLISH"
+    opt_color  = "#15803d" if is_call else "#b91c1c"
+    opt_bg     = "#f0fdf4" if is_call else "#fef2f2"
+    opt_border = "#bbf7d0" if is_call else "#fecaca"
+    opt_emoji  = "📈" if is_call else "📉"
+
+    st.markdown(
+        f"""<div style="margin-top:14px;padding:12px 14px;background:{opt_bg};
+            border:1px solid {opt_border};border-radius:10px">
+          <div style="font-size:13px;font-weight:700;color:{opt_color};margin-bottom:6px">
+            {opt_emoji} OPTIONS CONTRACT RECOMMENDATION
+          </div>""",
+        unsafe_allow_html=True,
+    )
+
+    if fetched is None:
+        fetch_col, _ = st.columns([2, 8])
+        with fetch_col:
+            if st.button("Fetch Best Contract", key=f"fetch_{opt_key}", type="secondary"):
+                with st.spinner("Fetching live options chain…"):
+                    try:
+                        from services.options_recommendation import get_option_recommendation
+                        rec = get_option_recommendation(
+                            ticker, direction, days_to_target, entry, tgt_mid
+                        )
+                        st.session_state[opt_key] = rec
+                        st.rerun()
+                    except Exception as e:
+                        st.session_state[opt_key] = {"available": False, "reason": str(e)}
+                        st.rerun()
+        st.markdown(
+            '<div style="font-size:11px;color:#94a3b8;padding:2px 0 4px">Live fetch — uses yfinance, no API key needed</div>',
+            unsafe_allow_html=True,
+        )
+    elif not fetched.get("available"):
+        reason = fetched.get("reason", "No liquid contract found")
+        opt_type = fetched.get("option_type", "CALL BUY OPTION" if is_call else "PUT BUY OPTION")
+        st.markdown(
+            f'<div style="font-size:12px;color:#64748b">**{opt_type}** — unavailable: {reason}</div>',
+            unsafe_allow_html=True,
+        )
+        refetch_col, _ = st.columns([1.5, 8.5])
+        with refetch_col:
+            if st.button("Retry", key=f"retry_{opt_key}", type="secondary"):
+                del st.session_state[opt_key]
+                st.rerun()
+    else:
+        rec = fetched
+        opt_type    = rec["option_type"]
+        strike      = rec["strike"]
+        exp_label   = rec["expiry_label"]
+        entry_mid   = rec["entry_mid"]
+        target_est  = rec["target_est"]
+        gain_pct    = rec["gain_pct_est"]
+        oi          = rec["oi"]
+        vol         = rec["volume"]
+        spread      = rec["spread_pct"]
+        iv          = rec["iv_pct"]
+        grade       = rec["grade"]
+        delta       = rec["delta_approx"]
+        days_exp    = rec.get("days_to_expiry")
+
+        grade_color = "#15803d" if grade == "A" else "#b45309"
+        gain_color  = "#15803d" if gain_pct >= 0 else "#b91c1c"
+        gain_str    = f"+{gain_pct:.0f}%" if gain_pct >= 0 else f"{gain_pct:.0f}%"
+
+        days_exp_str = f"  ·  {days_exp}d to expiry" if days_exp else ""
+
+        st.markdown(
+            f"""<div style="font-size:14px;font-weight:700;color:{opt_color};margin-bottom:8px">
+              {opt_type}: ${strike:.2f} strike — {exp_label}{days_exp_str}
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+        iv_str = f"{iv:.0f}%" if iv else "N/A"
+        st.markdown(
+            f"""<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              {_pill("Entry (mid)", f"${entry_mid:.2f}", opt_color)}
+              {_pill("Target (est)", f"${target_est:.2f}", gain_color)}
+              {_pill("Option gain est", gain_str, gain_color)}
+              {_pill("OI", f"{oi:,}", "#374151")}
+              {_pill("Volume", f"{vol:,}", "#374151")}
+              {_pill("Spread", f"{spread:.1f}%", "#374151")}
+              {_pill("IV", iv_str, "#7c3aed")}
+              {_pill("Delta ≈", f"{delta:.2f}", "#0369a1")}
+              <span style="background:{'#f0fdf4' if grade=='A' else '#fefce8'};
+                border:1px solid {'#86efac' if grade=='A' else '#fde047'};
+                border-radius:20px;padding:4px 10px;font-size:12px;
+                font-weight:700;color:{grade_color}">Grade: {grade}</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f'<div style="font-size:11px;color:#64748b;line-height:1.5">'
+            f'⚠️ <strong>Estimated values only.</strong> '
+            f'Option target is a first-order delta approximation (delta≈{delta:.2f} × stock move). '
+            f'Actual option price depends on gamma, theta decay, and IV changes. '
+            f'Sell into strength — do not hold to expiry.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        if rec.get("short_term_warning"):
+            st.markdown(
+                '<div style="font-size:11px;color:#b45309;margin-top:4px">'
+                '⏱️ Short-term thesis — theta decay accelerates. Consider buying more time (next expiry) '
+                'or using stock position instead of options.</div>',
+                unsafe_allow_html=True,
+            )
+
+        refetch_col, _ = st.columns([1.5, 8.5])
+        with refetch_col:
+            if st.button("↻ Refresh", key=f"refetch_{opt_key}", type="secondary"):
+                del st.session_state[opt_key]
+                st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _news_links(ticker: str):
