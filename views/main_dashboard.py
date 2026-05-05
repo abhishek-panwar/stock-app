@@ -689,6 +689,11 @@ def _option_section(p: dict):
         refetch_col, _ = st.columns([1.5, 8.5])
         with refetch_col:
             if st.button("Retry", key=f"retry_{opt_key}", type="secondary"):
+                try:
+                    from database.db import delete_cache
+                    delete_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}")
+                except Exception:
+                    pass
                 del st.session_state[opt_key]
                 st.rerun()
 
@@ -792,6 +797,11 @@ def _option_section(p: dict):
         refetch_col, _ = st.columns([1.5, 8.5])
         with refetch_col:
             if st.button("↻ Refresh", key=f"refetch_{opt_key}", type="secondary"):
+                try:
+                    from database.db import delete_cache
+                    delete_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}")
+                except Exception:
+                    pass
                 del st.session_state[opt_key]
                 st.rerun()
 
