@@ -41,16 +41,30 @@ def _days_held(p: dict) -> int:
         return 999
 
 
+def _trading_date(dt) -> "date":
+    """
+    Returns the trading date a datetime belongs to.
+    Predictions generated after market close (>=13:30 PT) are assigned to the
+    next calendar day, since they target the next trading session.
+    """
+    from datetime import date as _date
+    d = dt.astimezone(PT)
+    # Market closes at 13:00 PT (1 PM); nightly scanner runs ~19:30 PT
+    if d.hour >= 13:
+        return (d + timedelta(days=1)).date()
+    return d.date()
+
+
 def _is_day_trade(p: dict) -> bool:
-    """True if the prediction was opened and closed on the same calendar day (PT)."""
+    """True if prediction was generated for the same trading session it was closed in."""
     try:
         v = p.get("verified_on") or ""
         q = p.get("predicted_on") or ""
         if not v or not q:
             return False
-        v_date = datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(PT).date()
-        q_date = datetime.fromisoformat(q.replace("Z", "+00:00")).astimezone(PT).date()
-        return v_date == q_date
+        v_dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        q_dt = datetime.fromisoformat(q.replace("Z", "+00:00"))
+        return _trading_date(v_dt) == _trading_date(q_dt)
     except Exception:
         return False
 
