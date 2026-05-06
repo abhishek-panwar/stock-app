@@ -721,7 +721,7 @@ def _option_section(p: dict):
     tf_note = {
         "short":  "35 DTE — buy time, exit when stock hits target",
         "medium": "35 DTE — hold 1-3 weeks, sell before expiry",
-        "long":   f"{days_to_target + 30}d DTE target — long conviction hold",
+        "long":   f"~{min(int(days_to_target * 1.4), 365)}d DTE target (40% buffer) — long conviction hold",
     }.get(timeframe, "")
 
     # Badge shown when contract is locked to the prediction record

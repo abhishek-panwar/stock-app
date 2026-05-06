@@ -10,7 +10,7 @@ Universe:
   - Previous night's hot tickers from hot_tickers DB table (~60-80 tickers)
 
 For each ticker: fetches BULLISH + BEARISH × short + long = 4 cache entries.
-Uses standard days_to_target: 5 for short, 60 for long.
+Uses standard days_to_target: 5 for short, 90 for long (representative midpoint of 60–180d range).
 """
 import time
 from database.db import get_hot_tickers_from_db, log_error
@@ -18,7 +18,7 @@ from services.screener_service import load_nasdaq100
 from services.options_recommendation import get_option_recommendation
 
 _DAYS_SHORT = 5
-_DAYS_LONG  = 60
+_DAYS_LONG  = 90   # representative midpoint for long predictions (60–180d range)
 _TTL_HOURS  = 70
 _RATE_LIMIT_SLEEP = 0.5  # seconds between yfinance calls — avoid rate limiting
 

@@ -11,7 +11,8 @@ Expiry strategy by timeframe:
   short/medium (≤35d prediction): target 35 DTE regardless of days_to_target.
     Rationale: buy time, hold only 2-10 days while the move plays out, sell before theta
     accelerates. At 30+ DTE, theta is ~$0.05-0.15/day vs $0.40-0.80/day at 5 DTE.
-  long (>35d prediction): target days_to_target + 30d buffer (existing behaviour).
+  long (>35d prediction): target days_to_target × 1.4 (40% buffer), floor days_to_target + 45d,
+    cap 365d. A 7-month prediction targets ~10-month expiry. Monthly expiries preferred.
 
 Liquidity thresholds:
   short/medium — must exit quickly:
@@ -116,12 +117,18 @@ def _best_expiry(all_expiries: list[str], days_to_target: int, short_term: bool 
     today = datetime.now(timezone.utc).date()
 
     if short_term:
+        # Fixed 35 DTE for short/medium — buy time, exit when stock hits target
         target_days = _SHORT_TERM_DTE
         min_days    = max(days_to_target + 3, 14)
     else:
-        buffer = 30
-        target_days = days_to_target + buffer
-        min_days    = max(days_to_target, 5)
+        # Long-term: buffer scales with prediction length.
+        # Target = days_to_target × 1.4 (40% buffer) so a 7-month prediction
+        # targets ~10-month expiry, giving room for the move to develop.
+        # Floor: at least days_to_target + 45d.
+        # Cap: 365d — beyond that, liquidity on LEAPS drops sharply.
+        target_days = min(int(days_to_target * 1.4), 365)
+        target_days = max(target_days, days_to_target + 45)
+        min_days    = days_to_target + 14  # must clear thesis horizon with margin
 
     target_date = today + timedelta(days=target_days)
     min_date    = today + timedelta(days=min_days)
