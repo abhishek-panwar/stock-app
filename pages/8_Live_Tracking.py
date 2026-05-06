@@ -136,7 +136,9 @@ def render():
         signal    = p.get("live_signal") or "—"
         reason    = p.get("live_signal_reason") or "Waiting for next price_watcher run…"
         updated   = _last_updated(p.get("live_signal_updated_at"))
-        ret       = _return_so_far(p)
+        # Prefer persisted return from DB — survives market close, weekends, page reloads.
+        # Fall back to live compute only if DB value not yet populated.
+        ret       = p.get("live_return_pct") if p.get("live_return_pct") is not None else _return_so_far(p)
         peak      = p.get("live_peak_price")
 
         dir_color = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"

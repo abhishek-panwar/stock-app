@@ -84,12 +84,15 @@ def run():
                     .astimezone(PT).date() == now.date()
                 )
                 if already_updated_today and not is_first_run_of_day:
-                    # Still update current price for UI freshness, skip signal recompute
+                    # Still update current price and return for UI freshness, skip signal recompute
                     prev_peak = pred.get("live_peak_price") or 0
                     new_peak = max(prev_peak, current) if direction == "BULLISH" else min(prev_peak or current, current)
+                    live_return = round((current - entry) / entry * 100, 2) if entry > 0 and direction == "BULLISH" else \
+                                  round((entry - current) / entry * 100, 2) if entry > 0 else 0
                     update_prediction(pred["id"], {
                         "live_current_price": current,
                         "live_peak_price":    new_peak,
+                        "live_return_pct":    live_return,
                     })
                     continue
 
@@ -111,9 +114,11 @@ def run():
                         signal = signals["signal"]
                         reason = signals["reason"]
 
-                    # Track peak price for context
+                    # Track peak price and live return for context
                     prev_peak = pred.get("live_peak_price") or 0
                     new_peak = max(prev_peak, current) if direction == "BULLISH" else min(prev_peak or current, current)
+                    live_return = round((current - entry) / entry * 100, 2) if entry > 0 and direction == "BULLISH" else \
+                                  round((entry - current) / entry * 100, 2) if entry > 0 else 0
 
                     update_prediction(pred["id"], {
                         "live_signal":            signal,
@@ -121,6 +126,7 @@ def run():
                         "live_signal_updated_at": now.isoformat(),
                         "live_current_price":     current,
                         "live_peak_price":        new_peak,
+                        "live_return_pct":        live_return,
                     })
             except Exception:
                 pass
