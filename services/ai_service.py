@@ -397,7 +397,7 @@ def analyze_stock_bullish(ticker: str, indicators: dict, sentiment: dict, analys
 
     prompt = f"""You are a swing trade analyst specializing in bullish momentum setups.
 Analyze {ticker} for a swing trade continuation move to the upside. Holding period: 2–15 trading days.
-This is NOT a day trade — the position must be held at least overnight. Do NOT set targets or stops
+This is NOT a day trade — the position must be held at least 2 trading days. Do NOT set targets or stops
 reachable within the same trading day.
 
 PRICE & TREND:
@@ -436,7 +436,7 @@ Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
 TASK: This is a SWING TRADE BULLISH (LONG) analysis. Holding period: 2–15 trading days.
-The position will be held at least overnight. The question is: does this stock have enough momentum
+The position will be held for at least 2 trading days. The question is: does this stock have enough momentum
 to continue higher over the next several days?
 
 DO NOT output BEARISH. If the setup is not clearly bullish, output NEUTRAL.
@@ -468,7 +468,7 @@ Respond in this exact JSON:
   "confidence": <integer derived from signal count>,
   "target_price": <float — anchored to resistance level, must be ≥3× ATR from current price>,
   "stop_price": <float — anchored to daily support and 2.5–4× ATR>,
-  "days_to_target": <integer ≥ 2 — minimum overnight hold>,
+  "days_to_target": <integer ≥ 2 — minimum 2-day hold>,
   "timing_rationale": "<1 sentence: which specific signals drive the timing and ATR distance to target>",
   "reasoning": "<2-3 sentences: name the specific signals that agree and any that conflict>",
   "key_signals": ["signal1", "signal2", "signal3"],
@@ -528,7 +528,7 @@ def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analys
 
     prompt = f"""You are a swing trade analyst specializing in overbought reversals.
 {ticker} has had a strong recent run and is showing exhaustion signals. Analyze whether a multi-day pullback is likely.
-Holding period: 2–15 trading days. This is NOT a day trade — position must be held at least overnight.
+Holding period: 2–15 trading days. This is NOT a day trade — position must be held at least 2 trading days.
 Do NOT set targets or stops reachable within the same trading day.
 
 PRICE & EXTENSION:
@@ -562,7 +562,7 @@ Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
 TASK: This is a SWING TRADE BEARISH (SHORT) analysis. Holding period: 2–15 trading days.
-The position will be held at least overnight. The question is: has this stock run too far, too fast,
+The position will be held for at least 2 trading days. The question is: has this stock run too far, too fast,
 and is a multi-day pullback likely?
 
 DO NOT output BULLISH. If the setup is not clearly bearish, output NEUTRAL.
@@ -594,7 +594,7 @@ Respond in this exact JSON:
   "confidence": <integer derived from signal count>,
   "target_price": <float — anchored to MA20 or support, must be ≥3× ATR from current price>,
   "stop_price": <float — 2.5–4× ATR above entry, anchored to resistance>,
-  "days_to_target": <integer ≥ 2 — minimum overnight hold>,
+  "days_to_target": <integer ≥ 2 — minimum 2-day hold>,
   "timing_rationale": "<1 sentence: which exhaustion signals are firing and expected reversion distance>",
   "reasoning": "<2-3 sentences: name each signal present and any that conflict>",
   "key_signals": ["signal1", "signal2", "signal3"],
