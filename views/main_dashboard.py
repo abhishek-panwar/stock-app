@@ -757,13 +757,29 @@ def _option_section(p: dict):
         fetch_col, _ = st.columns([2, 8])
         with fetch_col:
             if st.button("Fetch Best Contract", key=f"fetch_{opt_key}", type="secondary"):
-                with st.spinner("Fetching live options chain…"):
+                with st.spinner("Fetching contract…"):
                     try:
+                        from database.db import get_cache
                         from services.options_recommendation import get_option_recommendation
-                        rec = get_option_recommendation(
-                            ticker, direction, days_to_target, entry, tgt_mid,
-                            timeframe=timeframe, has_earnings=has_earnings,
-                        )
+
+                        # Try prefetch cache first (same fixed keys the prefetcher uses)
+                        prefetch_days = 90 if timeframe == "long" else 5
+                        cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{prefetch_days}"
+                        rec = get_cache(cache_key)
+
+                        if rec is None:
+                            # Cache miss — do a live fetch and cache the result
+                            rec = get_option_recommendation(
+                                ticker, direction, days_to_target, entry, tgt_mid,
+                                timeframe=timeframe, has_earnings=has_earnings,
+                            )
+
+                        if rec and rec.get("available") and entry > 0 and tgt_mid > 0:
+                            # Recalculate target estimate using this prediction's real entry/target
+                            # (prefetch cache used dummy values)
+                            from services.options_recommendation import _enrich_with_real_prices
+                            rec = _enrich_with_real_prices(rec, entry, tgt_mid)
+
                         st.session_state[opt_key] = rec
                         _save_contract_to_prediction(rec)
                         st.rerun()

@@ -241,6 +241,40 @@ def _top_contracts(chain_df, spot: float, option_type: str,
     return result
 
 
+def _enrich_with_real_prices(rec: dict, stock_entry: float, stock_target: float) -> dict:
+    """
+    Replaces dummy target estimates in a cached result with real prediction prices.
+    Called after loading from prefetch cache where entry=1.0 / target=1.05 were used.
+    """
+    if not rec.get("available"):
+        return rec
+
+    stock_move = abs(stock_target - stock_entry)
+    rec = dict(rec)  # shallow copy — don't mutate cache
+
+    def _recalc(c: dict) -> dict:
+        c = dict(c)
+        entry_mid  = c.get("mid") or c.get("entry_mid") or 0
+        delta      = c.get("delta_approx") or 0
+        option_move = stock_move * delta
+        c["entry_mid"]    = entry_mid
+        c["target_est"]   = round(entry_mid + option_move, 2)
+        c["gain_pct_est"] = round(option_move / entry_mid * 100, 1) if entry_mid > 0 else 0
+        return c
+
+    if rec.get("contracts"):
+        rec["contracts"] = [_recalc(c) for c in rec["contracts"]]
+        primary = rec["contracts"][0]
+    else:
+        rec = _recalc(rec)
+        primary = rec
+
+    rec["entry_mid"]    = primary["entry_mid"]
+    rec["target_est"]   = primary["target_est"]
+    rec["gain_pct_est"] = primary["gain_pct_est"]
+    return rec
+
+
 def get_option_recommendation(
     ticker: str,
     direction: str,
