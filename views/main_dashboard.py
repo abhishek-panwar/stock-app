@@ -203,7 +203,7 @@ def render():
 
     high_conviction = sorted(
         [p for p in predictions if (p.get("confidence") or 0) >= 75],
-        key=_sort_key
+        key=lambda p: -(p.get("confidence") or 0)
     )
 
     st.markdown("---")
@@ -247,6 +247,7 @@ def render():
                 profit_str   = f"+{profit_pct:.1f}%" if profit_pct >= 0 else f"{profit_pct:.1f}%"
 
                 with col:
+                    pred_id_hc = p.get("id") or f"{ticker}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}"
                     st.markdown(
                         f"""<div style="background:{card_bg};border:1.5px solid {border_col};
                             border-radius:12px;padding:14px 14px 12px;
@@ -262,11 +263,15 @@ def render():
                             <span style="background:rgba(0,0,0,0.06);border-radius:8px;padding:2px 8px;
                                 font-size:11px;color:#475569">~{days}d</span>
                           </div>
-                          <div style="font-size:11px;color:#64748b;margin-top:4px">{conf}% conf</div>
+                          <div style="font-size:11px;color:#64748b;margin-top:4px">{conf}% conf · 🏆 #{high_conviction.index(p)+1}</div>
                           <div style="margin-top:6px">{age_badge}{_asset_badge(p)}</div>
                         </div>""",
                         unsafe_allow_html=True,
                     )
+                    if st.button("View prediction ↓", key=f"hc_nav_{pred_id_hc}", use_container_width=True):
+                        st.session_state[f"exp_{pred_id_hc}"] = True
+                        st.session_state["_scroll_to"] = pred_id_hc
+                        st.rerun()
         st.markdown("")
 
     # ── Sort control ──────────────────────────────────────────────────────────
@@ -488,6 +493,17 @@ def _prediction_card(p: dict, _unused: set = None):
     pred_id = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
     exp_key = f"exp_{pred_id}"
     is_open = st.session_state.get(exp_key, False)
+
+    # Highlight if navigated from High Conviction card
+    scroll_target = st.session_state.get("_scroll_to")
+    if scroll_target and str(scroll_target) == str(pred_id):
+        st.markdown(
+            '<div style="background:#fefce8;border:2px solid #facc15;border-radius:8px;'
+            'padding:4px 12px;font-size:12px;color:#854d0e;margin-bottom:4px">'
+            '👆 Navigated from High Conviction Picks</div>',
+            unsafe_allow_html=True,
+        )
+        st.session_state.pop("_scroll_to", None)
 
     css_class = "card-bullish" if direction == "BULLISH" else "card-bearish" if direction == "BEARISH" else "card-neutral"
 
