@@ -213,41 +213,44 @@ def render():
                   📊 Option P&L — waiting for first price_watcher run…
                 </div>"""
 
-        st.markdown(
-            f"""<div style="border:2px solid {card_border};border-radius:12px;padding:16px 20px;
-                background:{card_bg};margin-bottom:4px">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
-                <div>
-                  <span style="font-size:22px;font-weight:800;color:#0f172a">{ticker}</span>
-                  <span style="font-size:13px;color:#64748b;margin-left:8px">{company}</span>
-                  <span style="font-size:12px;font-weight:600;color:{dir_color};margin-left:10px">{dir_icon} {direction} · {tf_label}</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:12px">
-                  {signal_html}
-                  <span style="font-size:12px;color:#94a3b8">Updated {updated}</span>
-                </div>
-              </div>
-              <div style="margin-top:10px;font-size:13px;color:#475569;font-style:italic">{reason}</div>
-              <div style="margin-top:4px;font-size:11px;color:#94a3b8">Signal basis: {signal_basis}</div>
-              <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;font-size:13px">
-                <div><span style="color:#94a3b8">Entry</span> &nbsp;<strong>${entry:.2f}</strong></div>
-                <div><span style="color:#94a3b8">Current</span> &nbsp;<strong>${current:.2f}</strong></div>
-                <div><span style="color:#94a3b8">Return</span> &nbsp;<strong style="color:{ret_color}">{ret_str}</strong></div>
-                <div><span style="color:#94a3b8">Target</span> &nbsp;<strong>${tgt_low:.2f} – ${tgt_high:.2f}</strong></div>
-                <div><span style="color:#94a3b8">Stop</span> &nbsp;<strong>${stop:.2f}</strong></div>
-                {extra_row}
-              </div>
-              {option_row}
-            </div>""",
-            unsafe_allow_html=True,
-        ) if current else st.markdown(
-            f"""<div style="border:2px solid #e2e8f0;border-radius:12px;padding:16px 20px;
-                background:#f8fafc;margin-bottom:16px">
-              <span style="font-size:20px;font-weight:700">{ticker}</span>
-              <span style="font-size:13px;color:#94a3b8;margin-left:8px">Waiting for first price update…</span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+        if current:
+            st.markdown(
+                f"""<div style="border:2px solid {card_border};border-radius:12px;padding:16px 20px;
+                    background:{card_bg};margin-bottom:4px">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+                    <div>
+                      <span style="font-size:22px;font-weight:800;color:#0f172a">{ticker}</span>
+                      <span style="font-size:13px;color:#64748b;margin-left:8px">{company}</span>
+                      <span style="font-size:12px;font-weight:600;color:{dir_color};margin-left:10px">{dir_icon} {direction} · {tf_label}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px">
+                      {signal_html}
+                      <span style="font-size:12px;color:#94a3b8">Updated {updated}</span>
+                    </div>
+                  </div>
+                  <div style="margin-top:10px;font-size:13px;color:#475569;font-style:italic">{reason}</div>
+                  <div style="margin-top:4px;font-size:11px;color:#94a3b8">Signal basis: {signal_basis}</div>
+                  <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;font-size:13px">
+                    <div><span style="color:#94a3b8">Entry</span> &nbsp;<strong>${entry:.2f}</strong></div>
+                    <div><span style="color:#94a3b8">Current</span> &nbsp;<strong>${current:.2f}</strong></div>
+                    <div><span style="color:#94a3b8">Return</span> &nbsp;<strong style="color:{ret_color}">{ret_str}</strong></div>
+                    <div><span style="color:#94a3b8">Target</span> &nbsp;<strong>${tgt_low:.2f} – ${tgt_high:.2f}</strong></div>
+                    <div><span style="color:#94a3b8">Stop</span> &nbsp;<strong>${stop:.2f}</strong></div>
+                    {extra_row}
+                  </div>
+                  {option_row}
+                </div>""",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""<div style="border:2px solid #e2e8f0;border-radius:12px;padding:16px 20px;
+                    background:#f8fafc;margin-bottom:16px">
+                  <span style="font-size:20px;font-weight:700">{ticker}</span>
+                  <span style="font-size:13px;color:#94a3b8;margin-left:8px">Waiting for first price update…</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
         # Signal change log
         if signal_log:
