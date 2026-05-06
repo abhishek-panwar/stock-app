@@ -141,11 +141,25 @@ def render():
         ret       = p.get("live_return_pct") if p.get("live_return_pct") is not None else _return_so_far(p)
         peak      = p.get("live_peak_price")
 
+        # Option P&L
+        contract         = p.get("options_contract")
+        opt_value        = p.get("live_option_value")
+        opt_return       = p.get("live_option_return_pct")
+        opt_updated      = _last_updated(p.get("live_option_price_updated_at"))
+        opt_entry_mid    = None
+        opt_strike       = None
+        opt_expiry_label = None
+        if contract:
+            primary = (contract.get("contracts") or [contract])[0]
+            opt_entry_mid    = primary.get("entry_mid") or primary.get("mid")
+            opt_strike       = primary.get("strike")
+            opt_expiry_label = primary.get("expiry_label") or primary.get("expiry", "")
+
         dir_color = "#15803d" if direction == "BULLISH" else "#b91c1c" if direction == "BEARISH" else "#475569"
         dir_icon  = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "●"
         tf_label  = {"short": "⚡ Short", "medium": "📈 Mid", "long": "🌱 Long"}.get(timeframe, timeframe)
 
-        ret_str = f"{ret:+.2f}%" if ret is not None else "—"
+        ret_str   = f"{ret:+.2f}%" if ret is not None else "—"
         ret_color = "#15803d" if (ret or 0) >= 0 else "#b91c1c"
 
         signal_html = _signal_badge(signal) if signal in ("HOLD", "SELL") else \
@@ -154,16 +168,42 @@ def render():
         card_border = "#dc2626" if signal == "SELL" else "#16a34a" if signal == "HOLD" else "#e2e8f0"
         card_bg     = "#fff5f5" if signal == "SELL" else "#f0fdf4" if signal == "HOLD" else "#f8fafc"
 
-        # Timeframe-aware context row
         if timeframe == "long":
             signal_basis = "Daily close · MA50 structural break · Stop on daily close"
         else:
             signal_basis = "15m bars · RSI + MACD + OBV · 2 of 3 signals required"
 
-        # Long-term: show MA levels if available from signal reason
         extra_row = ""
         if timeframe != "long" and peak:
             extra_row = f'<div><span style="color:#94a3b8">Peak</span> &nbsp;<strong>${peak:.2f}</strong></div>'
+
+        # Option P&L row — shown only if contract is locked and data available
+        option_row = ""
+        if contract and opt_entry_mid:
+            if opt_value is not None and opt_return is not None:
+                opt_ret_color = "#15803d" if opt_return >= 0 else "#b91c1c"
+                opt_ret_str   = f"{opt_return:+.2f}%"
+                opt_val_str   = f"${opt_value:.2f}"
+                option_row = f"""
+                <div style="margin-top:10px;padding:8px 12px;background:rgba(0,0,0,0.03);
+                    border-radius:8px;border:1px solid rgba(0,0,0,0.06)">
+                  <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;
+                      letter-spacing:0.05em;margin-bottom:6px">
+                    📊 Option P&L (1 contract · ${opt_strike:.2f} strike · {opt_expiry_label})
+                  </div>
+                  <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:13px">
+                    <div><span style="color:#94a3b8">Paid</span> &nbsp;<strong>${opt_entry_mid:.2f}</strong></div>
+                    <div><span style="color:#94a3b8">Now</span> &nbsp;<strong>{opt_val_str}</strong></div>
+                    <div><span style="color:#94a3b8">Return</span> &nbsp;<strong style="color:{opt_ret_color}">{opt_ret_str}</strong></div>
+                    <div><span style="color:#94a3b8">P&L ($)</span> &nbsp;<strong style="color:{opt_ret_color}">${(opt_value - opt_entry_mid) * 100:+.0f}</strong></div>
+                    <div style="font-size:11px;color:#94a3b8;align-self:center">Real price {opt_updated}</div>
+                  </div>
+                </div>"""
+            else:
+                option_row = """
+                <div style="margin-top:8px;font-size:11px;color:#94a3b8">
+                  📊 Option P&L — waiting for first price_watcher run…
+                </div>"""
 
         st.markdown(
             f"""<div style="border:2px solid {card_border};border-radius:12px;padding:16px 20px;
@@ -189,6 +229,7 @@ def render():
                 <div><span style="color:#94a3b8">Stop</span> &nbsp;<strong>${stop:.2f}</strong></div>
                 {extra_row}
               </div>
+              {option_row}
             </div>""",
             unsafe_allow_html=True,
         ) if current else st.markdown(

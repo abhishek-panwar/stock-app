@@ -20,6 +20,30 @@ from services.yfinance_service import get_multiple_prices
 from services.telegram_service import send_stop_loss_alert, send_target_hit_alert
 
 
+def _calc_option_pnl(ticker, contract, current_stock, stock_entry, direction, pred, do_real_fetch):
+    """
+    Returns option P&L dict or None.
+    do_real_fetch=True  → try real yfinance chain price first (every 30 min / daily)
+    do_real_fetch=False → delta approximation only (every 5 min between recalibrations)
+    """
+    try:
+        from services.options_recommendation import get_live_option_value
+        # Primary contract is first in contracts list, or root-level for old format
+        c = (contract.get("contracts") or [contract])[0]
+        last_real   = pred.get("live_option_value")
+        last_stock  = pred.get("live_current_price")  # stock price at last real fetch
+        if do_real_fetch:
+            last_real  = None   # force real fetch path
+            last_stock = None
+        return get_live_option_value(
+            ticker, c, current_stock, stock_entry, direction,
+            last_real_value=last_real,
+            last_real_stock_price=last_stock,
+        )
+    except Exception:
+        return None
+
+
 def run():
     now = datetime.now(PT)
     open_preds = get_open_predictions()
@@ -71,6 +95,7 @@ def run():
             # Tracked predictions: update live signal every 5 min (matches cron cadence).
             # Never auto-close — user owns the exit decision.
             timeframe = pred.get("timeframe", "short")
+            contract  = pred.get("options_contract")
 
             # Long-term uses daily bars — data only changes at market close.
             # Only recompute once per day (first run of the session) to avoid
@@ -89,11 +114,19 @@ def run():
                     new_peak = max(prev_peak, current) if direction == "BULLISH" else min(prev_peak or current, current)
                     live_return = round((current - entry) / entry * 100, 2) if entry > 0 and direction == "BULLISH" else \
                                   round((entry - current) / entry * 100, 2) if entry > 0 else 0
-                    update_prediction(pred["id"], {
+                    upd = {
                         "live_current_price": current,
                         "live_peak_price":    new_peak,
                         "live_return_pct":    live_return,
-                    })
+                    }
+                    # Long-term: delta approx only between daily real fetches
+                    if contract:
+                        opt = _calc_option_pnl(ticker, contract, current, entry, direction,
+                                               pred, do_real_fetch=False)
+                        if opt:
+                            upd["live_option_value"]      = opt["current_value"]
+                            upd["live_option_return_pct"] = opt["return_pct"]
+                    update_prediction(pred["id"], upd)
                     continue
 
             try:
@@ -120,14 +153,27 @@ def run():
                     live_return = round((current - entry) / entry * 100, 2) if entry > 0 and direction == "BULLISH" else \
                                   round((entry - current) / entry * 100, 2) if entry > 0 else 0
 
-                    update_prediction(pred["id"], {
+                    upd = {
                         "live_signal":            signal,
                         "live_signal_reason":     reason,
                         "live_signal_updated_at": now.isoformat(),
                         "live_current_price":     current,
                         "live_peak_price":        new_peak,
                         "live_return_pct":        live_return,
-                    })
+                    }
+
+                    # Option P&L — real fetch every 30 min, delta approx every 5 min
+                    if contract:
+                        do_real = (now.minute < 5 or (30 <= now.minute < 35))
+                        opt = _calc_option_pnl(ticker, contract, current, entry, direction,
+                                               pred, do_real_fetch=do_real)
+                        if opt:
+                            upd["live_option_value"]      = opt["current_value"]
+                            upd["live_option_return_pct"] = opt["return_pct"]
+                            if do_real and opt["source"] == "real":
+                                upd["live_option_price_updated_at"] = now.isoformat()
+
+                    update_prediction(pred["id"], upd)
             except Exception:
                 pass
             continue  # skip auto-close logic entirely for tracked predictions

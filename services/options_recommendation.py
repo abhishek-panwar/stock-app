@@ -275,6 +275,68 @@ def _enrich_with_real_prices(rec: dict, stock_entry: float, stock_target: float)
     return rec
 
 
+def get_live_option_value(
+    ticker: str,
+    contract: dict,
+    stock_current: float,
+    stock_entry: float,
+    direction: str,
+    last_real_value: float = None,
+    last_real_stock_price: float = None,
+) -> dict:
+    """
+    Returns current option value and P&L for a locked contract.
+
+    Uses real option chain price when called for recalibration (every 30 min / daily).
+    Falls back to delta approximation between recalibrations using last_real_value as base.
+
+    Returns dict:
+      current_value  — estimated current option mid price
+      return_pct     — % gain/loss vs original entry_mid
+      source         — "real" | "delta_approx"
+    """
+    entry_mid = contract.get("entry_mid") or contract.get("mid") or 0
+    delta     = contract.get("delta_approx") or 0.50
+    expiry    = contract.get("expiry")
+    strike    = contract.get("strike")
+    direction_key = "calls" if direction == "BULLISH" else "puts"
+
+    if not entry_mid or not expiry or not strike:
+        return {}
+
+    # ── Try real option chain price ──────────────────────────────────────────
+    try:
+        t = yf.Ticker(ticker)
+        chain_df = getattr(t.option_chain(expiry), direction_key, None)
+        if chain_df is not None and not chain_df.empty:
+            row = chain_df[abs(chain_df["strike"] - strike) < 0.01]
+            if not row.empty:
+                bid  = float(row.iloc[0].get("bid") or 0)
+                ask  = float(row.iloc[0].get("ask") or 0)
+                last = float(row.iloc[0].get("lastPrice") or 0)
+                if bid > 0 and ask > 0:
+                    mid = (bid + ask) / 2
+                elif last > 0:
+                    mid = last  # after-hours fallback
+                else:
+                    mid = None
+                if mid and mid > 0:
+                    return_pct = round((mid - entry_mid) / entry_mid * 100, 2)
+                    return {"current_value": round(mid, 2), "return_pct": return_pct, "source": "real"}
+    except Exception:
+        pass
+
+    # ── Delta approximation fallback ─────────────────────────────────────────
+    # Use last real value as base if available, else original entry_mid
+    base_value       = last_real_value if last_real_value and last_real_value > 0 else entry_mid
+    base_stock_price = last_real_stock_price if last_real_stock_price and last_real_stock_price > 0 else stock_entry
+
+    stock_move = (stock_current - base_stock_price) if direction == "BULLISH" else (base_stock_price - stock_current)
+    current_value = max(0.01, round(base_value + stock_move * delta, 2))
+    return_pct    = round((current_value - entry_mid) / entry_mid * 100, 2)
+    return {"current_value": current_value, "return_pct": return_pct, "source": "delta_approx"}
+
+
 def get_option_recommendation(
     ticker: str,
     direction: str,
