@@ -29,8 +29,10 @@ def run():
     tracked_preds    = [p for p in open_preds if p.get("is_tracked")]
     non_tracked_preds = [p for p in open_preds if not p.get("is_tracked")]
 
-    # Non-tracked: only check at the :00 and :30 marks (every 30 min)
-    run_non_tracked = now.minute < 5 or (30 <= now.minute < 35)
+    # Non-tracked: throttle to every 30 min only when tracked predictions exist
+    # (tracked runs consume frequent API calls, so we offset non-tracked to save quota).
+    # If nothing is tracked, run non-tracked every cycle — no reason to hold back.
+    run_non_tracked = (not tracked_preds) or now.minute < 5 or (30 <= now.minute < 35)
 
     # Fetch prices only for the predictions we'll actually process this run
     tickers_to_fetch = {p["ticker"] for p in tracked_preds}
