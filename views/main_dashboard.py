@@ -690,14 +690,29 @@ def _option_section(p: dict):
     opt_key = f"opt_{pred_id}_{direction}_{timeframe}"
 
     # Source of truth: options_contract stored on the prediction record itself.
-    # Once written, it never changes — this locks in the contract the user saw when they made their decision.
+    # Supabase may return jsonb as a string — always deserialize before use.
     saved_contract = p.get("options_contract")
+    if isinstance(saved_contract, str):
+        import json as _json
+        try:
+            saved_contract = _json.loads(saved_contract)
+        except Exception:
+            saved_contract = None
 
     # Warm session_state from the DB record so re-renders are instant
     if saved_contract and st.session_state.get(opt_key) is None:
         st.session_state[opt_key] = saved_contract
 
     fetched = st.session_state.get(opt_key)
+    # Deserialize if session_state somehow stored a string
+    if isinstance(fetched, str):
+        import json as _json
+        try:
+            fetched = _json.loads(fetched)
+            st.session_state[opt_key] = fetched
+        except Exception:
+            fetched = None
+            del st.session_state[opt_key]
 
     # Fallback: auto-load from prefetch cache only if nothing is saved on the prediction yet.
     # Use the prefetcher's fixed days_to_target keys (5 for short/medium, 90 for long)
@@ -950,9 +965,11 @@ def _option_section(p: dict):
                 unsafe_allow_html=True,
             )
 
-        # Contract locked — persist to DB if loaded from prefetch cache this session.
+        # Contract loaded from prefetch cache this session — persist to DB and rerun
+        # so next render reads it from p["options_contract"] with the locked badge.
         if not saved_contract:
             _save_contract_to_prediction(fetched)
+            st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
