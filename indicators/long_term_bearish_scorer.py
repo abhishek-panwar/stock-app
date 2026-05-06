@@ -27,7 +27,7 @@ Changes from v1.0 (ChatGPT structural review):
   - Add category-based days-to-target mapping
 """
 
-FORMULA_VERSION = "long_bearish_v2.0"
+FORMULA_VERSION = "long_bearish_v1.0"
 
 
 def compute_long_term_bearish_score(
@@ -463,7 +463,7 @@ def compute_long_term_bearish_score(
     if scores.get("earnings_misses", 0) >= 8:            confirmations += 1
     if scores.get("narrative_risk", 0) >= 5:             confirmations += 1
     if scores.get("structural_breakdown", 0) >= 6:       confirmations += 1
-    conviction_pass = total >= 45 and confirmations >= 2
+    conviction_pass = total >= 35 and confirmations >= 2
 
     return {
         "total": total,

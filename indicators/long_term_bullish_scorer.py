@@ -19,7 +19,7 @@ Changes from v1.0 (ChatGPT structural review):
   - Trend: add higher-lows structure signal (institutional accumulation pattern)
 """
 
-FORMULA_VERSION = "long_bullish_v2.0"
+FORMULA_VERSION = "long_bullish_v1.0"
 
 
 def compute_long_term_bullish_score(
@@ -486,7 +486,7 @@ def compute_long_term_bullish_score(
     confirmations = 0
     if scores.get("earnings", 0) >= 7:      confirmations += 1
     if scores.get("trend", 0) >= 5:         confirmations += 1
-    conviction_pass = total >= 50 and drivers >= 2 and confirmations >= 1
+    conviction_pass = total >= 35 and drivers >= 2 and confirmations >= 1
 
     return {
         "total": total,
