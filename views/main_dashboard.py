@@ -356,9 +356,18 @@ def render():
             if not bucket_preds:
                 continue
             bucket_preds = sorted(bucket_preds, key=sort_fn)
+
+            # Force open if the scroll target lives in this bucket
+            scroll_target = st.session_state.get("_scroll_to")
+            bucket_has_target = scroll_target and any(
+                str(p.get("id") or f"{p.get('ticker','')}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}") == str(scroll_target)
+                for p in bucket_preds
+            )
+            is_expanded = (bucket_label in ("📅 Tomorrow", "✨ Today")) or bool(bucket_has_target)
+
             with st.expander(
                 f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
-                expanded=(bucket_label in ("📅 Tomorrow", "✨ Today")),
+                expanded=is_expanded,
             ):
                 for p in bucket_preds:
                     _prediction_card(p)
