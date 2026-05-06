@@ -41,6 +41,20 @@ def _days_held(p: dict) -> int:
         return 999
 
 
+def _is_day_trade(p: dict) -> bool:
+    """True if the prediction was opened and closed on the same calendar day (PT)."""
+    try:
+        v = p.get("verified_on") or ""
+        q = p.get("predicted_on") or ""
+        if not v or not q:
+            return False
+        v_date = datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(PT).date()
+        q_date = datetime.fromisoformat(q.replace("Z", "+00:00")).astimezone(PT).date()
+        return v_date == q_date
+    except Exception:
+        return False
+
+
 def _expiry(p: dict):
     raw = p.get("expires_on") or ""
     if not raw:
@@ -375,19 +389,23 @@ def render():
         if not tf_preds:
             continue
 
-        tf_wins   = sum(1 for p in tf_preds if p.get("outcome") == "WIN")
-        tf_losses = len(tf_preds) - tf_wins
-        tf_net    = sum(p.get("return_pct") or 0 for p in tf_preds)
-        tf_rate   = tf_wins / len(tf_preds) * 100 if tf_preds else 0
-        net_color = "green" if tf_net >= 0 else "red"
-        net_sign  = "+" if tf_net >= 0 else ""
+        tf_wins     = sum(1 for p in tf_preds if p.get("outcome") == "WIN")
+        tf_losses   = len(tf_preds) - tf_wins
+        tf_net      = sum(p.get("return_pct") or 0 for p in tf_preds)
+        tf_rate     = tf_wins / len(tf_preds) * 100 if tf_preds else 0
+        tf_daytrades = sum(1 for p in tf_preds if _is_day_trade(p))
+        net_color   = "green" if tf_net >= 0 else "red"
+        net_sign    = "+" if tf_net >= 0 else ""
+        dt_tag      = (f'  ·  <span style="color:#b45309;font-weight:600">'
+                       f'⚡ {tf_daytrades} day trade{"s" if tf_daytrades != 1 else ""}</span>'
+                       if tf_daytrades > 0 else "")
 
         st.markdown(
             f'<div style="font-size:15px;font-weight:700;color:{tf_color};'
             f'margin:18px 0 6px;padding-left:2px">'
             f'{tf_label} — {len(tf_preds)} trade{"s" if len(tf_preds) != 1 else ""}  ·  '
             f'{tf_wins}W / {tf_losses}L  ·  {tf_rate:.0f}% win rate  ·  '
-            f'Net {net_sign}{tf_net:.1f}%</div>',
+            f'Net {net_sign}{tf_net:.1f}%{dt_tag}</div>',
             unsafe_allow_html=True,
         )
 
@@ -535,6 +553,7 @@ def _prediction_card(p: dict):
         reason_tag = f"  ·  {closed_reason}"
     else:
         reason_tag = ""
+    day_trade_tag = "  ·  ⚡ DAY TRADE" if _is_day_trade(p) else ""
 
     pred_id   = p.get("id") or f"{ticker}_{timeframe}_{predicted_on[:10]}"
     exp_key   = f"hexp_{pred_id}"
@@ -548,7 +567,7 @@ def _prediction_card(p: dict):
     header = (
         f"{arrow}  {outcome_icon} **{ticker}** — {company}  ·  {dir_icon} {direction}  ·  "
         f"{confidence}% conf  ·  buy {buy_str}  ·  tgt {tgt_str}  ·  {profit_str} potential  ·  {tenure_str}"
-        f"{pos_tag}  ·  {ret_str}{reason_tag}"
+        f"{pos_tag}  ·  {ret_str}{reason_tag}{day_trade_tag}"
     )
 
     # ── Header row: toggle + delete ────────────────────────────────────────────
@@ -624,6 +643,8 @@ def _prediction_card(p: dict):
             st.write(f"Est. days to target: {days_to_target or '—'}")
             if actual_days is not None:
                 st.write(f"Actual days held: {actual_days}d")
+            if _is_day_trade(p):
+                st.warning("⚡ Day trade — opened and closed same day")
             if p.get("timing_rationale"):
                 st.caption(f"💡 {p['timing_rationale']}")
 
