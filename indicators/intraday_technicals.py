@@ -1,19 +1,27 @@
 """
 Live tracking signals for tracked predictions.
 
-Short/medium-term: 15-minute bars — RSI, MACD, OBV.
-Long-term: daily bars — price vs MA50, consecutive closes below MA50, weekly stop logic.
+Short/medium-term: 1-hour bars — RSI, MACD, OBV.
+  Using 1h instead of 15m: for 3-8 day swing holds, hourly closes filter out
+  intraday noise that causes excessive signal flipping on 15m bars.
+Long-term: daily bars — price vs MA50, consecutive closes below MA50.
+
+Conviction levels:
+  STRONG_SELL — all 3 indicators bearish AND RSI overbought (>75) or OBV declining 4+ bars
+  SELL        — all 3 indicators bearish (RSI >70 or MACD bearish or OBV declining 4+ bars)
+  HOLD        — fewer than 3 sell signals firing
+  STRONG_HOLD — all 3 indicators bullish AND RSI in healthy zone (40-65) AND MACD expanding
 """
 import pandas as pd
 import ta
 import yfinance as yf
 
 
-def fetch_15m_bars(ticker: str) -> pd.DataFrame:
+def fetch_1h_bars(ticker: str) -> pd.DataFrame:
     try:
-        df = yf.download(ticker, period="5d", interval="15m",
+        df = yf.download(ticker, period="10d", interval="1h",
                          progress=False, auto_adjust=True)
-        if df.empty or len(df) < 10:
+        if df.empty or len(df) < 20:
             return pd.DataFrame()
         df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
         return df
@@ -25,10 +33,10 @@ def compute_intraday_signals(ticker: str) -> dict:
     """
     Returns a dict with:
       rsi, macd_bullish, macd_hist_shrinking, obv_bearish_bars,
-      price, signal (HOLD/SELL), reason
+      price, signal (HOLD/SELL), conviction (STRONG_SELL/SELL/HOLD/STRONG_HOLD), reason
     Returns empty dict on failure.
     """
-    df = fetch_15m_bars(ticker)
+    df = fetch_1h_bars(ticker)
     if df.empty:
         return {}
 
@@ -41,48 +49,85 @@ def compute_intraday_signals(ticker: str) -> dict:
     rsi = float(rsi_series.iloc[-1]) if not rsi_series.empty else 50.0
 
     # ── MACD ─────────────────────────────────────────────────────────────
-    macd_ind  = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
-    macd_line = float(macd_ind.macd().iloc[-1])
-    macd_sig  = float(macd_ind.macd_signal().iloc[-1])
-    macd_hist = float(macd_ind.macd_diff().iloc[-1])
+    macd_ind       = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
+    macd_line      = float(macd_ind.macd().iloc[-1])
+    macd_sig_val   = float(macd_ind.macd_signal().iloc[-1])
+    macd_hist      = float(macd_ind.macd_diff().iloc[-1])
     macd_hist_prev = float(macd_ind.macd_diff().iloc[-2]) if len(macd_ind.macd_diff()) > 1 else macd_hist
-    macd_bullish         = macd_line > macd_sig
-    macd_hist_shrinking  = macd_hist < macd_hist_prev and macd_hist > 0
+    macd_bullish        = macd_line > macd_sig_val
+    macd_hist_expanding = macd_hist > macd_hist_prev and macd_hist > 0
+    macd_hist_shrinking = macd_hist < macd_hist_prev and macd_hist > 0
 
-    # ── OBV — count consecutive bearish bars ─────────────────────────────
+    # ── OBV — count consecutive bearish/bullish bars ──────────────────────
     obv_series = ta.volume.OnBalanceVolumeIndicator(close, volume).on_balance_volume()
     obv_bearish_bars = 0
-    for i in range(-1, -5, -1):
+    for i in range(-1, -6, -1):
         if len(obv_series) >= abs(i) + 1:
             if float(obv_series.iloc[i]) < float(obv_series.iloc[i - 1]):
                 obv_bearish_bars += 1
             else:
                 break
+    obv_bullish_bars = 0
+    for i in range(-1, -6, -1):
+        if len(obv_series) >= abs(i) + 1:
+            if float(obv_series.iloc[i]) > float(obv_series.iloc[i - 1]):
+                obv_bullish_bars += 1
+            else:
+                break
 
-    # ── Signal logic ─────────────────────────────────────────────────────
-    sell_reasons = []
-    if rsi > 75:
-        sell_reasons.append(f"RSI {rsi:.0f} — overbought on 15m")
-    if not macd_bullish:
-        sell_reasons.append("MACD bearish on 15m")
-    elif macd_hist_shrinking:
-        sell_reasons.append("MACD histogram shrinking — momentum fading")
-    if obv_bearish_bars >= 2:
-        sell_reasons.append(f"OBV declining {obv_bearish_bars} consecutive bars")
+    # ── Sell signals — all 3 must fire (OBV threshold: 4 consecutive bars) ─
+    rsi_sell        = rsi > 70
+    macd_sell       = not macd_bullish
+    obv_sell        = obv_bearish_bars >= 4
 
-    # Need at least 2 sell signals to trigger SELL (avoid single-bar noise)
-    signal = "SELL" if len(sell_reasons) >= 2 else "HOLD"
-    if signal == "HOLD":
-        hold_parts = []
-        if rsi <= 70:
-            hold_parts.append(f"RSI {rsi:.0f} — healthy")
-        if macd_bullish and not macd_hist_shrinking:
-            hold_parts.append("MACD bullish, expanding")
-        if obv_bearish_bars == 0:
-            hold_parts.append("OBV confirming")
-        reason = " · ".join(hold_parts) if hold_parts else "No strong sell signal"
+    sell_count = sum([rsi_sell, macd_sell, obv_sell])
+
+    # ── Hold / buy signals ────────────────────────────────────────────────
+    rsi_healthy     = 40 <= rsi <= 65
+    obv_confirming  = obv_bearish_bars == 0
+
+    # ── Signal + conviction ───────────────────────────────────────────────
+    if sell_count == 3:
+        signal = "SELL"
+        # Strong sell: RSI deeply overbought or OBV collapsing
+        conviction = "STRONG_SELL" if (rsi > 75 or obv_bearish_bars >= 5) else "SELL"
     else:
-        reason = " · ".join(sell_reasons)
+        signal = "HOLD"
+        # Strong hold: all three pointing up cleanly
+        if rsi_healthy and macd_bullish and macd_hist_expanding and obv_confirming:
+            conviction = "STRONG_HOLD"
+        else:
+            conviction = "HOLD"
+
+    # ── Reason text ──────────────────────────────────────────────────────
+    if signal == "SELL":
+        parts = []
+        if rsi_sell:
+            parts.append(f"RSI {rsi:.0f} — overbought on 1h")
+        if macd_sell:
+            parts.append("MACD bearish on 1h")
+        if obv_sell:
+            parts.append(f"OBV declining {obv_bearish_bars} consecutive bars")
+        reason = " · ".join(parts)
+    else:
+        parts = []
+        if rsi_healthy:
+            parts.append(f"RSI {rsi:.0f} — healthy zone")
+        elif rsi <= 40:
+            parts.append(f"RSI {rsi:.0f} — oversold, potential bounce")
+        else:
+            parts.append(f"RSI {rsi:.0f}")
+        if macd_bullish and macd_hist_expanding:
+            parts.append("MACD bullish, momentum building")
+        elif macd_bullish:
+            parts.append("MACD bullish")
+        else:
+            parts.append("MACD weak — only 1h signal, not enough to exit")
+        if obv_confirming:
+            parts.append("OBV confirming")
+        elif obv_bearish_bars > 0:
+            parts.append(f"OBV soft ({obv_bearish_bars} bars) — not enough to exit")
+        reason = " · ".join(parts)
 
     return {
         "price":               price,
@@ -91,6 +136,7 @@ def compute_intraday_signals(ticker: str) -> dict:
         "macd_hist_shrinking": macd_hist_shrinking,
         "obv_bearish_bars":    obv_bearish_bars,
         "signal":              signal,
+        "conviction":          conviction,
         "reason":              reason,
     }
 

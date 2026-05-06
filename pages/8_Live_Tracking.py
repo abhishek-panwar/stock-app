@@ -45,9 +45,13 @@ def _return_so_far(p: dict) -> float | None:
     return (current - entry) / entry * 100
 
 
-def _signal_badge(signal: str) -> str:
+def _signal_badge(signal: str, conviction: str = "") -> str:
+    if conviction == "STRONG_SELL":
+        return '<span style="background:#7f1d1d;color:#fecaca;border:1px solid #b91c1c;border-radius:20px;padding:3px 14px;font-size:13px;font-weight:800">🚨 STRONG SELL</span>'
     if signal == "SELL":
         return '<span style="background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:700">🔴 SELL</span>'
+    if conviction == "STRONG_HOLD":
+        return '<span style="background:#14532d;color:#bbf7d0;border:1px solid #16a34a;border-radius:20px;padding:3px 14px;font-size:13px;font-weight:800">💪 STRONG HOLD</span>'
     return '<span style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:700">🟢 HOLD</span>'
 
 
@@ -139,8 +143,9 @@ def render():
         tgt_high  = p.get("target_high") or 0
         stop      = p.get("stop_loss") or 0
         current   = p.get("live_current_price")
-        signal    = p.get("live_signal") or "—"
-        reason    = p.get("live_signal_reason") or "Waiting for next price_watcher run…"
+        signal     = p.get("live_signal") or "—"
+        conviction = p.get("live_signal_conviction") or signal
+        reason     = p.get("live_signal_reason") or "Waiting for next price_watcher run…"
         updated   = _last_updated(p.get("live_signal_updated_at"))
         # Prefer persisted return from DB — survives market close, weekends, page reloads.
         # Fall back to live compute only if DB value not yet populated.
@@ -175,16 +180,18 @@ def render():
         ret_str   = f"{ret:+.2f}%" if ret is not None else "—"
         ret_color = "#15803d" if (ret or 0) >= 0 else "#b91c1c"
 
-        signal_html = _signal_badge(signal) if signal in ("HOLD", "SELL") else \
+        signal_html = _signal_badge(signal, conviction) if signal in ("HOLD", "SELL") else \
             '<span style="background:#f8fafc;color:#94a3b8;border:1px solid #e2e8f0;border-radius:20px;padding:3px 12px;font-size:13px">— Pending</span>'
 
-        card_border = "#dc2626" if signal == "SELL" else "#16a34a" if signal == "HOLD" else "#e2e8f0"
-        card_bg     = "#fff5f5" if signal == "SELL" else "#f0fdf4" if signal == "HOLD" else "#f8fafc"
+        card_border = "#7f1d1d" if conviction == "STRONG_SELL" else "#dc2626" if signal == "SELL" \
+                 else "#14532d" if conviction == "STRONG_HOLD" else "#16a34a" if signal == "HOLD" else "#e2e8f0"
+        card_bg     = "#fff0f0" if conviction == "STRONG_SELL" else "#fff5f5" if signal == "SELL" \
+                 else "#e6fdf0" if conviction == "STRONG_HOLD" else "#f0fdf4" if signal == "HOLD" else "#f8fafc"
 
         if timeframe == "long":
             signal_basis = "Daily close · MA50 structural break · Stop on daily close"
         else:
-            signal_basis = "15m bars · RSI + MACD + OBV · 2 of 3 signals required"
+            signal_basis = "1h bars · RSI + MACD + OBV · all 3 required for SELL · OBV needs 4+ consecutive bars"
 
         extra_row = ""
         if timeframe != "long" and peak:
@@ -282,26 +289,41 @@ def render():
             with st.expander(f"📋 Signal log — {len(signal_log)} change{'s' if len(signal_log) != 1 else ''}", expanded=False):
                 rows_html = ""
                 for entry_log in reversed(signal_log):
-                    sig      = entry_log.get("signal", "—")
-                    prev     = entry_log.get("prev", "—")
-                    ts       = entry_log.get("ts", "—")
-                    px       = entry_log.get("price", 0)
-                    ret_val  = entry_log.get("return", 0)
-                    rsn      = entry_log.get("reason", "")
-                    sig_color  = "#15803d" if sig == "HOLD" else "#b91c1c" if sig == "SELL" else "#64748b"
-                    prev_color = "#15803d" if prev == "HOLD" else "#b91c1c" if prev == "SELL" else "#64748b"
+                    sig   = entry_log.get("signal", "—")
+                    conv  = entry_log.get("conviction", sig)
+                    prev  = entry_log.get("prev", "—")
+                    ts    = entry_log.get("ts", "—")
+                    px    = entry_log.get("price", 0)
+                    ret_val = entry_log.get("return", 0)
+                    rsn   = entry_log.get("reason", "")
+
+                    if conv == "STRONG_SELL":
+                        sig_color  = "#7f1d1d"
+                        entry_bg   = "#fff0f0"
+                        conv_badge = '<span style="background:#7f1d1d;color:#fecaca;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:800">🚨 STRONG SELL</span>'
+                    elif sig == "SELL":
+                        sig_color  = "#b91c1c"
+                        entry_bg   = "#fff5f5"
+                        conv_badge = '<span style="background:#fef2f2;color:#b91c1c;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700">🔴 SELL</span>'
+                    elif conv == "STRONG_HOLD":
+                        sig_color  = "#14532d"
+                        entry_bg   = "#e6fdf0"
+                        conv_badge = '<span style="background:#14532d;color:#bbf7d0;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:800">💪 STRONG HOLD</span>'
+                    else:
+                        sig_color  = "#15803d"
+                        entry_bg   = "#f0fdf4"
+                        conv_badge = '<span style="background:#f0fdf4;color:#15803d;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700">🟢 HOLD</span>'
+
                     ret_color_log = "#15803d" if (ret_val or 0) >= 0 else "#b91c1c"
-                    arrow = (
-                        '<span style="color:#b91c1c;font-weight:700">HOLD → SELL</span>' if prev == "HOLD" and sig == "SELL"
-                        else '<span style="color:#15803d;font-weight:700">SELL → HOLD</span>' if prev == "SELL" and sig == "HOLD"
-                        else f'<span style="color:{sig_color};font-weight:700">{prev} → {sig}</span>'
-                    )
+                    transition = f"{prev} → {sig}"
                     rows_html += f"""
                     <div style="border-left:3px solid {sig_color};padding:6px 10px;margin-bottom:6px;
-                        background:{'#fff5f5' if sig=='SELL' else '#f0fdf4' if sig=='HOLD' else '#f8fafc'};
-                        border-radius:0 6px 6px 0">
+                        background:{entry_bg};border-radius:0 6px 6px 0">
                       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-                        <div style="font-size:12px;font-weight:600">{arrow}</div>
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="font-size:12px;font-weight:700;color:{sig_color}">{transition}</span>
+                          {conv_badge}
+                        </div>
                         <div style="font-size:11px;color:#64748b">{ts}</div>
                       </div>
                       <div style="font-size:12px;color:#475569;margin-top:3px">{rsn}</div>

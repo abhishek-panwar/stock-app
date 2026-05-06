@@ -138,14 +138,17 @@ def run():
                 if signals:
                     # Price-level overrides: if stop or target clearly breached, force SELL signal
                     if hit_stop or hit_stop_short:
-                        signal = "SELL"
-                        reason = f"Stop loss ${stop_loss:.2f} breached — price ${current:.2f}"
+                        signal     = "SELL"
+                        conviction = "STRONG_SELL"
+                        reason     = f"Stop loss ${stop_loss:.2f} breached — price ${current:.2f}"
                     elif hit_target or hit_target_short:
-                        signal = "SELL"
-                        reason = f"Target reached — price ${current:.2f} hit target zone"
+                        signal     = "SELL"
+                        conviction = "STRONG_SELL"
+                        reason     = f"Target reached — price ${current:.2f} hit target zone"
                     else:
-                        signal = signals["signal"]
-                        reason = signals["reason"]
+                        signal     = signals["signal"]
+                        conviction = signals.get("conviction", signal)
+                        reason     = signals["reason"]
 
                     # Track peak price and live return for context
                     prev_peak = pred.get("live_peak_price") or 0
@@ -155,6 +158,7 @@ def run():
 
                     upd = {
                         "live_signal":            signal,
+                        "live_signal_conviction":  conviction,
                         "live_signal_reason":     reason,
                         "live_signal_updated_at": now.isoformat(),
                         "live_current_price":     current,
@@ -172,12 +176,13 @@ def run():
                             except Exception: raw_log = []
                         existing_log = raw_log if isinstance(raw_log, list) else []
                         existing_log.append({
-                            "ts":     now.astimezone(PT).strftime("%Y-%m-%d %H:%M PT"),
-                            "signal": signal,
-                            "prev":   prev_signal or "—",
-                            "price":  round(current, 2),
-                            "return": live_return,
-                            "reason": reason,
+                            "ts":         now.astimezone(PT).strftime("%Y-%m-%d %H:%M PT"),
+                            "signal":     signal,
+                            "conviction": conviction,
+                            "prev":       prev_signal or "—",
+                            "price":      round(current, 2),
+                            "return":     live_return,
+                            "reason":     reason,
                         })
                         upd["live_signal_log"] = existing_log
 
