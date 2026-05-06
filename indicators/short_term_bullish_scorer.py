@@ -10,7 +10,7 @@ Key differences from the old shared scorer:
   - Bearish signals (OBV distribution, bb_breakout_down) penalized more aggressively
 """
 
-FORMULA_VERSION = "bullish_v1.0"
+FORMULA_VERSION = "bullish_v1.1"
 
 
 def compute_short_term_bullish_score(
@@ -81,7 +81,10 @@ def compute_short_term_bullish_score(
     else:
         roc_score = 0   # negative ROC = stock declining, no reward
 
-    momentum_raw = rsi_score + macd_score + roc_score
+    # Bullish RSI divergence: price lower but RSI higher = hidden accumulation, leading signal
+    rsi_div_score = 3 if ind.get("rsi_divergence") else 0
+
+    momentum_raw = rsi_score + macd_score + roc_score + rsi_div_score
 
     # Hard cap if RSI overbought without both MACD + golden cross confirmation
     if rsi > 70 and not (ind.get("macd_crossover") and ind.get("golden_cross")):
@@ -111,7 +114,10 @@ def compute_short_term_bullish_score(
     adx = ind.get("adx", 20)
     adx_score = 8 if adx > 30 else 5 if adx >= 25 else 2
 
-    trend_raw = ma_score + adx_score
+    # Rising MA50 confirms the uptrend has momentum, not just current price level
+    ma50_slope_score = 2 if ind.get("ma50_slope_rising") else 0
+
+    trend_raw = ma_score + adx_score + ma50_slope_score
     scores["trend"] = round(min(trend_raw, 25), 1)
 
     # ── Group 3: Volume (20 pts) ───────────────────────────────────────────────
@@ -143,6 +149,13 @@ def compute_short_term_bullish_score(
     if obv == "DIVERGING_BEARISH":
         volume_raw = max(0, volume_raw - 10)
 
+    # Distribution days: institutional selling pattern reduces volume score
+    dist_days = ind.get("distribution_days", 0)
+    if dist_days >= 5:
+        volume_raw = max(0, volume_raw - 10)
+    elif dist_days >= 3:
+        volume_raw = max(0, volume_raw - 5)
+
     scores["volume"] = round(min(volume_raw, 20), 1)
 
     # ── Group 4: Volatility / Structure (10 pts) ──────────────────────────────
@@ -153,10 +166,28 @@ def compute_short_term_bullish_score(
         struct_score += 3   # squeeze building, not yet broken out
     if ind.get("atr_rising"):
         struct_score += 3
-    if ind.get("near_52w_high"):
-        struct_score += 1
 
-    scores["structure"] = round(min(struct_score, 10), 1)
+    # Entry quality signals: reward low-risk pullback entries and structural confirmation
+    if ind.get("near_ma20_bounce"):
+        struct_score += 3   # tight pullback to MA20 with confirmation = textbook setup
+    if ind.get("higher_low"):
+        struct_score += 2   # buyers stepping in higher = uptrend intact
+    if ind.get("gap_up_holds"):
+        struct_score += 2   # institutional conviction gap, not a gap-and-trap
+    if ind.get("nr7") or (ind.get("bb_squeeze") and ind.get("bb_width_pct", 1.0) <= 0.20):
+        struct_score += 2   # volatility compression = coil before breakout
+
+    # Bearish candlestick penalties: demand rejection patterns lower structure quality
+    if ind.get("blowoff_top"):
+        struct_score -= 5   # exhaustion pattern — wrong entry timing
+    if ind.get("bearish_engulfing"):
+        struct_score -= 3   # demand rejection candle
+    if ind.get("shooting_star"):
+        struct_score -= 2   # price rejected at highs
+    if ind.get("upper_wick_rejection") and not ind.get("shooting_star"):
+        struct_score -= 1   # minor upper wick rejection (no double-penalty with shooting_star)
+
+    scores["structure"] = round(min(max(struct_score, -5), 10), 1)
 
     # ── Group 5: Sentiment (10 pts) ───────────────────────────────────────────
     news_s = sentiment.get("score", 0)
@@ -294,6 +325,7 @@ def compute_short_term_bullish_score(
             bonus += 4; bonus_reasons.append(f"PEG {peg:.2f} — undervalued growth (+4)")
 
     base  = sum(scores.values())
+    bonus = min(bonus, 25)  # cap bonus — prevents fundamental inflation of weak technicals
     total = min(round(base + bonus), 100)
 
     analyst_upside_pct = None
@@ -301,11 +333,17 @@ def compute_short_term_bullish_score(
         analyst_upside_pct = round((analyst_target["mean_target"] - price) / price * 100, 1)
 
     # Conviction filter: need trend + at least one of momentum/volume confirming
+    # Also block if active distribution or bearish reversal candle present
     confirmations = 0
     if scores.get("trend", 0) >= 15:     confirmations += 1
     if scores.get("momentum", 0) >= 15:  confirmations += 1
     if scores.get("volume", 0) >= 12:    confirmations += 1
-    conviction_pass = total >= 45 and confirmations >= 2
+    no_major_bearish = not (
+        ind.get("distribution_days", 0) >= 3 or
+        ind.get("blowoff_top") or
+        ind.get("bearish_engulfing")
+    )
+    conviction_pass = total >= 45 and confirmations >= 2 and no_major_bearish
 
     return {
         "total": total,
