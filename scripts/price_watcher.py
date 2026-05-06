@@ -32,29 +32,37 @@ def run():
         if not current:
             continue
 
-        entry = pred.get("price_at_prediction") or 0
+        buy_low  = pred.get("buy_range_low") or 0
+        buy_high = pred.get("buy_range_high") or 0
+        entry = (buy_low + buy_high) / 2 if buy_low > 0 and buy_high > 0 else (pred.get("price_at_prediction") or 0)
         direction = pred.get("direction", "NEUTRAL")
-        target_low = pred.get("target_low") or 0
+        target_low  = pred.get("target_low") or 0
+        target_high = pred.get("target_high") or 0
         stop_loss = pred.get("stop_loss") or 0
-        raw_pct = round(((current - entry) / entry) * 100, 2) if entry > 0 else 0
-        # For SHORT/BEARISH: profit when price falls, so flip the sign
-        return_pct = round(-raw_pct, 2) if direction == "BEARISH" else raw_pct
 
         hit_target = direction == "BULLISH" and current >= target_low
         hit_stop = direction == "BULLISH" and stop_loss > 0 and current <= stop_loss
-        hit_target_short = direction == "BEARISH" and current <= (pred.get("target_high") or 0)
+        hit_target_short = direction == "BEARISH" and current <= (target_high or 0)
         hit_stop_short = direction == "BEARISH" and stop_loss > 0 and current >= stop_loss
 
         if hit_target or hit_target_short:
+            # Snap close price to the target level actually hit, not the current live price.
+            # This prevents overstating return when price rockets past the target.
+            if direction == "BULLISH":
+                price_at_close = target_high if (target_high > 0 and current >= target_high) else target_low
+                return_pct = round((price_at_close - entry) / entry * 100, 2) if entry > 0 else 0
+            else:
+                price_at_close = target_low if (target_low > 0 and current <= target_low) else target_high
+                return_pct = round((entry - price_at_close) / entry * 100, 2) if entry > 0 else 0
             try:
                 update_prediction(pred["id"], {
                     "outcome": "WIN",
                     "closed_reason": "TARGET_HIT",
-                    "price_at_close": current,
+                    "price_at_close": price_at_close,
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
-                send_target_hit_alert(ticker, entry, current, return_pct,
+                send_target_hit_alert(ticker, entry, price_at_close, return_pct,
                                       predicted_on=pred.get("predicted_on", ""),
                                       target_low=pred.get("target_low", 0),
                                       direction=pred.get("direction", ""))
@@ -62,15 +70,20 @@ def run():
                 pass
 
         elif hit_stop or hit_stop_short:
+            # Snap close price to stop_loss level, not current (which may have gapped past it)
+            if direction == "BULLISH":
+                return_pct = round((stop_loss - entry) / entry * 100, 2) if entry > 0 else 0
+            else:
+                return_pct = round((entry - stop_loss) / entry * 100, 2) if entry > 0 else 0
             try:
                 update_prediction(pred["id"], {
                     "outcome": "LOSS",
                     "closed_reason": "STOP_LOSS",
-                    "price_at_close": current,
+                    "price_at_close": stop_loss,
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
-                send_stop_loss_alert(ticker, entry, current, abs(return_pct),
+                send_stop_loss_alert(ticker, entry, stop_loss, abs(return_pct),
                                      predicted_on=pred.get("predicted_on", ""),
                                      stop_loss=pred.get("stop_loss", 0),
                                      direction=pred.get("direction", ""))
