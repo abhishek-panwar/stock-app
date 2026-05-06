@@ -245,12 +245,27 @@ def render():
         else:
             st.markdown(
                 f"""<div style="border:2px solid #e2e8f0;border-radius:12px;padding:16px 20px;
-                    background:#f8fafc;margin-bottom:16px">
+                    background:#f8fafc;margin-bottom:4px">
                   <span style="font-size:20px;font-weight:700">{ticker}</span>
                   <span style="font-size:13px;color:#94a3b8;margin-left:8px">Waiting for first price update…</span>
                 </div>""",
                 unsafe_allow_html=True,
             )
+            _, stop_col, __ = st.columns([0.1, 1.8, 8])
+            with stop_col:
+                if st.button("🔴 Stop Tracking", key=f"lt_untrack_pre_{pred_id}"):
+                    from database.db import update_prediction
+                    update_prediction(pred_id, {
+                        "is_tracked": False,
+                        "live_signal": None,
+                        "live_signal_reason": None,
+                        "live_signal_updated_at": None,
+                        "live_current_price": None,
+                        "live_peak_price": None,
+                        "live_signal_log": None,
+                    })
+                    _fetch_tracked.clear()
+                    st.rerun()
 
         # Signal change log
         if signal_log:
