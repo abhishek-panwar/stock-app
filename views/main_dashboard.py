@@ -248,7 +248,12 @@ def render():
 
                 with col:
                     rank = high_conviction.index(p) + 1
-                    rank_badge = f'<div style="position:absolute;top:8px;right:10px;font-size:18px;font-weight:900;color:#f59e0b;line-height:1">🏆#{rank}</div>' if rank <= 5 else ""
+                    rank_num   = str(rank)
+                    rank_badge = (
+                        '<div style="position:absolute;top:8px;right:10px;'
+                        'font-size:16px;font-weight:900;color:#f59e0b;line-height:1">'
+                        + '\U0001F3C6' + '#' + rank_num + '</div>'
+                    ) if rank <= 5 else ""
                     st.markdown(
                         f"""<div style="background:{card_bg};border:1.5px solid {border_col};
                             border-radius:12px;padding:14px 14px 12px;
