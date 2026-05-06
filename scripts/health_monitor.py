@@ -43,8 +43,8 @@ def run():
         if logs:
             last_scan = datetime.fromisoformat(logs[0]["timestamp"].replace("Z", "+00:00"))
             hours_since = (datetime.now(pytz.utc) - last_scan.replace(tzinfo=pytz.utc)).total_seconds() / 3600
-            if hours_since > 26:
-                alerts.append(f"⚠️ Nightly scan hasn't run in {hours_since:.0f} hours — check GitHub Actions")
+            if hours_since > 50:
+                alerts.append(f"⚠️ Nightly scan hasn't run in {hours_since:.0f} hours — check Modal dashboard (scanner runs on Modal, not GitHub Actions)")
     except Exception as e:
         alerts.append(f"❌ Supabase error: {str(e)[:80]}")
 
