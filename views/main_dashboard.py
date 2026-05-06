@@ -750,6 +750,7 @@ def _option_section(p: dict):
             try:
                 from database.db import update_prediction
                 update_prediction(pred_id, {"options_contract": rec})
+                _fetch_open_predictions.clear()  # force fresh load so p["options_contract"] is populated on rerun
             except Exception:
                 pass
 
