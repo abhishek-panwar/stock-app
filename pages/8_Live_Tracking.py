@@ -123,6 +123,7 @@ def render():
     st.markdown("---")
 
     for p in tracked:
+        import json as _json
         pred_id   = p.get("id")
         ticker    = p.get("ticker", "—")
         direction = p.get("direction", "NEUTRAL")
@@ -140,6 +141,13 @@ def render():
         # Fall back to live compute only if DB value not yet populated.
         ret       = p.get("live_return_pct") if p.get("live_return_pct") is not None else _return_so_far(p)
         peak      = p.get("live_peak_price")
+
+        # Signal log
+        raw_log = p.get("live_signal_log")
+        if isinstance(raw_log, str):
+            try: raw_log = _json.loads(raw_log)
+            except Exception: raw_log = []
+        signal_log = raw_log if isinstance(raw_log, list) else []
 
         # Option P&L
         contract         = p.get("options_contract")
@@ -241,6 +249,41 @@ def render():
             unsafe_allow_html=True,
         )
 
+        # Signal change log
+        if signal_log:
+            with st.expander(f"📋 Signal log — {len(signal_log)} change{'s' if len(signal_log) != 1 else ''}", expanded=False):
+                rows_html = ""
+                for entry_log in reversed(signal_log):
+                    sig      = entry_log.get("signal", "—")
+                    prev     = entry_log.get("prev", "—")
+                    ts       = entry_log.get("ts", "—")
+                    px       = entry_log.get("price", 0)
+                    ret_val  = entry_log.get("return", 0)
+                    rsn      = entry_log.get("reason", "")
+                    sig_color  = "#15803d" if sig == "HOLD" else "#b91c1c" if sig == "SELL" else "#64748b"
+                    prev_color = "#15803d" if prev == "HOLD" else "#b91c1c" if prev == "SELL" else "#64748b"
+                    ret_color_log = "#15803d" if (ret_val or 0) >= 0 else "#b91c1c"
+                    arrow = (
+                        '<span style="color:#b91c1c;font-weight:700">HOLD → SELL</span>' if prev == "HOLD" and sig == "SELL"
+                        else '<span style="color:#15803d;font-weight:700">SELL → HOLD</span>' if prev == "SELL" and sig == "HOLD"
+                        else f'<span style="color:{sig_color};font-weight:700">{prev} → {sig}</span>'
+                    )
+                    rows_html += f"""
+                    <div style="border-left:3px solid {sig_color};padding:6px 10px;margin-bottom:6px;
+                        background:{'#fff5f5' if sig=='SELL' else '#f0fdf4' if sig=='HOLD' else '#f8fafc'};
+                        border-radius:0 6px 6px 0">
+                      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+                        <div style="font-size:12px;font-weight:600">{arrow}</div>
+                        <div style="font-size:11px;color:#64748b">{ts}</div>
+                      </div>
+                      <div style="font-size:12px;color:#475569;margin-top:3px">{rsn}</div>
+                      <div style="font-size:11px;color:#94a3b8;margin-top:2px">
+                        Price ${px:.2f} &nbsp;·&nbsp;
+                        Return <span style="color:{ret_color_log};font-weight:600">{ret_val:+.2f}%</span>
+                      </div>
+                    </div>"""
+                st.markdown(rows_html, unsafe_allow_html=True)
+
         # Action buttons below each card
         if current:
             b1, b2, b3, _ = st.columns([1.6, 1.6, 1.8, 6])
@@ -262,6 +305,7 @@ def render():
                         "live_signal_updated_at": None,
                         "live_current_price": None,
                         "live_peak_price": None,
+                        "live_signal_log": None,
                     })
                     _fetch_tracked.clear()
                     st.rerun()

@@ -162,6 +162,25 @@ def run():
                         "live_return_pct":        live_return,
                     }
 
+                    # Append to signal log when signal changes (or on very first signal)
+                    import json as _json
+                    prev_signal = pred.get("live_signal")
+                    if signal != prev_signal:
+                        raw_log = pred.get("live_signal_log")
+                        if isinstance(raw_log, str):
+                            try: raw_log = _json.loads(raw_log)
+                            except Exception: raw_log = []
+                        existing_log = raw_log if isinstance(raw_log, list) else []
+                        existing_log.append({
+                            "ts":     now.astimezone(PT).strftime("%Y-%m-%d %H:%M PT"),
+                            "signal": signal,
+                            "prev":   prev_signal or "—",
+                            "price":  round(current, 2),
+                            "return": live_return,
+                            "reason": reason,
+                        })
+                        upd["live_signal_log"] = existing_log
+
                     # Option P&L — real fetch every 30 min, delta approx every 5 min
                     if contract:
                         do_real = (now.minute < 5 or (30 <= now.minute < 35))
