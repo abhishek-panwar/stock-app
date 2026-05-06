@@ -152,13 +152,15 @@ def _best_expiry(all_expiries: list[str], days_to_target: int, short_term: bool 
     return candidates[0][2]
 
 
-def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = False) -> dict | None:
+def _top_contracts(chain_df, spot: float, option_type: str,
+                   short_term: bool = False, n: int = 2) -> list[dict]:
     """
-    Finds highest-OI liquid contract in the ATM/near-OTM band.
+    Returns up to n best liquid contracts in the ATM/near-OTM band,
+    sorted by Grade A first then highest OI. Different strikes only.
     option_type: 'call' or 'put'
     """
     if chain_df is None or chain_df.empty:
-        return None
+        return []
 
     if option_type == "call":
         lo, hi = spot * 0.98, spot * 1.06
@@ -171,16 +173,12 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
     ].copy()
 
     if band.empty:
-        return None
+        return []
 
     min_oi = _ST_MIN_OI if short_term else _LT_MIN_OI
-
-    best = None
-    best_grade_rank = 99
-    best_oi = -1
-
     all_bids_zero = all((float(row.get("bid") or 0) <= 0) for _, row in band.iterrows())
 
+    candidates = []
     for _, row in band.iterrows():
         try:
             strike  = float(row["strike"])
@@ -193,13 +191,10 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
         except Exception:
             continue
 
-        # After hours: bid/ask are 0 — fall back to lastPrice as mid estimate
         if bid <= 0 and all_bids_zero and last > 0:
             bid = last * 0.95
             ask = last * 1.05
 
-        # yfinance returns OI=0 after hours even for actively traded contracts
-        # volume > 0 proves the contract traded today — use it as OI proxy
         if oi == 0 and vol > 0:
             oi = vol
 
@@ -211,28 +206,39 @@ def _best_contract(chain_df, spot: float, option_type: str, short_term: bool = F
         if g is None:
             continue
 
-        grade_rank = 0 if g == "A" else 1
-        if grade_rank < best_grade_rank or (grade_rank == best_grade_rank and oi > best_oi):
-            best_grade_rank = grade_rank
-            best_oi = oi
-            mid = (bid + ask) / 2
-            delta = _delta_approx(strike, spot)
-            best = {
-                "strike":       round(strike, 2),
-                "bid":          round(bid, 2),
-                "ask":          round(ask, 2),
-                "mid":          round(mid, 2),
-                "oi":           oi,
-                "volume":       vol,
-                "iv":           round(iv * 100, 1) if iv else None,
-                "last":         round(last, 2),
-                "spread_pct":   round((spread or 0) * 100, 1),
-                "grade":        g,
-                "delta_approx": delta,
-                "after_hours":  all_bids_zero,
-            }
+        mid   = (bid + ask) / 2
+        delta = _delta_approx(strike, spot)
+        candidates.append({
+            "strike":       round(strike, 2),
+            "bid":          round(bid, 2),
+            "ask":          round(ask, 2),
+            "mid":          round(mid, 2),
+            "oi":           oi,
+            "volume":       vol,
+            "iv":           round(iv * 100, 1) if iv else None,
+            "last":         round(last, 2),
+            "spread_pct":   round((spread or 0) * 100, 1),
+            "grade":        g,
+            "delta_approx": delta,
+            "after_hours":  all_bids_zero,
+            "_grade_rank":  0 if g == "A" else 1,
+        })
 
-    return best
+    # Sort: Grade A first, then highest OI
+    candidates.sort(key=lambda c: (c["_grade_rank"], -c["oi"]))
+
+    # Return top n with distinct strikes
+    result = []
+    seen_strikes: set[float] = set()
+    for c in candidates:
+        if c["strike"] not in seen_strikes:
+            seen_strikes.add(c["strike"])
+            c.pop("_grade_rank")
+            result.append(c)
+        if len(result) == n:
+            break
+
+    return result
 
 
 def get_option_recommendation(
@@ -325,58 +331,73 @@ def get_option_recommendation(
         chain = t.option_chain(expiry)
         chain_df = chain.calls if chain_key == "calls" else chain.puts
 
-        contract = _best_contract(chain_df, spot, chain_key.rstrip("s"), short_term=short_term)
-        if contract is None:
+        top = _top_contracts(chain_df, spot, chain_key.rstrip("s"), short_term=short_term, n=2)
+        if not top:
             liq_note = "(OI≥75, spread≤25% required)" if short_term else "(OI≥75, spread≤20% required)"
             result = {**unavailable, "option_type": option_type_label,
                       "reason": f"No liquid contract in ATM/near-OTM band {liq_note}"}
             set_cache(cache_key, result, ttl_hours=_ttl_override or _CACHE_TTL_HOURS)
             return result
 
-        # Estimated option target price using actual stock_entry/target if valid, else ATR proxy
-        if stock_entry and stock_entry > 0 and stock_target and stock_target > 0:
-            stock_move = abs(stock_target - stock_entry)
-        else:
-            stock_move = spot * 0.05  # 5% proxy when called from prefetcher
-        option_move = stock_move * contract["delta_approx"]
-        entry_mid   = contract["mid"]
-        target_est  = round(entry_mid + option_move, 2)
-        gain_pct    = round(option_move / entry_mid * 100, 1) if entry_mid > 0 else 0
-
-        # Days to expiry
+        # Days to expiry and expiry label (shared across both contracts — same expiry)
         try:
             exp_date    = datetime.strptime(expiry, "%Y-%m-%d").date()
             days_to_exp = (exp_date - datetime.now(timezone.utc).date()).days
         except Exception:
             days_to_exp = None
 
-        expiry_label = ""
         try:
             expiry_label = datetime.strptime(expiry, "%Y-%m-%d").strftime("%b %d, %Y")
         except Exception:
             expiry_label = expiry
+
+        # Stock move for target estimation
+        if stock_entry and stock_entry > 0 and stock_target and stock_target > 0:
+            stock_move = abs(stock_target - stock_entry)
+        else:
+            stock_move = spot * 0.05  # 5% proxy when called from prefetcher
+
+        def _enrich(contract: dict) -> dict:
+            option_move = stock_move * contract["delta_approx"]
+            entry_mid   = contract["mid"]
+            return {
+                **contract,
+                "expiry":         expiry,
+                "expiry_label":   expiry_label,
+                "days_to_expiry": days_to_exp,
+                "entry_mid":      entry_mid,
+                "target_est":     round(entry_mid + option_move, 2),
+                "gain_pct_est":   round(option_move / entry_mid * 100, 1) if entry_mid > 0 else 0,
+                "iv_pct":         contract.get("iv"),
+            }
+
+        enriched = [_enrich(c) for c in top]
+        primary  = enriched[0]
 
         ttl = _ttl_override or _CACHE_TTL_HOURS
 
         result = {
             "available":        True,
             "option_type":      option_type_label,
-            "strike":           contract["strike"],
+            # Primary contract fields at root level (backward compat)
+            "strike":           primary["strike"],
             "expiry":           expiry,
             "expiry_label":     expiry_label,
-            "entry_mid":        entry_mid,
-            "target_est":       target_est,
-            "gain_pct_est":     gain_pct,
-            "oi":               contract["oi"],
-            "volume":           contract["volume"],
-            "spread_pct":       contract["spread_pct"],
-            "iv_pct":           contract.get("iv"),
-            "grade":            contract["grade"],
-            "delta_approx":     contract["delta_approx"],
+            "entry_mid":        primary["entry_mid"],
+            "target_est":       primary["target_est"],
+            "gain_pct_est":     primary["gain_pct_est"],
+            "oi":               primary["oi"],
+            "volume":           primary["volume"],
+            "spread_pct":       primary["spread_pct"],
+            "iv_pct":           primary.get("iv"),
+            "grade":            primary["grade"],
+            "delta_approx":     primary["delta_approx"],
             "days_to_expiry":   days_to_exp,
             "is_short_term":    short_term,
             "earnings_warning": has_earnings,
             "reason":           "",
+            # Full list of top contracts for UI rendering
+            "contracts":        enriched,
         }
         set_cache(cache_key, result, ttl_hours=ttl)
         return result

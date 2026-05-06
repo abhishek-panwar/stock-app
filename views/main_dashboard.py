@@ -797,26 +797,26 @@ def _option_section(p: dict):
                     st.rerun()
 
     else:
-        rec        = fetched
-        opt_type   = rec["option_type"]
-        strike     = rec["strike"]
-        exp_label  = rec["expiry_label"]
-        entry_mid  = rec["entry_mid"]
-        target_est = rec["target_est"]
-        gain_pct   = rec["gain_pct_est"]
-        oi         = rec["oi"]
-        vol        = rec["volume"]
-        spread     = rec["spread_pct"]
-        iv         = rec["iv_pct"]
-        grade      = rec["grade"]
-        delta      = rec["delta_approx"]
+        rec      = fetched
+        opt_type = rec["option_type"]
+        exp_label  = rec.get("expiry_label", "")
         days_exp   = rec.get("days_to_expiry")
-
-        grade_color = "#15803d" if grade == "A" else "#b45309"
-        gain_color  = "#15803d" if gain_pct >= 0 else "#b91c1c"
-        gain_str    = f"+{gain_pct:.0f}%" if gain_pct >= 0 else f"{gain_pct:.0f}%"
         days_exp_str = f"  ·  {days_exp}d to expiry" if days_exp else ""
-        iv_str       = f"{iv:.0f}%" if iv else "N/A"
+
+        # Support both old (single contract) and new (contracts list) format
+        contracts = rec.get("contracts") or [{
+            "strike":       rec.get("strike"),
+            "entry_mid":    rec.get("entry_mid"),
+            "target_est":   rec.get("target_est"),
+            "gain_pct_est": rec.get("gain_pct_est"),
+            "oi":           rec.get("oi"),
+            "volume":       rec.get("volume"),
+            "spread_pct":   rec.get("spread_pct"),
+            "iv_pct":       rec.get("iv_pct"),
+            "grade":        rec.get("grade"),
+            "delta_approx": rec.get("delta_approx"),
+            "after_hours":  rec.get("after_hours", False),
+        }]
 
         if rec.get("after_hours"):
             st.markdown(
@@ -826,42 +826,71 @@ def _option_section(p: dict):
                 unsafe_allow_html=True,
             )
 
+        # Header — expiry shared across all contracts
         st.markdown(
-            f"""<div style="font-size:14px;font-weight:700;color:{opt_color};margin-bottom:8px">
-              {opt_type}: ${strike:.2f} strike — {exp_label}{days_exp_str}
-            </div>""",
+            f'<div style="font-size:14px;font-weight:700;color:{opt_color};margin-bottom:10px">'
+            f'{opt_type} — {exp_label}{days_exp_str}</div>',
             unsafe_allow_html=True,
         )
 
-        st.markdown(
-            f"""<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-              {_pill("Entry (mid)", f"${entry_mid:.2f}", opt_color)}
-              {_pill("Target (est)", f"${target_est:.2f}", gain_color)}
-              {_pill("Option gain est", gain_str, gain_color)}
-              {_pill("OI", f"{oi:,}", "#374151")}
-              {_pill("Volume", f"{vol:,}", "#374151")}
-              {_pill("Spread", f"{spread:.1f}%", "#374151")}
-              {_pill("IV", iv_str, "#7c3aed")}
-              {_pill("Delta ≈", f"{delta:.2f}", "#0369a1")}
-              <span style="background:{'#f0fdf4' if grade=='A' else '#fefce8'};
-                border:1px solid {'#86efac' if grade=='A' else '#fde047'};
-                border-radius:20px;padding:4px 10px;font-size:12px;
-                font-weight:700;color:{grade_color}">Grade: {grade}</span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+        # Render each contract as its own row
+        for idx, c in enumerate(contracts):
+            strike     = c.get("strike") or 0
+            entry_mid  = c.get("entry_mid") or c.get("mid") or 0
+            target_est = c.get("target_est") or 0
+            gain_pct   = c.get("gain_pct_est") or 0
+            oi         = c.get("oi") or 0
+            vol        = c.get("volume") or 0
+            spread     = c.get("spread_pct") or 0
+            iv         = c.get("iv_pct") or c.get("iv")
+            grade      = c.get("grade") or "B"
+            delta      = c.get("delta_approx") or 0
 
-        # Disclaimer always shown
+            grade_color  = "#15803d" if grade == "A" else "#b45309"
+            gain_color   = "#15803d" if gain_pct >= 0 else "#b91c1c"
+            gain_str     = f"+{gain_pct:.0f}%" if gain_pct >= 0 else f"{gain_pct:.0f}%"
+            iv_str       = f"{iv:.0f}%" if iv else "N/A"
+            label        = "Best match" if idx == 0 else "Alternative"
+            label_color  = opt_color if idx == 0 else "#64748b"
+
+            st.markdown(
+                f"""<div style="background:{'rgba(255,255,255,0.6)' if idx==0 else 'rgba(248,250,252,0.8)'};
+                    border:1px solid {'#cbd5e1' if idx==0 else '#e2e8f0'};
+                    border-radius:8px;padding:10px 12px;margin-bottom:8px">
+                  <div style="font-size:11px;font-weight:700;color:{label_color};
+                      text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">
+                    {label} · ${strike:.2f} strike
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    {_pill("Entry (mid)", f"${entry_mid:.2f}", opt_color)}
+                    {_pill("Target (est)", f"${target_est:.2f}", gain_color)}
+                    {_pill("Option gain est", gain_str, gain_color)}
+                    {_pill("OI", f"{oi:,}", "#374151")}
+                    {_pill("Volume", f"{vol:,}", "#374151")}
+                    {_pill("Spread", f"{spread:.1f}%", "#374151")}
+                    {_pill("IV", iv_str, "#7c3aed")}
+                    {_pill("Delta ≈", f"{delta:.2f}", "#0369a1")}
+                    <span style="background:{'#f0fdf4' if grade=='A' else '#fefce8'};
+                      border:1px solid {'#86efac' if grade=='A' else '#fde047'};
+                      border-radius:20px;padding:4px 10px;font-size:12px;
+                      font-weight:700;color:{grade_color}">Grade: {grade}</span>
+                  </div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        # Disclaimer — use delta from primary contract
+        primary_delta = (contracts[0].get("delta_approx") or 0) if contracts else 0
         st.markdown(
             f'<div style="font-size:11px;color:#64748b;line-height:1.6">'
             f'⚠️ <strong>Estimated values only.</strong> '
-            f'Option target uses first-order delta (delta≈{delta:.2f} × stock move). '
+            f'Option target uses first-order delta (delta≈{primary_delta:.2f} × stock move). '
             f'Actual price depends on gamma, theta decay, and IV changes.'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-        # Exit discipline note — shown on ALL timeframes, wording differs
+        # Exit discipline note
         if is_short_term:
             st.markdown(
                 '<div style="font-size:12px;font-weight:600;color:#1d4ed8;'
@@ -890,7 +919,7 @@ def _option_section(p: dict):
                 unsafe_allow_html=True,
             )
 
-        # Earnings warning: IV spike into earnings, crush on exit
+        # Earnings warning
         if rec.get("earnings_warning"):
             st.markdown(
                 '<div style="font-size:11px;color:#b45309;margin-top:5px;line-height:1.5">'
@@ -901,7 +930,7 @@ def _option_section(p: dict):
                 unsafe_allow_html=True,
             )
 
-        # Contract locked — no refresh. Persist to DB if loaded from prefetch cache this session.
+        # Contract locked — persist to DB if loaded from prefetch cache this session.
         if not saved_contract:
             _save_contract_to_prediction(fetched)
 
