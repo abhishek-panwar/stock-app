@@ -503,16 +503,16 @@ def _prediction_card(p: dict, _unused: set = None):
     exp_key = f"exp_{pred_id}"
     is_open = st.session_state.get(exp_key, False)
 
-    # Highlight if navigated from High Conviction card
+    # Scroll to this card if navigated from High Conviction Picks
     scroll_target = st.session_state.get("_scroll_to")
     if scroll_target and str(scroll_target) == str(pred_id):
+        st.session_state.pop("_scroll_to", None)
+        anchor_id = f"pred_anchor_{pred_id}"
         st.markdown(
-            '<div style="background:#fefce8;border:2px solid #facc15;border-radius:8px;'
-            'padding:4px 12px;font-size:12px;color:#854d0e;margin-bottom:4px">'
-            '👆 Navigated from High Conviction Picks</div>',
+            f'<div id="{anchor_id}"></div>'
+            f'<script>document.getElementById("{anchor_id}").scrollIntoView({{behavior:"smooth",block:"start"}});</script>',
             unsafe_allow_html=True,
         )
-        st.session_state.pop("_scroll_to", None)
 
     css_class = "card-bullish" if direction == "BULLISH" else "card-bearish" if direction == "BEARISH" else "card-neutral"
 
