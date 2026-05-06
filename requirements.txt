@@ -11,3 +11,4 @@ plotly>=5.20.0
 streamlit-lightweight-charts>=0.7.0
 requests>=2.31.0
 pytz>=2024.1
+streamlit-autorefresh>=0.0.1

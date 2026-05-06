@@ -602,7 +602,8 @@ def _prediction_card(p: dict, _unused: set = None):
             st.warning("SHORT position — margin/options account required")
 
         st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
-        ms_col, mf_col, _ = st.columns([1.5, 1.5, 7])
+        is_tracked = p.get("is_tracked", False)
+        ms_col, mf_col, track_col, _ = st.columns([1.5, 1.5, 1.8, 5])
         with ms_col:
             if st.button("✅ Mark Success", key=f"win_{pred_id}"):
                 try:
@@ -629,6 +630,35 @@ def _prediction_card(p: dict, _unused: set = None):
                     st.rerun()
                 except Exception as e:
                     st.error(f"Failed: {e}")
+        with track_col:
+            if is_tracked:
+                if st.button("🔴 Stop Tracking", key=f"untrack_{pred_id}"):
+                    try:
+                        from database.db import update_prediction
+                        update_prediction(pred_id, {
+                            "is_tracked": False,
+                            "live_signal": None,
+                            "live_signal_reason": None,
+                            "live_signal_updated_at": None,
+                            "live_current_price": None,
+                            "live_peak_price": None,
+                        })
+                        _fetch_open_predictions.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
+            else:
+                if st.button("📡 Start Tracking", key=f"track_{pred_id}"):
+                    try:
+                        from database.db import update_prediction
+                        update_prediction(pred_id, {
+                            "is_tracked": True,
+                            "tracked_since": datetime.now(PT).isoformat(),
+                        })
+                        _fetch_open_predictions.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed: {e}")
 
 
 def _option_section(p: dict):

@@ -46,9 +46,16 @@ _COLUMN_MIGRATIONS = [
     ("predictions", "price_at_close",   "numeric"),
     ("predictions", "return_pct",       "numeric"),
     ("predictions", "closed_reason",    "text"),
-    ("scan_logs",   "superset_count",   "integer"),
-    ("scan_logs",   "tickers_fetched",  "integer"),
-    ("scan_logs",   "stocks_scored",    "integer"),
+    ("scan_logs",   "superset_count",         "integer"),
+    ("scan_logs",   "tickers_fetched",        "integer"),
+    ("scan_logs",   "stocks_scored",          "integer"),
+    ("predictions", "is_tracked",             "boolean default false"),
+    ("predictions", "tracked_since",          "timestamptz"),
+    ("predictions", "live_signal",            "text"),
+    ("predictions", "live_signal_reason",     "text"),
+    ("predictions", "live_signal_updated_at", "timestamptz"),
+    ("predictions", "live_current_price",     "numeric"),
+    ("predictions", "live_peak_price",        "numeric"),
 ]
 
 _TABLE_MIGRATIONS = [
@@ -232,6 +239,14 @@ def get_open_predictions() -> list:
     return (get_client().table("predictions").select("*")
             .eq("outcome", "PENDING")
             .is_("deleted_at", "null")
+            .execute().data)
+
+def get_tracked_predictions() -> list:
+    return (get_client().table("predictions").select("*")
+            .eq("outcome", "PENDING")
+            .eq("is_tracked", True)
+            .is_("deleted_at", "null")
+            .order("tracked_since", desc=True)
             .execute().data)
 
 def get_predictions(filters: dict = None, limit: int = 500) -> list:

@@ -1,6 +1,8 @@
 """
 Price watcher — runs every 5 minutes during market hours (6:30 AM – 1:00 PM PT).
-Only checks open predictions. Fires stop loss / target hit alerts immediately.
+Checks open predictions for target/stop hits.
+Also updates live signals for tracked predictions (HOLD/SELL).
+Tracked predictions are NEVER auto-closed — user decides when to exit.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,23 +34,56 @@ def run():
         if not current:
             continue
 
+        is_tracked = pred.get("is_tracked", False)
+
         buy_low  = pred.get("buy_range_low") or 0
         buy_high = pred.get("buy_range_high") or 0
         entry = (buy_low + buy_high) / 2 if buy_low > 0 and buy_high > 0 else (pred.get("price_at_prediction") or 0)
-        direction = pred.get("direction", "NEUTRAL")
+        direction   = pred.get("direction", "NEUTRAL")
         target_low  = pred.get("target_low") or 0
         target_high = pred.get("target_high") or 0
-        stop_loss = pred.get("stop_loss") or 0
+        stop_loss   = pred.get("stop_loss") or 0
 
-        hit_target = direction == "BULLISH" and current >= target_low
-        hit_stop = direction == "BULLISH" and stop_loss > 0 and current <= stop_loss
+        hit_target       = direction == "BULLISH" and current >= target_low
+        hit_stop         = direction == "BULLISH" and stop_loss > 0 and current <= stop_loss
         hit_target_short = direction == "BEARISH" and current <= (target_high or 0)
-        hit_stop_short = direction == "BEARISH" and stop_loss > 0 and current >= stop_loss
+        hit_stop_short   = direction == "BEARISH" and stop_loss > 0 and current >= stop_loss
 
+        if is_tracked:
+            # Tracked predictions: update live signal but never auto-close.
+            # Also update peak price for trailing context.
+            try:
+                from indicators.intraday_technicals import compute_intraday_signals
+                signals = compute_intraday_signals(ticker)
+                if signals:
+                    # Price-level overrides: if stop or target clearly breached, force SELL signal
+                    if hit_stop or hit_stop_short:
+                        signal = "SELL"
+                        reason = f"Stop loss ${stop_loss:.2f} breached — price ${current:.2f}"
+                    elif hit_target or hit_target_short:
+                        signal = "SELL"
+                        reason = f"Target reached — price ${current:.2f} hit target zone"
+                    else:
+                        signal = signals["signal"]
+                        reason = signals["reason"]
+
+                    # Track peak price for context
+                    prev_peak = pred.get("live_peak_price") or 0
+                    new_peak = max(prev_peak, current) if direction == "BULLISH" else min(prev_peak or current, current)
+
+                    update_prediction(pred["id"], {
+                        "live_signal":            signal,
+                        "live_signal_reason":     reason,
+                        "live_signal_updated_at": now.isoformat(),
+                        "live_current_price":     current,
+                        "live_peak_price":        new_peak,
+                    })
+            except Exception:
+                pass
+            continue  # skip auto-close logic entirely for tracked predictions
+
+        # Non-tracked predictions: normal auto-close logic
         if hit_target or hit_target_short:
-            # price_at_close = real market price when target was hit.
-            # return_pct = what a trader who sold at the defined target level would have realized.
-            # These are computed independently: return is target-based, close is market-based.
             if direction == "BULLISH":
                 exit_price = (target_low + target_high) / 2 if target_low > 0 and target_high > 0 else target_low
                 return_pct = round((exit_price - entry) / entry * 100, 2) if entry > 0 else 0
@@ -71,7 +106,6 @@ def run():
                 pass
 
         elif hit_stop or hit_stop_short:
-            # price_at_close = real market price; return_pct = stop_loss-based (disciplined exit)
             if direction == "BULLISH":
                 return_pct = round((stop_loss - entry) / entry * 100, 2) if entry > 0 else 0
             else:
@@ -90,7 +124,6 @@ def run():
                                      direction=pred.get("direction", ""))
             except Exception:
                 pass
-
 
 
 if __name__ == "__main__":
