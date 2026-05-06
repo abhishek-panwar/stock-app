@@ -247,11 +247,14 @@ def render():
                 profit_str   = f"+{profit_pct:.1f}%" if profit_pct >= 0 else f"{profit_pct:.1f}%"
 
                 with col:
-                    pred_id_hc = p.get("id") or f"{ticker}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}"
+                    rank = high_conviction.index(p) + 1
+                    rank_color = {"1": "#f59e0b", "2": "#94a3b8", "3": "#b45309"}.get(str(rank), "#64748b")
                     st.markdown(
                         f"""<div style="background:{card_bg};border:1.5px solid {border_col};
                             border-radius:12px;padding:14px 14px 12px;
                             box-shadow:0 4px 20px {glow};position:relative;overflow:hidden">
+                          <div style="position:absolute;top:10px;right:12px;font-size:22px;font-weight:900;
+                              color:{rank_color};opacity:0.9;line-height:1">#{rank}</div>
                           <div style="font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-0.5px">{ticker}</div>
                           <div style="font-size:11px;color:#64748b;margin-bottom:6px;white-space:nowrap;
                               overflow:hidden;text-overflow:ellipsis">{company}</div>
@@ -263,15 +266,11 @@ def render():
                             <span style="background:rgba(0,0,0,0.06);border-radius:8px;padding:2px 8px;
                                 font-size:11px;color:#475569">~{days}d</span>
                           </div>
-                          <div style="font-size:11px;color:#64748b;margin-top:4px">{conf}% conf · 🏆 #{high_conviction.index(p)+1}</div>
+                          <div style="font-size:11px;color:#64748b;margin-top:4px">{conf}% conf</div>
                           <div style="margin-top:6px">{age_badge}{_asset_badge(p)}</div>
                         </div>""",
                         unsafe_allow_html=True,
                     )
-                    if st.button("View prediction ↓", key=f"hc_nav_{pred_id_hc}", use_container_width=True):
-                        st.session_state[f"exp_{pred_id_hc}"] = True
-                        st.session_state["_scroll_to"] = pred_id_hc
-                        st.rerun()
         st.markdown("")
 
     # ── Sort control ──────────────────────────────────────────────────────────
@@ -355,17 +354,8 @@ def render():
             bucket_preds = date_groups[bucket_label]
             if not bucket_preds:
                 continue
-            scroll_target = st.session_state.get("_scroll_to")
-            bucket_has_target = scroll_target and any(
-                str(p.get("id") or f"{p.get('ticker','')}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}") == str(scroll_target)
-                for p in bucket_preds
-            )
-            # Sort: nav target floats to top, rest sorted normally
-            def _bucket_sort(p):
-                pid = str(p.get("id") or f"{p.get('ticker','')}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}")
-                return (0 if (scroll_target and pid == str(scroll_target)) else 1, sort_fn(p))
-            bucket_preds = sorted(bucket_preds, key=_bucket_sort)
-            is_expanded = (bucket_label in ("📅 Tomorrow", "✨ Today")) or bool(bucket_has_target)
+            bucket_preds = sorted(bucket_preds, key=sort_fn)
+            is_expanded = bucket_label in ("📅 Tomorrow", "✨ Today")
 
             with st.expander(
                 f"**{bucket_label}** — {len(bucket_preds)} prediction{'s' if len(bucket_preds) != 1 else ''}",
@@ -505,12 +495,6 @@ def _prediction_card(p: dict, _unused: set = None):
     exp_key = f"exp_{pred_id}"
     is_open = st.session_state.get(exp_key, False)
 
-    # Highlight if navigated from High Conviction Picks
-    scroll_target = st.session_state.get("_scroll_to")
-    is_nav_target = scroll_target and str(scroll_target) == str(pred_id)
-    if is_nav_target:
-        st.session_state.pop("_scroll_to", None)
-        st.info("👆 Navigated here from High Conviction Picks", icon="🎯")
 
     css_class = "card-bullish" if direction == "BULLISH" else "card-bearish" if direction == "BEARISH" else "card-neutral"
 
