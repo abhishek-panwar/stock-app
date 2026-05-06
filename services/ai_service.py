@@ -395,8 +395,10 @@ def analyze_stock_bullish(ticker: str, indicators: dict, sentiment: dict, analys
     ma50  = indicators.get("ma50") or price
     ma200 = indicators.get("ma200") or price
 
-    prompt = f"""You are a short-term stock analyst specializing in bullish momentum setups.
-Analyze {ticker} for a near-term continuation move to the upside.
+    prompt = f"""You are a swing trade analyst specializing in bullish momentum setups.
+Analyze {ticker} for a swing trade continuation move to the upside. Holding period: 2–15 trading days.
+This is NOT a day trade — the position must be held at least overnight. Do NOT set targets or stops
+reachable within the same trading day.
 
 PRICE & TREND:
 - Current price: ${price:.2f}
@@ -433,15 +435,22 @@ Active bonus signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 {_market_context_bullish(rel_strength_vs_spy, sector_return_5d, sector_etf, short_interest_pct)}{f"SYSTEM ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-TASK: This is a SHORT-TERM BULLISH (LONG) analysis only. The question is: does this stock have enough momentum to continue higher in the near term?
+TASK: This is a SWING TRADE BULLISH (LONG) analysis. Holding period: 2–15 trading days.
+The position will be held at least overnight. The question is: does this stock have enough momentum
+to continue higher over the next several days?
 
 DO NOT output BEARISH. If the setup is not clearly bullish, output NEUTRAL.
+DO NOT set a target or stop that would be hit within the same trading day.
 
-TARGET PRICE: Anchor to the nearest meaningful resistance level — prior swing high, Bollinger upper band, or a round ATR multiple above entry. Do not invent a round number.
+TARGET PRICE: Anchor to the nearest meaningful resistance — prior swing high, Bollinger upper band,
+or a clean ATR multiple. Target must be at least 2× ATR away (requires at least one full day of normal
+movement to reach). Do not invent a round number.
 
-STOP PRICE: Set just below the nearest support (MA20, prior consolidation). Use 1.5–2× ATR from entry as a guide.
+STOP PRICE: Anchor to a daily close support level — MA20, prior swing low, or consolidation zone.
+Use 2–3× ATR from entry. A stop tighter than 1.5× ATR will be hit by normal daily noise; avoid it.
 
-DAYS TO TARGET: Divide distance from price to target by ATR. Multiply by 1.5 if ADX < 20 (ranging market).
+DAYS TO TARGET: Minimum 2 days. Divide distance from price to target by ATR, then add 1 day buffer.
+For a ranging market (ADX < 20), multiply by 1.5. Output must be ≥ 2.
 
 CONFIDENCE — derived from signal count:
 - Core signals (5): RSI 50-70 (healthy), MACD bullish crossover, OBV confirming, price above MA20+MA50, volume surge ≥1.5x
@@ -457,9 +466,9 @@ Respond in this exact JSON:
   "direction": "BULLISH" | "NEUTRAL",
   "position": "LONG" | "HOLD",
   "confidence": <integer derived from signal count>,
-  "target_price": <float — anchored to resistance level>,
-  "stop_price": <float — anchored to support and ATR>,
-  "days_to_target": <integer>,
+  "target_price": <float — anchored to resistance level, must be ≥3× ATR from current price>,
+  "stop_price": <float — anchored to daily support and 2.5–4× ATR>,
+  "days_to_target": <integer ≥ 2 — minimum overnight hold>,
   "timing_rationale": "<1 sentence: which specific signals drive the timing and ATR distance to target>",
   "reasoning": "<2-3 sentences: name the specific signals that agree and any that conflict>",
   "key_signals": ["signal1", "signal2", "signal3"],
@@ -517,8 +526,10 @@ def analyze_stock_bearish(ticker: str, indicators: dict, sentiment: dict, analys
     roc_10 = indicators.get("roc_10", 0) or 0
     ext_pct = (price - ma20) / ma20 * 100 if ma20 > 0 else 0
 
-    prompt = f"""You are a short-term stock analyst specializing in overbought reversals.
-{ticker} has had a strong recent run and is showing exhaustion signals. Analyze whether a pullback is likely.
+    prompt = f"""You are a swing trade analyst specializing in overbought reversals.
+{ticker} has had a strong recent run and is showing exhaustion signals. Analyze whether a multi-day pullback is likely.
+Holding period: 2–15 trading days. This is NOT a day trade — position must be held at least overnight.
+Do NOT set targets or stops reachable within the same trading day.
 
 PRICE & EXTENSION:
 - Current price: ${price:.2f}
@@ -550,15 +561,22 @@ Active signals: {', '.join(score_data.get('bonus_reasons', [])) or 'None'}
 {_market_context_bearish(rel_strength_vs_spy, sector_return_5d, sector_etf)}{f"ACCURACY CONTEXT:{chr(10)}{accuracy_context}" if accuracy_context else ""}
 {f"THIS TICKER'S HISTORY:{chr(10)}{ticker_history}" if ticker_history else ""}
 
-TASK: This is a SHORT-TERM BEARISH (SHORT) analysis only. The question is: has this stock run too far, too fast, and is a pullback imminent?
+TASK: This is a SWING TRADE BEARISH (SHORT) analysis. Holding period: 2–15 trading days.
+The position will be held at least overnight. The question is: has this stock run too far, too fast,
+and is a multi-day pullback likely?
 
 DO NOT output BULLISH. If the setup is not clearly bearish, output NEUTRAL.
+DO NOT set a target or stop reachable within the same trading day.
 
-TARGET PRICE: The pullback target. Anchor to MA20 (natural mean reversion level), the nearest support level, or a prior consolidation zone. A typical mean reversion from 8% above MA20 returns to MA20 = ${ma20:.2f}.
+TARGET PRICE: The pullback target. Anchor to MA20 (natural mean reversion level), prior support, or a
+consolidation zone. Target must be at least 2× ATR away from current price.
+A typical mean reversion from 8% above MA20 returns to MA20 = ${ma20:.2f}.
 
-STOP PRICE: The level that invalidates the short — a new high, or the price level where the run clearly resumes. Typically 1–2× ATR above entry.
+STOP PRICE: The level that invalidates the pullback — a sustained new high or trend resumption.
+Use 2–3× ATR above entry. A stop tighter than 1.5× ATR will be hit by daily noise; avoid it.
 
-DAYS TO TARGET: Short-term reversals play out in 3–10 days. Divide pullback distance by ATR.
+DAYS TO TARGET: Minimum 2 days. Divide pullback distance by ATR, then add 1 day buffer.
+For a ranging market (ADX < 20), multiply by 1.5. Output must be ≥ 2.
 
 CONFIDENCE — derived from signal count:
 - Core signals (5): RSI >70, bearish RSI divergence, MACD fading/crossing, OBV distributing, price >8% above MA20
@@ -574,9 +592,9 @@ Respond in this exact JSON:
   "direction": "BEARISH" | "NEUTRAL",
   "position": "SHORT" | "HOLD",
   "confidence": <integer derived from signal count>,
-  "target_price": <float — anchored to MA20 or support level>,
-  "stop_price": <float — level that invalidates the short>,
-  "days_to_target": <integer 3–10>,
+  "target_price": <float — anchored to MA20 or support, must be ≥3× ATR from current price>,
+  "stop_price": <float — 2.5–4× ATR above entry, anchored to resistance>,
+  "days_to_target": <integer ≥ 2 — minimum overnight hold>,
   "timing_rationale": "<1 sentence: which exhaustion signals are firing and expected reversion distance>",
   "reasoning": "<2-3 sentences: name each signal present and any that conflict>",
   "key_signals": ["signal1", "signal2", "signal3"],
