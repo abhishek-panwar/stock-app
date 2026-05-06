@@ -248,12 +248,12 @@ def render():
 
                 with col:
                     rank = high_conviction.index(p) + 1
-                    rank_badge = f'<div style="position:absolute;top:8px;right:10px;font-size:15px;font-weight:900;color:#f59e0b;line-height:1">#{rank}</div>' if rank <= 5 else ""
+                    rank_display = f"#{rank}" if rank <= 5 else ""
                     st.markdown(
                         f"""<div style="background:{card_bg};border:1.5px solid {border_col};
                             border-radius:12px;padding:14px 14px 12px;
                             box-shadow:0 4px 20px {glow};position:relative;overflow:hidden">
-                          {rank_badge}
+                          <div style="position:absolute;top:10px;right:12px;font-size:22px;font-weight:900;color:#f59e0b;opacity:0.9;line-height:1">{rank_display}</div>
                           <div style="font-size:20px;font-weight:800;color:#0f172a;letter-spacing:-0.5px">{ticker}</div>
                           <div style="font-size:11px;color:#64748b;margin-bottom:6px;white-space:nowrap;
                               overflow:hidden;text-overflow:ellipsis">{company}</div>
