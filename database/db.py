@@ -56,6 +56,7 @@ _COLUMN_MIGRATIONS = [
     ("predictions", "live_signal_updated_at", "timestamptz"),
     ("predictions", "live_current_price",     "numeric"),
     ("predictions", "live_peak_price",        "numeric"),
+    ("predictions", "options_contract",       "jsonb"),
 ]
 
 _TABLE_MIGRATIONS = [

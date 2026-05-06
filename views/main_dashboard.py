@@ -686,10 +686,20 @@ def _option_section(p: dict):
     has_earnings = bool((p.get("earnings_calendar") or {}).get("has_upcoming"))
     is_short_term = timeframe in ("short", "medium")
 
-    opt_key = f"opt_{p.get('id', ticker)}_{direction}_{timeframe}"
+    pred_id = p.get("id")
+    opt_key = f"opt_{pred_id}_{direction}_{timeframe}"
+
+    # Source of truth: options_contract stored on the prediction record itself.
+    # Once written, it never changes — this locks in the contract the user saw when they made their decision.
+    saved_contract = p.get("options_contract")
+
+    # Warm session_state from the DB record so re-renders are instant
+    if saved_contract and st.session_state.get(opt_key) is None:
+        st.session_state[opt_key] = saved_contract
+
     fetched = st.session_state.get(opt_key)
 
-    # Auto-load from Supabase cache if scanner pre-fetched it (no button click needed)
+    # Fallback: auto-load from prefetch cache only if nothing is saved on the prediction yet
     if fetched is None:
         try:
             from database.db import get_cache
@@ -714,15 +724,31 @@ def _option_section(p: dict):
         "long":   f"{days_to_target + 30}d DTE target — long conviction hold",
     }.get(timeframe, "")
 
+    # Badge shown when contract is locked to the prediction record
+    locked_badge = (
+        '<span style="font-size:10px;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;'
+        'border-radius:10px;padding:2px 8px;margin-left:8px;font-weight:600">🔒 Locked to prediction</span>'
+        if saved_contract else ""
+    )
+
     st.markdown(
         f"""<div style="margin-top:14px;padding:12px 14px;background:{opt_bg};
             border:1px solid {opt_border};border-radius:10px">
           <div style="font-size:13px;font-weight:700;color:{opt_color};margin-bottom:2px">
-            {opt_emoji} OPTIONS CONTRACT RECOMMENDATION
+            {opt_emoji} OPTIONS CONTRACT RECOMMENDATION{locked_badge}
           </div>
           <div style="font-size:11px;color:#64748b;margin-bottom:8px">{tf_note}</div>""",
         unsafe_allow_html=True,
     )
+
+    def _save_contract_to_prediction(rec: dict):
+        """Persist contract to the prediction record — called once on first successful fetch."""
+        if pred_id and rec.get("available") and not saved_contract:
+            try:
+                from database.db import update_prediction
+                update_prediction(pred_id, {"options_contract": rec})
+            except Exception:
+                pass
 
     if fetched is None:
         fetch_col, _ = st.columns([2, 8])
@@ -736,17 +762,20 @@ def _option_section(p: dict):
                             timeframe=timeframe, has_earnings=has_earnings,
                         )
                         st.session_state[opt_key] = rec
+                        _save_contract_to_prediction(rec)
                         st.rerun()
                     except Exception as e:
                         st.session_state[opt_key] = {"available": False, "reason": str(e)}
                         st.rerun()
         st.markdown(
             '<div style="font-size:11px;color:#94a3b8;padding:2px 0 4px">'
-            'Live fetch — yfinance, no API key · cached 4h</div>',
+            'Fetched once and locked to this prediction · never changes</div>',
             unsafe_allow_html=True,
         )
 
     elif not fetched.get("available"):
+        # If it was pre-fetched from cache but unavailable, still save it so we don't retry on every load
+        _save_contract_to_prediction(fetched) if fetched.get("available") else None
         reason   = fetched.get("reason", "No liquid contract found")
         opt_type = fetched.get("option_type", "CALL BUY OPTION" if is_call else "PUT BUY OPTION")
         st.markdown(
@@ -754,16 +783,18 @@ def _option_section(p: dict):
             f'<strong>{opt_type}</strong> — unavailable: {reason}</div>',
             unsafe_allow_html=True,
         )
-        refetch_col, _ = st.columns([1.5, 8.5])
-        with refetch_col:
-            if st.button("Retry", key=f"retry_{opt_key}", type="secondary"):
-                try:
-                    from database.db import delete_cache
-                    delete_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}")
-                except Exception:
-                    pass
-                del st.session_state[opt_key]
-                st.rerun()
+        # Only allow retry if not yet locked to the prediction
+        if not saved_contract:
+            refetch_col, _ = st.columns([1.5, 8.5])
+            with refetch_col:
+                if st.button("Retry", key=f"retry_{opt_key}", type="secondary"):
+                    try:
+                        from database.db import delete_cache
+                        delete_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}")
+                    except Exception:
+                        pass
+                    del st.session_state[opt_key]
+                    st.rerun()
 
     else:
         rec        = fetched
@@ -870,16 +901,9 @@ def _option_section(p: dict):
                 unsafe_allow_html=True,
             )
 
-        refetch_col, _ = st.columns([1.5, 8.5])
-        with refetch_col:
-            if st.button("↻ Refresh", key=f"refetch_{opt_key}", type="secondary"):
-                try:
-                    from database.db import delete_cache
-                    delete_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}")
-                except Exception:
-                    pass
-                del st.session_state[opt_key]
-                st.rerun()
+        # Contract locked — no refresh. Persist to DB if loaded from prefetch cache this session.
+        if not saved_contract:
+            _save_contract_to_prediction(fetched)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
