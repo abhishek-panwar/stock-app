@@ -154,6 +154,159 @@ def _recalculate_metrics():
         status.update(label=f"Error: {e}", state="error", expanded=True)
 
 
+def _render_score_confidence_analysis(all_closed: list):
+    """
+    Shows win rate and avg return bucketed by score and confidence ranges,
+    so the user can see whether higher scores/confidence actually predict better outcomes.
+    """
+    # Only include predictions that have both score and confidence recorded
+    with_score = [p for p in all_closed if p.get("score") is not None]
+    with_conf  = [p for p in all_closed if p.get("confidence") is not None]
+
+    if len(with_score) < 3 and len(with_conf) < 3:
+        return  # not enough data to show anything useful
+
+    def _bucket_stats(preds, key, buckets):
+        """For each bucket (label, lo, hi) return stats dict."""
+        rows = []
+        for label, lo, hi in buckets:
+            group = [p for p in preds if lo <= (p.get(key) or 0) < hi]
+            if not group:
+                continue
+            wins   = [p for p in group if p.get("outcome") == "WIN"]
+            losses = [p for p in group if p.get("outcome") == "LOSS"]
+            win_rate  = len(wins) / len(group) * 100
+            avg_ret   = sum(p.get("return_pct") or 0 for p in group) / len(group)
+            avg_win   = sum(p.get("return_pct") or 0 for p in wins)  / len(wins)  if wins  else 0
+            avg_loss  = sum(p.get("return_pct") or 0 for p in losses) / len(losses) if losses else 0
+            rows.append({
+                "label": label, "n": len(group),
+                "wins": len(wins), "losses": len(losses),
+                "win_rate": win_rate, "avg_ret": avg_ret,
+                "avg_win": avg_win, "avg_loss": avg_loss,
+            })
+        return rows
+
+    score_buckets = [
+        ("<70",    0,  70),
+        ("70–79", 70,  80),
+        ("80–89", 80,  90),
+        ("90–100",90, 101),
+    ]
+    conf_buckets = [
+        ("<60",    0,  60),
+        ("60–69", 60,  70),
+        ("70–79", 70,  80),
+        ("80–100",80, 101),
+    ]
+
+    score_rows = _bucket_stats(with_score, "score",      score_buckets)
+    conf_rows  = _bucket_stats(with_conf,  "confidence", conf_buckets)
+
+    if not score_rows and not conf_rows:
+        return
+
+    with st.expander("📊 Score & Confidence vs Accuracy", expanded=False):
+        st.caption("Does a higher score or confidence actually predict better outcomes? Each bucket shows win rate and average return for closed predictions in that range.")
+
+        def _bar(pct, color):
+            return f'<div style="height:6px;border-radius:3px;background:#e2e8f0;margin-top:4px"><div style="width:{min(pct,100):.0f}%;height:100%;background:{color};border-radius:3px"></div></div>'
+
+        def _row_html(r, is_best_wr, is_best_ret):
+            wr_color  = "#15803d" if r["win_rate"] >= 60 else "#b45309" if r["win_rate"] >= 40 else "#b91c1c"
+            ret_color = "#15803d" if r["avg_ret"] >= 0 else "#b91c1c"
+            crown_wr  = " 👑" if is_best_wr  else ""
+            crown_ret = " 👑" if is_best_ret else ""
+            return f"""
+            <div style="display:grid;grid-template-columns:80px 60px 1fr 1fr 1fr 1fr;
+                gap:8px;align-items:center;padding:8px 12px;border-radius:8px;
+                background:#f8fafc;margin-bottom:4px;font-size:13px">
+              <div style="font-weight:700;color:#0f172a">{r["label"]}</div>
+              <div style="color:#64748b">{r["n"]} trades</div>
+              <div>
+                <span style="font-weight:700;color:{wr_color}">{r["win_rate"]:.0f}%{crown_wr}</span>
+                <div style="font-size:11px;color:#94a3b8">{r["wins"]}W / {r["losses"]}L</div>
+                {_bar(r["win_rate"], wr_color)}
+              </div>
+              <div>
+                <span style="font-weight:700;color:{ret_color}">{r["avg_ret"]:+.1f}%{crown_ret}</span>
+                <div style="font-size:11px;color:#94a3b8">avg return</div>
+              </div>
+              <div>
+                <span style="color:#15803d;font-weight:600">+{r["avg_win"]:.1f}%</span>
+                <div style="font-size:11px;color:#94a3b8">avg win</div>
+              </div>
+              <div>
+                <span style="color:#b91c1c;font-weight:600">{r["avg_loss"]:.1f}%</span>
+                <div style="font-size:11px;color:#94a3b8">avg loss</div>
+              </div>
+            </div>"""
+
+        if score_rows:
+            best_wr_score  = max(score_rows, key=lambda r: r["win_rate"])["label"]
+            best_ret_score = max(score_rows, key=lambda r: r["avg_ret"])["label"]
+            st.markdown("**Score buckets**")
+            html = '<div style="margin-bottom:4px"><div style="display:grid;grid-template-columns:80px 60px 1fr 1fr 1fr 1fr;gap:8px;padding:4px 12px;font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px"><div>Score</div><div>Count</div><div>Win rate</div><div>Avg return</div><div>Avg win</div><div>Avg loss</div></div>'
+            for r in score_rows:
+                html += _row_html(r, r["label"] == best_wr_score, r["label"] == best_ret_score)
+            html += "</div>"
+            st.markdown(html, unsafe_allow_html=True)
+
+        if conf_rows:
+            best_wr_conf  = max(conf_rows, key=lambda r: r["win_rate"])["label"]
+            best_ret_conf = max(conf_rows, key=lambda r: r["avg_ret"])["label"]
+            st.markdown("**Confidence buckets**")
+            html = '<div style="margin-bottom:4px"><div style="display:grid;grid-template-columns:80px 60px 1fr 1fr 1fr 1fr;gap:8px;padding:4px 12px;font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px"><div>Conf</div><div>Count</div><div>Win rate</div><div>Avg return</div><div>Avg win</div><div>Avg loss</div></div>'
+            for r in conf_rows:
+                html += _row_html(r, r["label"] == best_wr_conf, r["label"] == best_ret_conf)
+            html += "</div>"
+            st.markdown(html, unsafe_allow_html=True)
+
+        # Combined high-score + high-confidence vs rest
+        both = [p for p in all_closed if (p.get("score") or 0) >= 85 and (p.get("confidence") or 0) >= 75]
+        rest = [p for p in all_closed if p not in both and p.get("score") is not None and p.get("confidence") is not None]
+        if both and rest:
+            both_wins = [p for p in both if p.get("outcome") == "WIN"]
+            rest_wins = [p for p in rest if p.get("outcome") == "WIN"]
+            both_wr = len(both_wins) / len(both) * 100
+            rest_wr = len(rest_wins) / len(rest) * 100
+            both_ret = sum(p.get("return_pct") or 0 for p in both) / len(both)
+            rest_ret = sum(p.get("return_pct") or 0 for p in rest) / len(rest)
+            both_wr_color = "#15803d" if both_wr >= 60 else "#b45309" if both_wr >= 40 else "#b91c1c"
+            rest_wr_color = "#15803d" if rest_wr >= 60 else "#b45309" if rest_wr >= 40 else "#b91c1c"
+            both_ret_color = "#15803d" if both_ret >= 0 else "#b91c1c"
+            rest_ret_color = "#15803d" if rest_ret >= 0 else "#b91c1c"
+            st.markdown("**Score ≥85 + Confidence ≥75% (combined)**")
+            st.markdown(f"""<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+              <div style="flex:1;min-width:220px;background:#f0fdf4;border:1px solid #bbf7d0;
+                  border-radius:10px;padding:12px 16px">
+                <div style="font-size:11px;font-weight:700;color:#15803d;text-transform:uppercase;
+                    letter-spacing:0.6px;margin-bottom:8px">Both high — {len(both)} trades</div>
+                <div style="display:flex;gap:20px">
+                  <div><div style="font-size:22px;font-weight:800;color:{both_wr_color}">{both_wr:.0f}%</div>
+                    <div style="font-size:11px;color:#64748b">win rate</div></div>
+                  <div><div style="font-size:22px;font-weight:800;color:{both_ret_color}">{both_ret:+.1f}%</div>
+                    <div style="font-size:11px;color:#64748b">avg return</div></div>
+                </div>
+              </div>
+              <div style="flex:1;min-width:220px;background:#f8fafc;border:1px solid #e2e8f0;
+                  border-radius:10px;padding:12px 16px">
+                <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;
+                    letter-spacing:0.6px;margin-bottom:8px">Below threshold — {len(rest)} trades</div>
+                <div style="display:flex;gap:20px">
+                  <div><div style="font-size:22px;font-weight:800;color:{rest_wr_color}">{rest_wr:.0f}%</div>
+                    <div style="font-size:11px;color:#64748b">win rate</div></div>
+                  <div><div style="font-size:22px;font-weight:800;color:{rest_ret_color}">{rest_ret:+.1f}%</div>
+                    <div style="font-size:11px;color:#64748b">avg return</div></div>
+                </div>
+              </div>
+            </div>""", unsafe_allow_html=True)
+            if both_wr < rest_wr:
+                st.warning(f"⚠️ High score+confidence trades are winning **less** ({both_wr:.0f}% vs {rest_wr:.0f}%) — the combined filter may be selecting overextended setups.")
+            elif both_wr > rest_wr + 10:
+                st.success(f"✅ High score+confidence trades are winning significantly more ({both_wr:.0f}% vs {rest_wr:.0f}%) — the filter is working.")
+
+
 def render():
     global _CARD_CSS_INJECTED
     _CARD_CSS_INJECTED = False
@@ -310,6 +463,9 @@ def render():
 
     # ── Daily success rate — last 30 days ────────────────────────────────────
     _render_daily_chart(all_closed)
+
+    # ── Score & Confidence accuracy analysis ──────────────────────────────────
+    _render_score_confidence_analysis(all_closed)
 
     # ── Filters + Sort ────────────────────────────────────────────────────────
     col1, col2, col3, col4, col5 = st.columns(5)
