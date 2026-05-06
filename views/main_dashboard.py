@@ -699,11 +699,14 @@ def _option_section(p: dict):
 
     fetched = st.session_state.get(opt_key)
 
-    # Fallback: auto-load from prefetch cache only if nothing is saved on the prediction yet
+    # Fallback: auto-load from prefetch cache only if nothing is saved on the prediction yet.
+    # Use the prefetcher's fixed days_to_target keys (5 for short/medium, 90 for long)
+    # since the prefetcher doesn't know the specific prediction's days_to_target.
     if fetched is None:
         try:
             from database.db import get_cache
-            cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{days_to_target}"
+            prefetch_days = 90 if timeframe == "long" else 5
+            cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{prefetch_days}"
             cached = get_cache(cache_key)
             if cached is not None:
                 st.session_state[opt_key] = cached
