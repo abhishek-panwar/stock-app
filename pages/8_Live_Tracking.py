@@ -243,7 +243,7 @@ def render():
                     <div><span style="color:#94a3b8">Stop</span> &nbsp;<strong>${stop:.2f}</strong></div>
                     {extra_row}
                   </div>
-                  {option_row}
+                  {option_row.strip()}
                 </div>""",
                 unsafe_allow_html=True,
             )
