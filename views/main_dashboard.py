@@ -686,48 +686,43 @@ def _option_section(p: dict):
     has_earnings = bool((p.get("earnings_calendar") or {}).get("has_upcoming"))
     is_short_term = timeframe in ("short", "medium")
 
+    import json as _json
     pred_id = p.get("id")
     opt_key = f"opt_{pred_id}_{direction}_{timeframe}"
 
-    # Source of truth: options_contract stored on the prediction record itself.
-    # Supabase may return jsonb as a string — always deserialize before use.
-    saved_contract = p.get("options_contract")
-    if isinstance(saved_contract, str):
-        import json as _json
-        try:
-            saved_contract = _json.loads(saved_contract)
-        except Exception:
-            saved_contract = None
-
-    # Warm session_state from the DB record so re-renders are instant
-    if saved_contract and st.session_state.get(opt_key) is None:
-        st.session_state[opt_key] = saved_contract
-
+    # Step 1: check session_state — survives reruns within the same browser session
     fetched = st.session_state.get(opt_key)
-    # Deserialize if session_state somehow stored a string
     if isinstance(fetched, str):
-        import json as _json
-        try:
-            fetched = _json.loads(fetched)
-            st.session_state[opt_key] = fetched
-        except Exception:
-            fetched = None
-            del st.session_state[opt_key]
+        try: fetched = _json.loads(fetched)
+        except Exception: fetched = None
+    if fetched is not None:
+        st.session_state[opt_key] = fetched
 
-    # Fallback: auto-load from prefetch cache only if nothing is saved on the prediction yet.
-    # Use the prefetcher's fixed days_to_target keys (5 for short/medium, 90 for long)
-    # since the prefetcher doesn't know the specific prediction's days_to_target.
+    # Step 2: if not in session_state, check DB field (persists across sessions/devices)
+    if fetched is None:
+        raw = p.get("options_contract")
+        if raw:
+            if isinstance(raw, str):
+                try: raw = _json.loads(raw)
+                except Exception: raw = None
+            if isinstance(raw, dict):
+                fetched = raw
+                st.session_state[opt_key] = fetched
+
+    # Step 3: if still nothing, try prefetch cache (auto-loads without button click)
     if fetched is None:
         try:
             from database.db import get_cache
             prefetch_days = 90 if timeframe == "long" else 5
-            cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{prefetch_days}"
-            cached = get_cache(cache_key)
+            cached = get_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{prefetch_days}")
             if cached is not None:
-                st.session_state[opt_key] = cached
                 fetched = cached
+                st.session_state[opt_key] = fetched
         except Exception:
             pass
+
+    # saved_contract = True only if it came from the DB field (already persisted)
+    saved_contract = bool(p.get("options_contract"))
 
     is_call    = direction == "BULLISH"
     opt_color  = "#15803d" if is_call else "#b91c1c"
@@ -759,49 +754,40 @@ def _option_section(p: dict):
         unsafe_allow_html=True,
     )
 
-    def _save_contract_to_prediction(rec: dict):
-        """Persist contract to the prediction record — called once on first successful fetch."""
-        if pred_id and rec.get("available") and not saved_contract:
-            try:
-                from database.db import update_prediction
-                update_prediction(pred_id, {"options_contract": rec})
-                _fetch_open_predictions.clear()  # force fresh load so p["options_contract"] is populated on rerun
-            except Exception:
-                pass
-
     if fetched is None:
         fetch_col, _ = st.columns([2, 8])
         with fetch_col:
             if st.button("Fetch Best Contract", key=f"fetch_{opt_key}", type="secondary"):
                 with st.spinner("Fetching contract…"):
+                    rec = None
                     try:
                         from database.db import get_cache
-                        from services.options_recommendation import get_option_recommendation
-
-                        # Try prefetch cache first (same fixed keys the prefetcher uses)
+                        from services.options_recommendation import get_option_recommendation, _enrich_with_real_prices
                         prefetch_days = 90 if timeframe == "long" else 5
-                        cache_key = f"opt_rec_{ticker}_{direction}_{timeframe}_{prefetch_days}"
-                        rec = get_cache(cache_key)
-
+                        rec = get_cache(f"opt_rec_{ticker}_{direction}_{timeframe}_{prefetch_days}")
                         if rec is None:
-                            # Cache miss — do a live fetch and cache the result
                             rec = get_option_recommendation(
                                 ticker, direction, days_to_target, entry, tgt_mid,
                                 timeframe=timeframe, has_earnings=has_earnings,
                             )
-
                         if rec and rec.get("available") and entry > 0 and tgt_mid > 0:
-                            # Recalculate target estimate using this prediction's real entry/target
-                            # (prefetch cache used dummy values)
-                            from services.options_recommendation import _enrich_with_real_prices
                             rec = _enrich_with_real_prices(rec, entry, tgt_mid)
-
-                        st.session_state[opt_key] = rec
-                        _save_contract_to_prediction(rec)
-                        st.rerun()
                     except Exception as e:
-                        st.session_state[opt_key] = {"available": False, "reason": str(e)}
-                        st.rerun()
+                        rec = {"available": False, "reason": str(e)}
+
+                    # Always store in session_state so it shows immediately on rerun
+                    st.session_state[opt_key] = rec
+
+                    # Persist to DB — best effort, errors shown not swallowed
+                    if rec and rec.get("available") and pred_id:
+                        try:
+                            from database.db import update_prediction
+                            update_prediction(pred_id, {"options_contract": rec})
+                            _fetch_open_predictions.clear()
+                        except Exception as e:
+                            st.warning(f"Saved in session but DB persist failed: {e}")
+
+                    st.rerun()
         st.markdown(
             '<div style="font-size:11px;color:#94a3b8;padding:2px 0 4px">'
             'Fetched once and locked to this prediction · never changes</div>',
@@ -965,11 +951,14 @@ def _option_section(p: dict):
                 unsafe_allow_html=True,
             )
 
-        # Contract loaded from prefetch cache this session — persist to DB and rerun
-        # so next render reads it from p["options_contract"] with the locked badge.
-        if not saved_contract:
-            _save_contract_to_prediction(fetched)
-            st.rerun()
+        # Contract came from prefetch cache (not yet in DB) — persist it now
+        if not saved_contract and pred_id and fetched.get("available"):
+            try:
+                from database.db import update_prediction
+                update_prediction(pred_id, {"options_contract": fetched})
+                _fetch_open_predictions.clear()
+            except Exception:
+                pass
 
     st.markdown("</div>", unsafe_allow_html=True)
 
