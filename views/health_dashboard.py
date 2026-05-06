@@ -541,7 +541,9 @@ def _check_all_components() -> list[dict]:
         if logs:
             ts = logs[0].get("timestamp", "")
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            hours_ago = (datetime.now(pytz.utc) - dt.replace(tzinfo=pytz.utc)).total_seconds() / 3600
+            if dt.tzinfo is None:
+                dt = pytz.utc.localize(dt)
+            hours_ago = (datetime.now(pytz.utc) - dt.astimezone(pytz.utc)).total_seconds() / 3600
             ok = hours_ago < 50
             results.append({"ok": ok, "detail": f"{hours_ago:.0f}h ago"})
         else:
