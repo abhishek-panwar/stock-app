@@ -102,6 +102,11 @@ def _close_tracked(pred_id: str, outcome: str, p: dict):
         "is_tracked": False,
     })
     _fetch_tracked.clear()
+    try:
+        from views.main_dashboard import _fetch_open_predictions
+        _fetch_open_predictions.clear()
+    except Exception:
+        pass
 
 
 def render():
@@ -265,6 +270,11 @@ def render():
                         "live_signal_log": None,
                     })
                     _fetch_tracked.clear()
+                    try:
+                        from views.main_dashboard import _fetch_open_predictions
+                        _fetch_open_predictions.clear()
+                    except Exception:
+                        pass
                     st.rerun()
 
         # Signal change log
@@ -326,6 +336,11 @@ def render():
                         "live_signal_log": None,
                     })
                     _fetch_tracked.clear()
+                    try:
+                        from views.main_dashboard import _fetch_open_predictions
+                        _fetch_open_predictions.clear()
+                    except Exception:
+                        pass
                     st.rerun()
 
         st.markdown("")
