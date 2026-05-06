@@ -50,11 +50,11 @@ def run():
         hit_stop_short   = direction == "BEARISH" and stop_loss > 0 and current >= stop_loss
 
         if is_tracked:
-            # Tracked predictions: update live signal but never auto-close.
-            # Also update peak price for trailing context.
+            # Tracked predictions: update live signal every 5 min (matches cron cadence).
+            # Never auto-close — user owns the exit decision.
+            timeframe = pred.get("timeframe", "short")
             try:
                 from indicators.intraday_technicals import compute_tracking_signal
-                timeframe = pred.get("timeframe", "short")
                 signals = compute_tracking_signal(
                     ticker, timeframe, entry, stop_loss,
                     target_low, target_high, direction
