@@ -46,23 +46,24 @@ def run():
         hit_stop_short = direction == "BEARISH" and stop_loss > 0 and current >= stop_loss
 
         if hit_target or hit_target_short:
-            # Snap close price to the target level actually hit, not the current live price.
-            # This prevents overstating return when price rockets past the target.
+            # price_at_close = real market price when target was hit.
+            # return_pct = what a trader who sold at the defined target level would have realized.
+            # These are computed independently: return is target-based, close is market-based.
             if direction == "BULLISH":
-                price_at_close = target_high if (target_high > 0 and current >= target_high) else target_low
-                return_pct = round((price_at_close - entry) / entry * 100, 2) if entry > 0 else 0
+                exit_price = (target_low + target_high) / 2 if target_low > 0 and target_high > 0 else target_low
+                return_pct = round((exit_price - entry) / entry * 100, 2) if entry > 0 else 0
             else:
-                price_at_close = target_low if (target_low > 0 and current <= target_low) else target_high
-                return_pct = round((entry - price_at_close) / entry * 100, 2) if entry > 0 else 0
+                exit_price = (target_low + target_high) / 2 if target_low > 0 and target_high > 0 else target_high
+                return_pct = round((entry - exit_price) / entry * 100, 2) if entry > 0 else 0
             try:
                 update_prediction(pred["id"], {
                     "outcome": "WIN",
                     "closed_reason": "TARGET_HIT",
-                    "price_at_close": price_at_close,
+                    "price_at_close": current,
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
-                send_target_hit_alert(ticker, entry, price_at_close, return_pct,
+                send_target_hit_alert(ticker, entry, current, return_pct,
                                       predicted_on=pred.get("predicted_on", ""),
                                       target_low=pred.get("target_low", 0),
                                       direction=pred.get("direction", ""))
@@ -70,7 +71,7 @@ def run():
                 pass
 
         elif hit_stop or hit_stop_short:
-            # Snap close price to stop_loss level, not current (which may have gapped past it)
+            # price_at_close = real market price; return_pct = stop_loss-based (disciplined exit)
             if direction == "BULLISH":
                 return_pct = round((stop_loss - entry) / entry * 100, 2) if entry > 0 else 0
             else:
@@ -79,11 +80,11 @@ def run():
                 update_prediction(pred["id"], {
                     "outcome": "LOSS",
                     "closed_reason": "STOP_LOSS",
-                    "price_at_close": stop_loss,
+                    "price_at_close": current,
                     "return_pct": return_pct,
                     "verified_on": now.isoformat(),
                 })
-                send_stop_loss_alert(ticker, entry, stop_loss, abs(return_pct),
+                send_stop_loss_alert(ticker, entry, current, abs(return_pct),
                                      predicted_on=pred.get("predicted_on", ""),
                                      stop_loss=pred.get("stop_loss", 0),
                                      direction=pred.get("direction", ""))

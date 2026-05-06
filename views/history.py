@@ -81,23 +81,23 @@ def _recalculate_metrics():
                 continue
 
             if closed_reason == "TARGET_HIT":
+                # return_pct = avg target exit; price_at_close stays as recorded real market price
                 if direction == "BULLISH" and target_low > 0:
-                    # use target_high if close overshot it, else target_low
-                    price_at_close = target_high if (target_high > 0 and recorded_close >= target_high) else target_low
-                    return_pct = round((price_at_close - entry) / entry * 100, 2)
+                    exit_price = (target_low + target_high) / 2 if target_high > 0 else target_low
+                    return_pct = round((exit_price - entry) / entry * 100, 2)
                 elif direction == "BEARISH" and target_high > 0:
-                    # use target_low if close overshot it, else target_high
-                    price_at_close = target_low if (target_low > 0 and recorded_close <= target_low) else target_high
-                    return_pct = round((entry - price_at_close) / entry * 100, 2)
+                    exit_price = (target_low + target_high) / 2 if target_low > 0 else target_high
+                    return_pct = round((entry - exit_price) / entry * 100, 2)
                 else:
                     skipped += 1
                     continue
+                price_at_close = recorded_close  # keep the real market price unchanged
 
             elif closed_reason == "STOP_LOSS":
                 if stop_loss <= 0:
                     skipped += 1
                     continue
-                price_at_close = stop_loss
+                price_at_close = recorded_close  # keep the real market price unchanged
                 if direction == "BULLISH":
                     return_pct = round((stop_loss - entry) / entry * 100, 2)
                 elif direction == "BEARISH":
@@ -107,7 +107,7 @@ def _recalculate_metrics():
                     continue
 
             else:
-                # EXPIRED — keep recorded close price, recompute return with correct direction sign
+                # EXPIRED — real market price, recompute return with correct direction sign
                 if recorded_close <= 0:
                     skipped += 1
                     continue
@@ -633,12 +633,27 @@ def _prediction_card(p: dict):
             else:
                 pot_formula = f"( ({tl:.2f}+{th:.2f})/2 - ({bl:.2f}+{bh:.2f})/2 ) / ({bl:.2f}+{bh:.2f})/2 = {profit_pct:+.1f}%"
             st.markdown(f"**Profit formula:** `{pot_formula}`")
-        if close_price and entry > 0 and ret is not None:
-            if direction == "BEARISH":
-                act_formula = f"( {entry:.2f} - {close_price:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+        if entry > 0 and ret is not None:
+            tgt_mid = (tl + th) / 2 if tl > 0 and th > 0 else (tl or th)
+            if closed_reason == "TARGET_HIT" and tgt_mid > 0:
+                if direction == "BEARISH":
+                    act_formula = f"( {entry:.2f} - ({tl:.2f}+{th:.2f})/2 ) / {entry:.2f} = {ret:+.2f}%"
+                else:
+                    act_formula = f"( ({tl:.2f}+{th:.2f})/2 - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+            elif closed_reason == "STOP_LOSS" and stop > 0:
+                if direction == "BEARISH":
+                    act_formula = f"( {entry:.2f} - {stop:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+                else:
+                    act_formula = f"( {stop:.2f} - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+            elif close_price and close_price > 0:
+                if direction == "BEARISH":
+                    act_formula = f"( {entry:.2f} - {close_price:.2f} ) / {entry:.2f} = {ret:+.2f}%"
+                else:
+                    act_formula = f"( {close_price:.2f} - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
             else:
-                act_formula = f"( {close_price:.2f} - {entry:.2f} ) / {entry:.2f} = {ret:+.2f}%"
-            st.markdown(f"**Actual return:** `{act_formula}`")
+                act_formula = None
+            if act_formula:
+                st.markdown(f"**Actual return:** `{act_formula}`")
 
         if p.get("reasoning"):
             st.markdown(

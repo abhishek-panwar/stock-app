@@ -104,25 +104,24 @@ def run():
             outcome = "WIN" if abs(current_return_pct) >= win_threshold else "LOSS"
             closed_reason = "EXPIRED"
 
-        # Compute close price and return_pct at the level actually hit.
-        # BULLISH TARGET_HIT: use target_high if current overshot it, else target_low.
-        # BEARISH TARGET_HIT: use target_low if current overshot it, else target_high.
-        # STOP_LOSS: always use stop_loss price.
-        # EXPIRED: use actual current market price.
+        # price_at_close = real market price always (factual record of what happened).
+        # return_pct = what a disciplined trader following the signal would have realized:
+        #   TARGET_HIT → avg(target_low, target_high), since that's when they would have sold
+        #   STOP_LOSS  → stop_loss price, since that's their defined exit
+        #   EXPIRED    → actual current market price
         if outcome and entry > 0:
+            close_price = current  # always the real market price
             if closed_reason == "TARGET_HIT":
                 if direction == "BULLISH":
-                    close_price = target_high if (target_high > 0 and current >= target_high) else target_low
-                    return_pct = round((close_price - entry) / entry * 100, 2)
+                    exit_price = (target_low + target_high) / 2 if target_low > 0 and target_high > 0 else target_low
+                    return_pct = round((exit_price - entry) / entry * 100, 2)
                 else:  # BEARISH
-                    close_price = target_low if (target_low > 0 and current <= target_low) else target_high
-                    return_pct = round((entry - close_price) / entry * 100, 2)
+                    exit_price = (target_low + target_high) / 2 if target_low > 0 and target_high > 0 else target_high
+                    return_pct = round((entry - exit_price) / entry * 100, 2)
             elif closed_reason == "STOP_LOSS":
-                close_price = stop_loss
                 return_pct = round((stop_loss - entry) / entry * 100, 2) if direction == "BULLISH" \
                     else round((entry - stop_loss) / entry * 100, 2)
             else:  # EXPIRED
-                close_price = current
                 return_pct = round((current - entry) / entry * 100, 2) if direction != "BEARISH" \
                     else round((entry - current) / entry * 100, 2)
         else:
