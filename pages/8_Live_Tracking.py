@@ -152,9 +152,20 @@ def render():
         card_border = "#dc2626" if signal == "SELL" else "#16a34a" if signal == "HOLD" else "#e2e8f0"
         card_bg     = "#fff5f5" if signal == "SELL" else "#f0fdf4" if signal == "HOLD" else "#f8fafc"
 
+        # Timeframe-aware context row
+        if timeframe == "long":
+            signal_basis = "Daily close · MA50 structural break · Stop on daily close"
+        else:
+            signal_basis = "15m bars · RSI + MACD + OBV · 2 of 3 signals required"
+
+        # Long-term: show MA levels if available from signal reason
+        extra_row = ""
+        if timeframe != "long" and peak:
+            extra_row = f'<div><span style="color:#94a3b8">Peak</span> &nbsp;<strong>${peak:.2f}</strong></div>'
+
         st.markdown(
             f"""<div style="border:2px solid {card_border};border-radius:12px;padding:16px 20px;
-                background:{card_bg};margin-bottom:16px">
+                background:{card_bg};margin-bottom:4px">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
                 <div>
                   <span style="font-size:22px;font-weight:800;color:#0f172a">{ticker}</span>
@@ -166,14 +177,15 @@ def render():
                   <span style="font-size:12px;color:#94a3b8">Updated {updated}</span>
                 </div>
               </div>
-              <div style="margin-top:12px;font-size:13px;color:#475569;font-style:italic">{reason}</div>
+              <div style="margin-top:10px;font-size:13px;color:#475569;font-style:italic">{reason}</div>
+              <div style="margin-top:4px;font-size:11px;color:#94a3b8">Signal basis: {signal_basis}</div>
               <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;font-size:13px">
                 <div><span style="color:#94a3b8">Entry</span> &nbsp;<strong>${entry:.2f}</strong></div>
                 <div><span style="color:#94a3b8">Current</span> &nbsp;<strong>${current:.2f}</strong></div>
                 <div><span style="color:#94a3b8">Return</span> &nbsp;<strong style="color:{ret_color}">{ret_str}</strong></div>
                 <div><span style="color:#94a3b8">Target</span> &nbsp;<strong>${tgt_low:.2f} – ${tgt_high:.2f}</strong></div>
                 <div><span style="color:#94a3b8">Stop</span> &nbsp;<strong>${stop:.2f}</strong></div>
-                {f'<div><span style="color:#94a3b8">Peak</span> &nbsp;<strong>${peak:.2f}</strong></div>' if peak else ''}
+                {extra_row}
               </div>
             </div>""",
             unsafe_allow_html=True,

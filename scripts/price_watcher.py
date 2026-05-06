@@ -53,8 +53,12 @@ def run():
             # Tracked predictions: update live signal but never auto-close.
             # Also update peak price for trailing context.
             try:
-                from indicators.intraday_technicals import compute_intraday_signals
-                signals = compute_intraday_signals(ticker)
+                from indicators.intraday_technicals import compute_tracking_signal
+                timeframe = pred.get("timeframe", "short")
+                signals = compute_tracking_signal(
+                    ticker, timeframe, entry, stop_loss,
+                    target_low, target_high, direction
+                )
                 if signals:
                     # Price-level overrides: if stop or target clearly breached, force SELL signal
                     if hit_stop or hit_stop_short:
