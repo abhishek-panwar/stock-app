@@ -355,14 +355,16 @@ def render():
             bucket_preds = date_groups[bucket_label]
             if not bucket_preds:
                 continue
-            bucket_preds = sorted(bucket_preds, key=sort_fn)
-
-            # Force open if the scroll target lives in this bucket
             scroll_target = st.session_state.get("_scroll_to")
             bucket_has_target = scroll_target and any(
                 str(p.get("id") or f"{p.get('ticker','')}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}") == str(scroll_target)
                 for p in bucket_preds
             )
+            # Sort: nav target floats to top, rest sorted normally
+            def _bucket_sort(p):
+                pid = str(p.get("id") or f"{p.get('ticker','')}_{p.get('timeframe','')}_{p.get('predicted_on','')[:10]}")
+                return (0 if (scroll_target and pid == str(scroll_target)) else 1, sort_fn(p))
+            bucket_preds = sorted(bucket_preds, key=_bucket_sort)
             is_expanded = (bucket_label in ("📅 Tomorrow", "✨ Today")) or bool(bucket_has_target)
 
             with st.expander(
@@ -503,16 +505,12 @@ def _prediction_card(p: dict, _unused: set = None):
     exp_key = f"exp_{pred_id}"
     is_open = st.session_state.get(exp_key, False)
 
-    # Scroll to this card if navigated from High Conviction Picks
+    # Highlight if navigated from High Conviction Picks
     scroll_target = st.session_state.get("_scroll_to")
-    if scroll_target and str(scroll_target) == str(pred_id):
+    is_nav_target = scroll_target and str(scroll_target) == str(pred_id)
+    if is_nav_target:
         st.session_state.pop("_scroll_to", None)
-        anchor_id = f"pred_anchor_{pred_id}"
-        st.markdown(
-            f'<div id="{anchor_id}"></div>'
-            f'<script>document.getElementById("{anchor_id}").scrollIntoView({{behavior:"smooth",block:"start"}});</script>',
-            unsafe_allow_html=True,
-        )
+        st.info("👆 Navigated here from High Conviction Picks", icon="🎯")
 
     css_class = "card-bullish" if direction == "BULLISH" else "card-bearish" if direction == "BEARISH" else "card-neutral"
 
