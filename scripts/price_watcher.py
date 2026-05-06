@@ -71,6 +71,28 @@ def run():
             # Tracked predictions: update live signal every 5 min (matches cron cadence).
             # Never auto-close — user owns the exit decision.
             timeframe = pred.get("timeframe", "short")
+
+            # Long-term uses daily bars — data only changes at market close.
+            # Only recompute once per day (first run of the session) to avoid
+            # 78 identical yfinance fetches per day.
+            if timeframe == "long":
+                is_first_run_of_day = now.hour == 6 and now.minute < 5  # 6:00 AM PT
+                last_updated = pred.get("live_signal_updated_at")
+                already_updated_today = (
+                    last_updated and
+                    datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
+                    .astimezone(PT).date() == now.date()
+                )
+                if already_updated_today and not is_first_run_of_day:
+                    # Still update current price for UI freshness, skip signal recompute
+                    prev_peak = pred.get("live_peak_price") or 0
+                    new_peak = max(prev_peak, current) if direction == "BULLISH" else min(prev_peak or current, current)
+                    update_prediction(pred["id"], {
+                        "live_current_price": current,
+                        "live_peak_price":    new_peak,
+                    })
+                    continue
+
             try:
                 from indicators.intraday_technicals import compute_tracking_signal
                 signals = compute_tracking_signal(
