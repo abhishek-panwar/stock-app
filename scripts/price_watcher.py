@@ -1,8 +1,9 @@
 """
 Price watcher — runs every 5 minutes during market hours (6:30 AM – 1:00 PM PT).
-Checks open predictions for target/stop hits.
-Also updates live signals for tracked predictions (HOLD/SELL).
-Tracked predictions are NEVER auto-closed — user decides when to exit.
+
+Cadence split to conserve yfinance API calls:
+  - Tracked predictions: every run (every 5 min) — live signals need fresh data
+  - Non-tracked predictions: every 30 min only — target/stop checks don't need 5-min precision
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,10 +26,25 @@ def run():
     if not open_preds:
         return
 
-    tickers = list({p["ticker"] for p in open_preds})
-    prices = get_multiple_prices(tickers)
+    tracked_preds    = [p for p in open_preds if p.get("is_tracked")]
+    non_tracked_preds = [p for p in open_preds if not p.get("is_tracked")]
 
-    for pred in open_preds:
+    # Non-tracked: only check at the :00 and :30 marks (every 30 min)
+    run_non_tracked = now.minute < 5 or (30 <= now.minute < 35)
+
+    # Fetch prices only for the predictions we'll actually process this run
+    tickers_to_fetch = {p["ticker"] for p in tracked_preds}
+    if run_non_tracked:
+        tickers_to_fetch |= {p["ticker"] for p in non_tracked_preds}
+
+    if not tickers_to_fetch:
+        return
+
+    prices = get_multiple_prices(list(tickers_to_fetch))
+
+    preds_to_process = tracked_preds + (non_tracked_preds if run_non_tracked else [])
+
+    for pred in preds_to_process:
         ticker = pred["ticker"]
         current = prices.get(ticker)
         if not current:
