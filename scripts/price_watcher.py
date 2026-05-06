@@ -44,6 +44,32 @@ def _calc_option_pnl(ticker, contract, current_stock, stock_entry, direction, pr
         return None
 
 
+def _fetch_macro_context() -> dict:
+    """
+    Fetch SPY day-return and VIX level once per run, shared across all tracked predictions.
+    Returns dict with: spy_return_pct, vix, spy_ok, vix_ok
+    """
+    import yfinance as yf
+    ctx = {"spy_return_pct": 0.0, "vix": 20.0, "spy_ok": False, "vix_ok": False}
+    try:
+        spy = yf.Ticker("SPY")
+        fi  = spy.fast_info
+        prev_close = float(fi.previous_close or 0)
+        last_price = float(fi.last_price or 0)
+        if prev_close > 0 and last_price > 0:
+            ctx["spy_return_pct"] = (last_price - prev_close) / prev_close * 100
+            ctx["spy_ok"] = True
+    except Exception:
+        pass
+    try:
+        vix = yf.Ticker("^VIX")
+        ctx["vix"]    = float(vix.fast_info.last_price or 20.0)
+        ctx["vix_ok"] = True
+    except Exception:
+        pass
+    return ctx
+
+
 def run():
     now = datetime.now(PT)
     open_preds = get_open_predictions()
@@ -67,6 +93,9 @@ def run():
         return
 
     prices = get_multiple_prices(list(tickers_to_fetch))
+
+    # Fetch macro context once for all tracked predictions (2 extra calls total)
+    macro = _fetch_macro_context() if tracked_preds else {}
 
     preds_to_process = tracked_preds + (non_tracked_preds if run_non_tracked else [])
 
@@ -133,7 +162,8 @@ def run():
                 from indicators.intraday_technicals import compute_tracking_signal
                 signals = compute_tracking_signal(
                     ticker, timeframe, entry, stop_loss,
-                    target_low, target_high, direction
+                    target_low, target_high, direction,
+                    macro=macro,
                 )
                 if signals:
                     # Price-level overrides: if stop or target clearly breached, force SELL signal

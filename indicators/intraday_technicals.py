@@ -29,16 +29,18 @@ def fetch_1h_bars(ticker: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def compute_intraday_signals(ticker: str) -> dict:
+def compute_intraday_signals(ticker: str, macro: dict | None = None) -> dict:
     """
     Returns a dict with:
       rsi, macd_bullish, macd_hist_shrinking, obv_bearish_bars,
       price, signal (HOLD/SELL), conviction (STRONG_SELL/SELL/HOLD/STRONG_HOLD), reason
     Returns empty dict on failure.
+    macro: optional dict with spy_return_pct, vix, spy_ok, vix_ok
     """
     df = fetch_1h_bars(ticker)
     if df.empty:
         return {}
+    macro = macro or {}
 
     close  = df["close"]
     volume = df["volume"]
@@ -86,15 +88,22 @@ def compute_intraday_signals(ticker: str) -> dict:
     rsi_healthy     = 40 <= rsi <= 65
     obv_confirming  = obv_bearish_bars == 0
 
+    # ── Macro context ─────────────────────────────────────────────────────
+    spy_ret = macro.get("spy_return_pct", 0.0)
+    vix     = macro.get("vix", 20.0)
+    spy_ok  = macro.get("spy_ok", False)
+    vix_ok  = macro.get("vix_ok", False)
+
+    macro_bearish = (spy_ok and spy_ret <= -1.5) or (vix_ok and vix > 25)
+    macro_bullish = (spy_ok and spy_ret > 0) and (vix_ok and vix < 20)
+
     # ── Signal + conviction ───────────────────────────────────────────────
     if sell_count == 3:
         signal = "SELL"
-        # Strong sell: RSI deeply overbought or OBV collapsing
-        conviction = "STRONG_SELL" if (rsi > 75 or obv_bearish_bars >= 5) else "SELL"
+        conviction = "STRONG_SELL" if macro_bearish else "SELL"
     else:
         signal = "HOLD"
-        # Strong hold: all three pointing up cleanly
-        if rsi_healthy and macd_bullish and macd_hist_expanding and obv_confirming:
+        if rsi_healthy and macd_bullish and macd_hist_expanding and obv_confirming and macro_bullish:
             conviction = "STRONG_HOLD"
         else:
             conviction = "HOLD"
@@ -256,8 +265,9 @@ def compute_longterm_signals(ticker: str, entry: float, stop_loss: float,
 
 def compute_tracking_signal(ticker: str, timeframe: str, entry: float,
                              stop_loss: float, target_low: float,
-                             target_high: float, direction: str) -> dict:
+                             target_high: float, direction: str,
+                             macro: dict | None = None) -> dict:
     """Dispatcher: routes to intraday (short/medium) or daily (long) logic."""
     if timeframe == "long":
         return compute_longterm_signals(ticker, entry, stop_loss, target_low, target_high, direction)
-    return compute_intraday_signals(ticker)
+    return compute_intraday_signals(ticker, macro=macro)
