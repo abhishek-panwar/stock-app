@@ -43,9 +43,9 @@ def _age_info(predicted_on: str):
     except Exception:
         return 0, ""
     if age < 0:
-        return age, f'<span style="background:#eff6ff;color:#1d4ed8;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">for tomorrow</span>'
+        return age, f'<span style="background:#eff6ff;color:#1d4ed8;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">{age}d old</span>'
     if age == 0:
-        return age, f'<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">today</span>'
+        return age, f'<span style="background:#fef9c3;color:#713f12;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600">0d old</span>'
     return age, f'<span style="background:#f1f5f9;color:#64748b;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:500">{age}d old</span>'
 
 
